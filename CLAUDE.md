@@ -1,0 +1,147 @@
+# CLAUDE.md
+
+Operating notes for Claude Code (and other agents) working in this repo.
+
+## Read first
+
+**[`docs/plan.md`](docs/plan.md) is the living source of truth.** Read it
+before doing anything substantive. Pay particular attention to:
+
+- §2 Working agreements — these take precedence over your defaults.
+- §6 SDL transcription discipline — different rules apply to SDL work.
+- §18 How to update this document — you are expected to keep `docs/plan.md`
+  current as part of any work you do.
+
+Other essential reading:
+
+- [`docs/sdl-primer.md`](docs/sdl-primer.md) — SDL shape reference. Mandatory
+  before touching `/spec-sdl/`.
+- [`docs/adr/0001-sdl-dsl.md`](docs/adr/0001-sdl-dsl.md) — why the SDL YAML
+  DSL + codegen exists.
+
+## Hard rules
+
+### Trust the figure (SDL work)
+
+The AX.25 SDL figures are the source of truth. When a figure surprises you,
+the surprise is yours. **Do not** "fix" a branch label, swap a Yes/No, or
+substitute "correct-looking" actions on the basis that the figure looks wrong
+to you. If you're uncertain, flag for human review with a
+`verification_pending:` note — never silently deviate.
+
+This was the most painful lesson of Phase 0. See `docs/plan.md` §2.1 and the
+amendment-log entry from 2026-05-11.
+
+### Encode-then-verify (SDL work)
+
+Every transition in `/spec-sdl/` must come from an **explicit human-authored
+transcription** of the figure. You may *encode* paths that Tom has described
+in plain text; you may not *infer* paths by reading the PNG yourself.
+
+### Pin implementation evidence (SDL work)
+
+When transcribing any SDL transition whose semantics are non-obvious,
+cross-reference how at least one of the canonical implementations handles it
+(see `docs/plan.md` §13.2). Drop the citation into the transition's `notes:`
+field.
+
+### Keep the plan current
+
+`docs/plan.md` §17 Amendment log is updated *in the same PR* as the work that
+triggers it. If you complete a phase exit criterion and don't update the
+status and add a log entry, you have not finished the task. See §18 of the
+plan for the full discipline.
+
+## Common commands
+
+```sh
+# Build everything (libraries, tools, tests)
+dotnet build
+
+# Run the normal test suite (excludes hardware-loop and interop)
+dotnet test --filter "Category!=HardwareLoop&Category!=Interop"
+
+# Regenerate SDL state machines after editing a *.sdl.yaml
+dotnet run --project tools/Packet.Sdl.CodeGen -- \
+  --in spec-sdl \
+  --out src/Packet.Ax25.Sdl \
+  --tests tests/Packet.Ax25.Conformance.Tests
+
+# Bring up the interop stack (LinBPQ + Xrouter + net-sim)
+docker compose -f docker/compose.interop.yml up -d --wait
+
+# Tear down the interop stack
+docker compose -f docker/compose.interop.yml down -v
+
+# Run hardware-loop tests (requires 2x NinoTNC over USB)
+dotnet test --filter "Category=HardwareLoop"
+```
+
+## Test category filter convention
+
+- Default: `--filter "Category!=HardwareLoop&Category!=Interop"` — what CI's
+  `ci.yml` runs.
+- Hardware loop: `--filter "Category=HardwareLoop"` — only on the self-hosted
+  runner with TNCs attached.
+- Interop: `--filter "Category=Interop"` — only on the interop CI job after
+  the compose stack is up.
+
+Apply traits via `[Trait("Category", "HardwareLoop")]` or
+`[Trait("Category", "Interop")]` on the test class.
+
+## Conditional skips
+
+xUnit 2 has no native `Skip` API. Use `Xunit.SkippableFact` from the
+`Xunit.SkippableFact` package:
+
+```csharp
+[SkippableFact]
+public void NeedsHardware()
+{
+    Skip.If(ports.Count < 2, "no TNCs attached");
+    // ...
+}
+```
+
+## Working with `Directory.Packages.props`
+
+Central Package Management is in effect. **Do not** put `Version=` attributes
+on `<PackageReference>`. Add the version to `Directory.Packages.props`
+instead, then reference the package by name. Test projects inherit common
+test dependencies from `tests/Directory.Build.props`.
+
+## What lives where
+
+```
+src/Packet.*           libraries (NuGet-publishable)
+src/Packet.Ax25.Sdl    GENERATED — do not hand-edit
+tests/Packet.*.Tests   one test project per library
+tests/.../Hardware/    hardware-loop-only tests
+spec-sdl/              YAML DSL — human-authored transcriptions
+spec-sdl/schema/       JSON Schema for the DSL
+spec-sdl/events.yaml   canonical event catalog
+tools/                 console tools (codegen + lint)
+docker/                interop compose stack + fixtures
+docs/                  plan, ADRs, primers
+.github/workflows/     CI
+```
+
+## Things to avoid
+
+- Don't hand-edit `src/Packet.Ax25.Sdl/*.g.cs` or
+  `tests/Packet.Ax25.Conformance.Tests/*.g.Tests.cs`. They are generated.
+  Edit the corresponding `*.sdl.yaml` and rerun the codegen.
+- Don't add `[Version=...]` on `<PackageReference>` items — CPM enforces a
+  central version table.
+- Don't write `appsettings.Local.json` to git. It's `.gitignore`d for a
+  reason.
+- Don't file upstream issues against `packethacking/ax25spec` without an
+  explicit ask from Tom. Capture suspected spec issues as
+  `verification_pending:` notes in the relevant `*.sdl.yaml` instead.
+- Don't infer protocol semantics from the spec PNGs. See "Encode-then-verify"
+  above.
+
+## When in doubt
+
+Ask Tom. The cost of a clarifying question is much lower than the cost of a
+load-bearing wrong assumption — especially in AX.25 territory.

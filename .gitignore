@@ -1,0 +1,58 @@
+# Build artifacts
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Pp]ublish/
+artifacts/
+*.user
+*.suo
+.vs/
+.vscode/launch.json
+
+# Test results & coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.trx
+
+# Generated SDL artifacts (regenerated via tools/Packet.Sdl.CodeGen)
+# We DO check generated *.g.cs in (so reviewers can diff against YAML).
+# Don't ignore them.
+
+# Tooling caches
+.idea/
+*.swp
+.DS_Store
+
+# Stryker reports + scratch
+artifacts/
+StrykerOutput/
+
+# Local node state (used when running the node out of the repo)
+.local/
+node-data/
+*.db
+*.db-shm
+*.db-wal
+
+# Frontend
+web/packetnet-ui/node_modules/
+web/packetnet-ui/dist/
+web/packetnet-ui/.vite/
+web/packetnet-ui/.turbo/
+web/packetnet-ui/pnpm-lock.yaml.bak
+
+# Docker
+docker/.build-cache/
+
+# Secrets — never commit
+*.pem
+!installers/sigstore-pubkey.pem
+*.pfx
+appsettings.Local.json
+appsettings.*.user.json
+
+# OS
+Thumbs.db
+ehthumbs.db
