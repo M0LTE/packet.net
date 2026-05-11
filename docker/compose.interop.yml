@@ -1,0 +1,81 @@
+# Interop stack for CI and local dev.
+#
+# Brings up LinBPQ, Xrouter, and net-sim so Packet.NET integration tests have
+# real peers to talk to. The stack exposes well-known ports on the host that
+# Packet.Interop.Tests dials.
+#
+# Note: image tags below should be PINNED to commit SHAs before the v1 cut.
+# For Phase 0 we use the floating tags so the developer experience is "just
+# `docker compose up`" — the interop job in CI overrides these via env vars.
+
+name: packetnet-interop
+
+services:
+
+  linbpq:
+    image: m0lte/linbpq:latest
+    container_name: pn-linbpq
+    restart: unless-stopped
+    volumes:
+      # LinBPQ writes runtime state under /data (HTML templates, .log files,
+      # PIDs, the MH heard list, etc.), so this mount must be read-write.
+      # The bpq32.cfg in the bind-mount is treated as the canonical config.
+      - ./linbpq:/data
+    ports:
+      - "127.0.0.1:8008:8008"     # HTTPPORT (web UI)
+      - "127.0.0.1:8010:8010"     # TELNETPORT (node prompt)
+      - "127.0.0.1:8000:8000"     # AGW
+      - "127.0.0.1:8093:8093/udp" # AXIP/AXUDP listener (BPQAXIP driver)
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/linbpq.pid"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    networks:
+      rfnet:
+        ipv4_address: 172.30.0.10
+
+  xrouter:
+    image: ghcr.io/packethacking/xrouter:latest
+    container_name: pn-xrouter
+    restart: unless-stopped
+    volumes:
+      - ./xrouter/XROUTER.CFG:/data/XROUTER.CFG:ro
+    ports:
+      - "127.0.0.1:8023:23"     # telnet
+      - "127.0.0.1:8086:8086"   # JSON API
+      - "127.0.0.1:8095:8095/udp"  # AXUDP
+    cap_add:
+      - NET_RAW
+    networks:
+      rfnet:
+        ipv4_address: 172.30.0.11
+
+  netsim:
+    image: ghcr.io/packethacking/net-sim:main
+    container_name: pn-netsim
+    restart: unless-stopped
+    volumes:
+      - ./netsim/network.yaml:/etc/sim/network.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"   # web UI + /api/status
+      - "127.0.0.1:8100:8100"   # external KISS attach (afsk1200 town)
+      - "127.0.0.1:8101:8101"   # second KISS port (gfsk9600 backbone)
+    command: ["-autostart"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 30s
+    networks:
+      rfnet:
+        ipv4_address: 172.30.0.12
+
+networks:
+  rfnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

@@ -46,6 +46,13 @@ web/packetnet-ui/pnpm-lock.yaml.bak
 # Docker
 docker/.build-cache/
 
+# LinBPQ runtime artifacts (extracted by the container at startup, not source)
+docker/linbpq/HTML/
+docker/linbpq/BPQNODES.dat
+docker/linbpq/MHSave.txt
+docker/linbpq/logs/
+docker/linbpq/*.log
+
 # Secrets — never commit
 *.pem
 !installers/sigstore-pubkey.pem

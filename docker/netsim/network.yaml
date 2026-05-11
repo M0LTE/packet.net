@@ -1,0 +1,30 @@
+# Minimal net-sim topology for Packet.NET KISS-TCP interop tests.
+#
+# Two simulated nodes on the same modem mode wired with a clean RF link.
+# Tests connect via KISS-TCP on the two host ports below, exchange UI
+# frames, and assert the receiving side sees what the sending side sent.
+
+mixer_mode: fm_capture
+capture_db: 6.0
+collision_mode: silence
+
+nodes:
+  - id: a
+    ports:
+      - id: vhf
+        modem:
+          mode: afsk1200
+        kiss_port: 8100
+  - id: b
+    ports:
+      - id: vhf
+        modem:
+          mode: afsk1200
+        kiss_port: 8101
+
+# Modems on both ends of a link must match. afsk1200 on both ends here.
+# loss_db is the path loss applied in the FM-capture mixer; 10 dB is well
+# above the modem threshold so frames decode reliably.
+links:
+  - { from: a.vhf, to: b.vhf, loss_db: 10 }
+  - { from: b.vhf, to: a.vhf, loss_db: 10 }
