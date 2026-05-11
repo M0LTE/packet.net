@@ -27,10 +27,13 @@ services:
       - "127.0.0.1:8000:8000"     # AGW
       - "127.0.0.1:8093:8093/udp" # AXIP/AXUDP listener (BPQAXIP driver)
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/linbpq.pid"]
+      # The LinBPQ image has bash but no curl / wget / nc — we use bash's
+      # /dev/tcp builtin to probe the HTTP listener. Succeeds once LinBPQ
+      # has finished initialising and bound port 8008.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8008 && exec 3<&-"]
       interval: 5s
       timeout: 3s
-      retries: 12
+      retries: 18
       start_period: 30s
     networks:
       rfnet:

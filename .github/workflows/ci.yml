@@ -40,7 +40,12 @@ jobs:
         run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --filter "Category!=HardwareLoop&Category!=Interop"
 
       - name: upload test results
-        if: always()
+        # Only upload on failure to spare the account's artifact-storage
+        # quota — green-run artifacts are noise. `continue-on-error` keeps
+        # the job's overall outcome reflecting the test step, not whether
+        # the upload itself succeeded.
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.os }}
