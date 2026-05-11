@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: restore
+        run: dotnet restore
+
+      - name: build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: test
+        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --filter "Category!=HardwareLoop&Category!=Interop"
+
+      - name: upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: '**/TestResults/*.trx'
+          retention-days: 7
+
+  sdl-codegen-discipline:
+    name: SDL codegen idempotent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: run codegen
+        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --in spec-sdl --out src/Packet.Ax25.Sdl --tests tests/Packet.Ax25.Conformance.Tests
+        continue-on-error: true # Phase 0: codegen exists but is still a stub
+
+      - name: assert no drift
+        run: |
+          if ! git diff --exit-code -- src/Packet.Ax25.Sdl tests/Packet.Ax25.Conformance.Tests spec-sdl/'**/*.g.mmd'; then
+            echo "::error::SDL codegen produced uncommitted output. Run the codegen tool locally and commit the regenerated files."
+            exit 1
+          fi

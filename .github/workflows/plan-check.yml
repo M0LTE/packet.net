@@ -1,0 +1,120 @@
+name: plan-check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Enforces docs/plan.md §18 — every PR that materially changes the project
+# must update the living plan in the same PR.
+#
+# Override mechanism: include `[skip-plan]` or `[no-plan-update]` in any commit
+# message or the PR description. Reach for this only when the change is
+# genuinely plan-irrelevant (e.g., typo fix, test-only refactor).
+
+jobs:
+  plan-update:
+    name: docs/plan.md update discipline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: classify changed files
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA..$HEAD_SHA")
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+
+          # "plan-relevant" — paths whose modification typically implies the
+          # plan should be updated. tests/, docs/ (other than plan.md), and
+          # repo-housekeeping files are intentionally NOT in this list.
+          plan_relevant_re='^(src/|spec-sdl/|tools/|docker/|installers/|\.github/workflows/|Directory\.Build\.props$|Directory\.Packages\.props$|global\.json$|Packet\.NET\.slnx$)'
+          plan_path='docs/plan.md'
+
+          plan_changed=false
+          plan_relevant_changed=false
+          plan_relevant_list=""
+
+          for f in "${changed[@]}"; do
+            if [[ "$f" == "$plan_path" ]]; then
+              plan_changed=true
+              continue
+            fi
+            if [[ "$f" =~ $plan_relevant_re ]]; then
+              plan_relevant_changed=true
+              plan_relevant_list+="  $f"$'\n'
+            fi
+          done
+
+          {
+            echo "plan_changed=$plan_changed"
+            echo "plan_relevant_changed=$plan_relevant_changed"
+            echo "plan_relevant_list<<EOF"
+            echo -n "$plan_relevant_list"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: check override markers (commit messages + PR body)
+        id: override
+        if: steps.changes.outputs.plan_relevant_changed == 'true' && steps.changes.outputs.plan_changed == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          commits=$(git log --format=%B "$BASE_SHA..$HEAD_SHA")
+          combined="$commits"$'\n'"$PR_BODY"
+          if echo "$combined" | grep -qE '\[(skip-plan|no-plan-update)\]'; then
+            echo "override=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::plan-check override honoured ([skip-plan] / [no-plan-update] found)"
+          else
+            echo "override=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: fail if plan not updated
+        if: |
+          steps.changes.outputs.plan_relevant_changed == 'true' &&
+          steps.changes.outputs.plan_changed == 'false' &&
+          steps.override.outputs.override != 'true'
+        run: |
+          cat <<'EOF'
+          ::error::This PR changes plan-relevant files but does not update docs/plan.md.
+
+          Plan-relevant files changed in this PR:
+          EOF
+          echo "${{ steps.changes.outputs.plan_relevant_list }}"
+          cat <<'EOF'
+
+          docs/plan.md §18 requires that PRs which change project direction,
+          scope, locked decisions, working agreements, dependencies, or that
+          complete a phase exit criterion, update docs/plan.md in the same
+          PR — including a §17 amendment-log entry.
+
+          Two ways forward:
+
+            1) Update docs/plan.md in this PR. The PR description should
+               mention the plan change. See docs/plan.md §18 for the discipline.
+
+            2) If this change is genuinely plan-irrelevant (typo fix,
+               test-only refactor with no behavioural change, etc.), include
+               '[skip-plan]' or '[no-plan-update]' in any commit message or
+               in the PR description, then re-run this check.
+          EOF
+          exit 1
+
+      - name: report
+        if: always()
+        run: |
+          echo "plan_changed=${{ steps.changes.outputs.plan_changed }}"
+          echo "plan_relevant_changed=${{ steps.changes.outputs.plan_relevant_changed }}"
+          echo "override=${{ steps.override.outputs.override }}"

@@ -1,0 +1,63 @@
+name: interop
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/Packet.Ax25/**'
+      - 'src/Packet.Ax25.Sdl/**'
+      - 'src/Packet.Kiss/**'
+      - 'src/Packet.Axudp/**'
+      - 'src/Packet.Rhp2/**'
+      - 'src/Packet.Rhp2.Server/**'
+      - 'src/Packet.Agw/**'
+      - 'src/Packet.Node/**'
+      - 'tests/Packet.Interop.Tests/**'
+      - 'docker/**'
+      - '.github/workflows/interop.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # nightly full matrix at 02:17 UTC
+    - cron: '17 2 * * *'
+
+concurrency:
+  group: interop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    name: interop matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: bring up interop stack
+        run: docker compose -f docker/compose.interop.yml up -d --wait
+        env:
+          COMPOSE_PROJECT_NAME: packetnet-interop
+
+      - name: dump container state
+        if: failure()
+        run: |
+          docker compose -f docker/compose.interop.yml ps
+          docker compose -f docker/compose.interop.yml logs --tail=200
+
+      - name: build
+        run: dotnet build --configuration Release
+
+      - name: interop tests
+        run: dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop"
+
+      - name: tear down
+        if: always()
+        run: docker compose -f docker/compose.interop.yml down -v
