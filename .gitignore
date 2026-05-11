@@ -60,6 +60,9 @@ docker/linbpq/*.log
 appsettings.Local.json
 appsettings.*.user.json
 
+# Per-developer launch configuration (port choices, env vars)
+**/Properties/launchSettings.json
+
 # OS
 Thumbs.db
 ehthumbs.db
