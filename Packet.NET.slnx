@@ -1,0 +1,34 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Packet.Agw/Packet.Agw.csproj" />
+    <Project Path="src/Packet.Ax25.Sdl/Packet.Ax25.Sdl.csproj" />
+    <Project Path="src/Packet.Ax25/Packet.Ax25.csproj" />
+    <Project Path="src/Packet.Axudp/Packet.Axudp.csproj" />
+    <Project Path="src/Packet.Core/Packet.Core.csproj" />
+    <Project Path="src/Packet.Kiss.NinoTnc/Packet.Kiss.NinoTnc.csproj" />
+    <Project Path="src/Packet.Kiss/Packet.Kiss.csproj" />
+    <Project Path="src/Packet.L3/Packet.L3.csproj" />
+    <Project Path="src/Packet.Mcp/Packet.Mcp.csproj" />
+    <Project Path="src/Packet.Node.Extensions/Packet.Node.Extensions.csproj" />
+    <Project Path="src/Packet.Node/Packet.Node.csproj" />
+    <Project Path="src/Packet.Rhp2.Server/Packet.Rhp2.Server.csproj" />
+    <Project Path="src/Packet.Rhp2/Packet.Rhp2.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Packet.Agw.Tests/Packet.Agw.Tests.csproj" />
+    <Project Path="tests/Packet.Ax25.Conformance.Tests/Packet.Ax25.Conformance.Tests.csproj" />
+    <Project Path="tests/Packet.Ax25.Properties/Packet.Ax25.Properties.csproj" />
+    <Project Path="tests/Packet.Ax25.Tests/Packet.Ax25.Tests.csproj" />
+    <Project Path="tests/Packet.Axudp.Tests/Packet.Axudp.Tests.csproj" />
+    <Project Path="tests/Packet.Core.Tests/Packet.Core.Tests.csproj" />
+    <Project Path="tests/Packet.Interop.Tests/Packet.Interop.Tests.csproj" />
+    <Project Path="tests/Packet.Kiss.NinoTnc.Tests/Packet.Kiss.NinoTnc.Tests.csproj" />
+    <Project Path="tests/Packet.Kiss.Tests/Packet.Kiss.Tests.csproj" />
+    <Project Path="tests/Packet.Node.Tests/Packet.Node.Tests.csproj" />
+    <Project Path="tests/Packet.Rhp2.Tests/Packet.Rhp2.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Packet.Sdl.CodeGen/Packet.Sdl.CodeGen.csproj" />
+    <Project Path="tools/Packet.Sdl.Lint/Packet.Sdl.Lint.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Packet.Rhp2\Packet.Rhp2.csproj" />
+    <ProjectReference Include="..\..\src\Packet.Rhp2.Server\Packet.Rhp2.Server.csproj" />
+  </ItemGroup>
+
+</Project>
