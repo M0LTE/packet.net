@@ -663,6 +663,50 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Schema: loop_while construct for SDL loops
+
+Tom confirmed the n148 stored-frame loop in figc4.4 is deliberate spec
+semantics, not a transcription quirk. Adding native loop support to
+the schema + codegen so t67-t69 no longer carry `verification_pending`
+notes about it.
+
+Schema additions (`spec-sdl/schema/sdl-machine.schema.json`):
+
+- New path-step variant: `{ loop_while: <decision_id>, body: [...] }`.
+  The decision id references the page-level `decisions:` catalogue;
+  the loop runs the body while the predicate evaluates true.
+- `body:` is **action-only** for now — nested decisions or nested loops
+  inside a body are rejected by the codegen validator (refactor as a
+  subroutine if you need them). Restricts the runtime semantics to a
+  manageable shape; we can extend when a real figure needs it.
+
+Runtime: new `LoopRange(Start, Length, Predicate)` record alongside
+`ActionStep`. `TransitionSpec.Loops` field records loop ranges in the
+flat `Actions[]` list — `Actions[Start..Start+Length-1]` form a loop
+body that should re-execute while `Predicate` is true.
+
+Codegen: when walking the path, `loop_while` steps inline their body's
+actions into the flat list AND emit a `LoopRange` entry. Compiled
+guard for the transition does **not** include the loop predicate (the
+loop runs zero or more times based on its own predicate; entry to the
+transition is gated by surrounding `decision:` steps).
+
+Refactor: t67-t69 in `connected.sdl.yaml` now use `loop_while`.
+`verification_pending` notes removed. The path keeps a
+`decision: vr_i_frame_stored, branch: "Yes"` step before the
+`loop_while` to gate entry (so t67-t69 are mutually exclusive with
+t09-t11 on the predicate).
+
+Non-loop-aware dispatcher behaviour unchanged: it iterates `Actions[]`
+linearly, executing each loop body exactly once. This matches the
+existing smoke tests (which post events with V_r_I_frame_stored=true
+and assert against the inlined body) and the spec for the
+single-stored-frame case. A future loop-aware dispatcher will consult
+`Loops[]` and iterate properly.
+
+[`docs/sdl-primer.md`](sdl-primer.md) updated with worked example +
+runtime semantics.
+
 ### 2026-05-12 — Validate figc4.4 — smoke test + 4-codebase references
 
 Combined validation pass for `connected.sdl.yaml` (the figc4.4

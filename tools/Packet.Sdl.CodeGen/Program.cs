@@ -278,37 +278,79 @@ internal static class Program
             // lower layer) is drawn as input → state with no intermediate
             // boxes, and that's a valid SDL pattern.
 
-            for (int i = 0; i < t.Path.Count; i++)
-            {
-                var step = t.Path[i];
-                var hasDecision = !string.IsNullOrWhiteSpace(step.Decision);
-                var hasAction   = !string.IsNullOrWhiteSpace(step.Action);
-                if (hasDecision == hasAction)
-                {
-                    errors.Add($"{loc}: transition `{t.Id}` path[{i}]: must specify exactly one of `decision:` or `action:`");
-                    continue;
-                }
-
-                if (hasDecision)
-                {
-                    if (!decisionsById.ContainsKey(step.Decision!))
-                        errors.Add($"{loc}: transition `{t.Id}` path[{i}] references undefined decision `{step.Decision}`. Add it to the page-level decisions[].");
-                    if (step.Branch is not "Yes" and not "No")
-                        errors.Add($"{loc}: transition `{t.Id}` path[{i}] branch must be 'Yes' or 'No' (was `{step.Branch}`)");
-                }
-                else
-                {
-                    if (string.IsNullOrWhiteSpace(step.Kind))
-                        errors.Add($"{loc}: transition `{t.Id}` path[{i}] action `{step.Action}` missing `kind:` (one of signal_upper, signal_lower, processing, subroutine, internal_out)");
-                    else if (!ValidActionKinds.Contains(step.Kind))
-                        errors.Add($"{loc}: transition `{t.Id}` path[{i}] action `{step.Action}` has unknown kind `{step.Kind}`. Valid: {string.Join(", ", ValidActionKinds)}.");
-                }
-            }
+            ValidatePathSteps(loc, t.Id, "path", t.Path, decisionsById, errors);
         }
 
         LintDecisionBranchCompleteness(page, decisionsById, errors);
         LintGuardOverlap(page, decisionsById, errors);
         LintReferences(page, errors);
+    }
+
+    /// <summary>
+    /// Validates a path or loop body. Each step must be exactly one of:
+    /// (decision + branch), (action + kind), or (loop_while + body).
+    /// </summary>
+    private static void ValidatePathSteps(
+        string loc, string transitionId, string contextLabel,
+        List<SdlPathStep> path,
+        Dictionary<string, SdlDecision> decisionsById,
+        List<string> errors)
+    {
+        for (int i = 0; i < path.Count; i++)
+        {
+            var step = path[i];
+            var hasDecision = !string.IsNullOrWhiteSpace(step.Decision);
+            var hasAction   = !string.IsNullOrWhiteSpace(step.Action);
+            var hasLoop     = !string.IsNullOrWhiteSpace(step.LoopWhile);
+            var kindsSet = (hasDecision ? 1 : 0) + (hasAction ? 1 : 0) + (hasLoop ? 1 : 0);
+            if (kindsSet != 1)
+            {
+                errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}]: must specify exactly one of `decision:`, `action:`, or `loop_while:`");
+                continue;
+            }
+
+            if (hasDecision)
+            {
+                if (!decisionsById.ContainsKey(step.Decision!))
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] references undefined decision `{step.Decision}`. Add it to the page-level decisions[].");
+                if (step.Branch is not "Yes" and not "No")
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] branch must be 'Yes' or 'No' (was `{step.Branch}`)");
+            }
+            else if (hasAction)
+            {
+                if (string.IsNullOrWhiteSpace(step.Kind))
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] action `{step.Action}` missing `kind:` (one of signal_upper, signal_lower, processing, subroutine, internal_out)");
+                else if (!ValidActionKinds.Contains(step.Kind))
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] action `{step.Action}` has unknown kind `{step.Kind}`. Valid: {string.Join(", ", ValidActionKinds)}.");
+            }
+            else // hasLoop
+            {
+                if (!decisionsById.ContainsKey(step.LoopWhile!))
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] loop_while references undefined decision `{step.LoopWhile}`. Add it to the page-level decisions[].");
+                if (step.Body is null || step.Body.Count == 0)
+                {
+                    errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}] loop_while missing or empty `body:`. Loop bodies must have at least one step.");
+                }
+                else
+                {
+                    // Restrict body to action steps only — nested decisions
+                    // and nested loops require richer runtime semantics that
+                    // we'd rather face when a real figure needs them.
+                    for (int j = 0; j < step.Body.Count; j++)
+                    {
+                        var b = step.Body[j];
+                        if (string.IsNullOrWhiteSpace(b.Action))
+                        {
+                            errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}].body[{j}] must be an action step. Nested decisions and loops inside a loop body are not supported by the current codegen; refactor as a subroutine if needed.");
+                        }
+                        else if (string.IsNullOrWhiteSpace(b.Kind) || !ValidActionKinds.Contains(b.Kind))
+                        {
+                            errors.Add($"{loc}: transition `{transitionId}` {contextLabel}[{i}].body[{j}] action `{b.Action}` has invalid or missing `kind:`.");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -590,8 +632,9 @@ internal sealed class SdlPinnedRef
 }
 
 /// <summary>
-/// One step in a transition's path. Exactly one of (Decision+Branch) or
-/// (Action+Kind) is populated; the validator rejects malformed steps.
+/// One step in a transition's path. Exactly one of (Decision+Branch),
+/// (Action+Kind), or (LoopWhile+Body) is populated; the validator rejects
+/// malformed steps.
 /// </summary>
 internal sealed class SdlPathStep
 {
@@ -599,6 +642,9 @@ internal sealed class SdlPathStep
     public string? Branch { get; set; }
     public string? Action { get; set; }
     public string? Kind { get; set; }
+    [YamlMember(Alias = "loop_while", ApplyNamingConventions = false)]
+    public string? LoopWhile { get; set; }
+    public List<SdlPathStep>? Body { get; set; }
 }
 
 // ─── Template-facing projection ────────────────────────────────────────
@@ -675,30 +721,23 @@ internal sealed class TransitionModel
     public List<ActionModel> Actions { get; set; } = new();
     public string ActionsCsv { get; set; } = "";
     public string ReferencesCsv { get; set; } = "";
+    public string LoopsCsv { get; set; } = "";
     public string EdgeLabel { get; set; } = "";
 
     public static TransitionModel From(SdlTransition t, IReadOnlyDictionary<string, SdlDecision> decisionsById)
     {
-        // Compile path[] into the runtime's flat (guard, actions[]) pair.
+        // Compile path[] into the runtime's flat (guard, actions[], loops[]) triple.
         // - Each {decision, branch} step contributes a predicate to the guard:
         //   "Yes" → bare predicate; "No" → "not " + predicate.
-        // - Each {action, kind} step contributes to the action list, preserving
-        //   the original ordering. The runtime sees a flat list; the YAML
-        //   keeps the structural information for figure-redraw use cases.
+        // - Each {action, kind} step contributes to the action list.
+        // - Each {loop_while, body} step expands its body inline into the
+        //   action list (one iteration), AND records the range as a LoopRange
+        //   so loop-aware consumers can iterate while the predicate is true.
+        //   Body actions and any nested decisions are walked recursively.
         var predicates = new List<string>();
         var actions = new List<ActionModel>();
-        foreach (var step in t.Path)
-        {
-            if (!string.IsNullOrWhiteSpace(step.Decision))
-            {
-                var decision = decisionsById[step.Decision!];
-                predicates.Add(step.Branch == "Yes" ? decision.Predicate : "not " + decision.Predicate);
-            }
-            else
-            {
-                actions.Add(new ActionModel(step.Action!, step.Kind!));
-            }
-        }
+        var loops = new List<LoopModel>();
+        WalkPath(t.Path, decisionsById, predicates, actions, loops);
 
         var guard = predicates.Count == 0 ? null : string.Join(" and ", predicates);
         var refs = (t.References ?? new()).Select(r =>
@@ -724,8 +763,55 @@ internal sealed class TransitionModel
             ActionsCsv    = string.Join(", ", actions.Select(a =>
                 $"new ActionStep({TemplateModel.CSharpStringLiteral(a.Verb)}, {TemplateModel.KindEnumLiteral(a.Kind)})")),
             ReferencesCsv = string.Join(", ", refs),
+            LoopsCsv      = string.Join(", ", loops.Select(l =>
+                $"new LoopRange({l.Start.ToString(System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"{l.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"{TemplateModel.CSharpStringLiteral(l.Predicate)})")),
             EdgeLabel     = BuildMermaidEdgeLabel(t.Id, t.On, guard, actions),
         };
+    }
+
+    /// <summary>Recursively walk the path, accumulating guard predicates, actions, and loop ranges.</summary>
+    private static void WalkPath(
+        List<SdlPathStep> path,
+        IReadOnlyDictionary<string, SdlDecision> decisionsById,
+        List<string> predicates,
+        List<ActionModel> actions,
+        List<LoopModel> loops)
+    {
+        foreach (var step in path)
+        {
+            if (!string.IsNullOrWhiteSpace(step.Decision))
+            {
+                var decision = decisionsById[step.Decision!];
+                predicates.Add(step.Branch == "Yes" ? decision.Predicate : "not " + decision.Predicate);
+            }
+            else if (!string.IsNullOrWhiteSpace(step.LoopWhile))
+            {
+                var loopGuard = decisionsById[step.LoopWhile!];
+                var startIndex = actions.Count;
+                // Body is action-only (validator enforces). The body's actions
+                // are inlined into the flat list as one iteration; the loop
+                // predicate gates re-execution at runtime and is NOT added to
+                // the transition's overall guard (the loop is entered with
+                // zero iterations if the predicate starts false).
+                foreach (var bodyStep in step.Body!)
+                {
+                    if (!string.IsNullOrWhiteSpace(bodyStep.Action))
+                    {
+                        actions.Add(new ActionModel(bodyStep.Action!, bodyStep.Kind!));
+                    }
+                    // Decision/nested-loop steps in a body are rejected by the
+                    // validator; ignored here defensively.
+                }
+                var length = actions.Count - startIndex;
+                loops.Add(new LoopModel(startIndex, length, loopGuard.Predicate));
+            }
+            else
+            {
+                actions.Add(new ActionModel(step.Action!, step.Kind!));
+            }
+        }
     }
 
     private static string NullOrLiteral(string? s) =>
@@ -766,3 +852,5 @@ internal sealed record ActionModel(string Verb, string Kind)
     public string VerbLiteral => TemplateModel.CSharpStringLiteral(Verb);
     public string KindEnum    => TemplateModel.KindEnumLiteral(Kind);
 }
+
+internal sealed record LoopModel(int Start, int Length, string Predicate);

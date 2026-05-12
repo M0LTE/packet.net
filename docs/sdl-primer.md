@@ -327,6 +327,45 @@ The other figc1.1 shapes route to different places in the schema:
 | Save a signal until a new state      | state-level `save: [...]`                  |
 | Subroutine start / Return            | only on subroutine pages (different schema)|
 
+### Loops in the figure
+
+When a diamond's Yes branch loops back to the same diamond (e.g.
+figc4.4's n148-n149-n150-n151-n148 stored-frame drain), use the
+`loop_while` path step:
+
+```yaml
+path:
+  - { decision: vr_i_frame_stored, branch: "Yes" }   # entry gate
+  - loop_while: vr_i_frame_stored                     # iterate body while predicate stays true
+    body:
+      - { action: retrieve_stored_V_r_I_frame, kind: processing }
+      - { action: DL_DATA_indication,          kind: signal_upper }
+      - { action: "V(r) := V(r) + 1",          kind: processing }
+  - { decision: p_eq_1, branch: "Yes" }              # continues here when loop exits
+  - { action: "F := 1", kind: processing }
+```
+
+Semantics:
+
+- The `decision: ..., branch: "Yes"` step that PRECEDES the loop gates
+  entry — the transition only fires if the predicate is true on
+  arrival, mirroring the figure's diamond at the loop head.
+- `loop_while` re-runs the body while the same predicate stays true,
+  and exits when it becomes false (the body's actions are expected to
+  change something that may flip the predicate — here, advancing V(r)
+  past the stored frame).
+- Body steps are **action-only** today; nested decisions or nested
+  loops aren't supported by the codegen. Refactor as a subroutine if
+  you need them.
+
+The codegen compiles `loop_while` into the runtime's flat
+`Actions[]` (one iteration of the body inlined) plus a
+`Loops[]` metadata entry recording `(startIndex, length, predicate)`.
+Loop-aware dispatchers consult `Loops[]` to re-execute the body;
+loop-unaware dispatchers run `Actions[]` linearly (which executes
+each loop body once — close enough for the common one-stored-frame
+case and matches the smoke tests).
+
 ## Where this primer is invoked
 
 - `CONTRIBUTING.md` references this file under "Working with SDL diagrams".

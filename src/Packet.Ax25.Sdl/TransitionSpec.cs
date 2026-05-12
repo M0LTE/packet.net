@@ -20,7 +20,8 @@ public sealed record TransitionSpec(
     IReadOnlyList<ActionStep> Actions,
     string Next,
     string? Notes,
-    IReadOnlyList<ImplementationReference> References);
+    IReadOnlyList<ImplementationReference> References,
+    IReadOnlyList<LoopRange> Loops);
 
 /// <summary>
 /// One cross-reference citation for a transition — either a pointer into
@@ -44,6 +45,20 @@ public sealed record ImplementationReference(
 
 /// <summary>One step in a transition's action chain — a verb + the SDL shape class that produced it.</summary>
 public sealed record ActionStep(string Verb, ActionKind Kind);
+
+/// <summary>
+/// Marks a region of a transition's flat <see cref="TransitionSpec.Actions"/>
+/// list as a loop body. <c>Actions[Start..Start+Length-1]</c> are the body;
+/// the runtime should re-execute that range while <see cref="Predicate"/>
+/// evaluates true.
+/// </summary>
+/// <remarks>
+/// The flat Actions list captures one iteration of the body. Non-loop-aware
+/// consumers can ignore <see cref="TransitionSpec.Loops"/> and execute Actions
+/// linearly — that runs each loop body once, which is the existing smoke-test
+/// behaviour. Loop-aware consumers iterate while the predicate is true.
+/// </remarks>
+public sealed record LoopRange(int Start, int Length, string Predicate);
 
 /// <summary>
 /// The five SDL action shape-classes from figc1.1 that produce entries in a
