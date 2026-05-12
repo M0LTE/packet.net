@@ -86,7 +86,7 @@ public static class DataLink_Disconnected
             Actions: new ActionStep[] { new ActionStep("DL_ERROR_indication_L", ActionKind.SignalUpper) },
             Next: "Disconnected",
             Notes: "spec_prose: §C \"error indications are discussed in the SDL\nappendices\" — code letter (L) is figure-authoritative.\n",
-            References: new ImplementationReference[] { new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2FORUS", Line: 693, Note: "SABME (and SREJ when no 2.2 support) treated as invalid CTRL — L2SENDINVALIDCTRL sends FRMR rather than DL_ERROR_indication"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 207, Note: "malformed frames silently dropped via ax25_addr_parse() == NULL → goto free; no DL_ERROR(L) raised") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§C", Quote: "error indications are discussed in the SDL appendices", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2FORUS", Line: 693, Note: "SABME (and SREJ when no 2.2 support) treated as invalid CTRL — L2SENDINVALIDCTRL sends FRMR rather than DL_ERROR_indication"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 207, Note: "malformed frames silently dropped via ax25_addr_parse() == NULL → goto free; no DL_ERROR(L) raised") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t08_info_not_permitted_in_frame",
@@ -96,7 +96,7 @@ public static class DataLink_Disconnected
             Actions: new ActionStep[] { new ActionStep("DL_ERROR_indication_M", ActionKind.SignalUpper) },
             Next: "Disconnected",
             Notes: "spec_prose: figure-authoritative (DL-ERROR code M). See t07 note.\n",
-            References: new ImplementationReference[] {  },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§C", Quote: "error indications are discussed in the SDL appendices", Path: null, Function: null, Line: null, Note: null) },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t09_u_or_s_frame_length_error",
@@ -106,7 +106,7 @@ public static class DataLink_Disconnected
             Actions: new ActionStep[] { new ActionStep("DL_ERROR_indication_N", ActionKind.SignalUpper) },
             Next: "Disconnected",
             Notes: "spec_prose: figure-authoritative (DL-ERROR code N). See t07 note.\n",
-            References: new ImplementationReference[] { new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2Routine", Line: 210, Note: "min-length check releases buffer; no DL_ERROR raised — just Debugprintf and discard"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/lib.rs", Function: "Packet::parse", Line: 549, Note: "length check returns anyhow::Error 'AX.25 in ext mode, but S/U frame is too short' rather than DlError::N (variant defined at src/state.rs:146 but unused)") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§C", Quote: "error indications are discussed in the SDL appendices", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2Routine", Line: 210, Note: "min-length check releases buffer; no DL_ERROR raised — just Debugprintf and discard"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/lib.rs", Function: "Packet::parse", Line: 549, Note: "length check returns anyhow::Error 'AX.25 in ext mode, but S/U frame is too short' rather than DlError::N (variant defined at src/state.rs:146 but unused)") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t10_ua_received",
@@ -116,7 +116,7 @@ public static class DataLink_Disconnected
             Actions: new ActionStep[] { new ActionStep("DL_ERROR_indication_C_D", ActionKind.SignalUpper) },
             Next: "Disconnected",
             Notes: "spec_prose: unexpected UA while disconnected (UA is a response;\nwe didn't send a command). Codes C and D are figure-authoritative.\n\nNOTE: Both direwolf and rax25 authors independently flagged C,D\nas a spec quirk in their source comments. direwolf:4823 \"Erratum:\nflow chart says errors C and D. Neither one really makes sense.\";\nrax25:1158 \"1998 & 2017 bug: C and D make no sense here.\" Worth\ntracking as a candidate upstream spec issue.\n",
-            References: new ImplementationReference[] { new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ua_frame", Line: 4821, Note: "state_0 case logs Protocol Error C; author erratum comment at 4823: 'flow chart says errors C and D. Neither one really makes sense.'"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/state.rs", Function: "Disconnected::ua", Line: 1158, Note: "returns [DlError::C, DlError::D]; author comment '1998 & 2017 bug: C and D make no sense here' — flags same spec issue as direwolf"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 327, Note: "falls into state-0 catch-all; Linux doesn't distinguish UA from any other unexpected command, just DMs — no DL_ERROR(C,D) raised") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§C", Quote: "error indications are discussed in the SDL appendices", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ua_frame", Line: 4821, Note: "state_0 case logs Protocol Error C; author erratum comment at 4823: 'flow chart says errors C and D. Neither one really makes sense.'"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/state.rs", Function: "Disconnected::ua", Line: 1158, Note: "returns [DlError::C, DlError::D]; author comment '1998 & 2017 bug: C and D make no sense here' — flags same spec issue as direwolf"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 327, Note: "falls into state-0 catch-all; Linux doesn't distinguish UA from any other unexpected command, just DMs — no DL_ERROR(C,D) raised") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t11_ui_received_p_eq_1",

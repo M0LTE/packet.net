@@ -663,6 +663,39 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — spec_prose back-fill for figc4.1 + figc4.2
+
+Hygiene pass: bring figc4.1 (`disconnected.sdl.yaml`) and figc4.2
+(`awaiting_connection.sdl.yaml`) up to the same spec_prose coverage
+standard as figc4.4. Both pages had prose citations in the notes:
+blocks of various transitions but only some had structured
+spec_prose entries in references[].
+
+Added 9 structured spec_prose entries:
+
+figc4.1 — 4 entries (the DL-ERROR / figure-only error transitions
+that cite §C "error indications are discussed in the SDL appendices"):
+- t07_control_field_error → §C
+- t08_info_not_permitted_in_frame → §C
+- t09_u_or_s_frame_length_error → §C
+- t10_ua_received → §C
+
+figc4.2 — 5 entries (prose-backed transitions not yet structured):
+- t04_ua_received_not_f_eq_1 → §6.3.1 ¶4
+- t12_dl_unit_data_request → §6.3.7
+- t18_ui_received_p_eq_1 → §6.3.5 ¶3
+- t19_ui_received_p_eq_0 → §6.3.5 ¶3
+- t24_sabme_received → §6.3.1 ¶3
+
+The catch-all transitions (figc4.1 t04, t06) intentionally keep no
+spec_prose entry — they explicitly have no prose backing.
+
+Same Python text-injection script approach as the figc4.4 spec_prose
+PR. 8 done by script; 1 (t08, had inline `references: []` array)
+manually patched.
+
+Tests unchanged: 394 green.
+
 ### 2026-05-12 — spec_prose cross-check for figc4.4
 
 Closing out the figc4.4 validation chain (task #64) with `spec_prose`
