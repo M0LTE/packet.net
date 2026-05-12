@@ -5,8 +5,8 @@
 > If you are reading this for the first time: start with [Why Packet.NET?](#1-why-packetnet) and [Working agreements](#2-working-agreements). If you are looking for *what to build next*, jump to [Roadmap](#5-phased-roadmap). If you are an agent: read [Working agreements](#2-working-agreements) carefully — those are the operating instructions that take precedence over your defaults.
 
 **As of:** 2026-05-12
-**Current phase:** Phase 2 in progress — guard evaluator + action dispatcher land on top of foundations; Ax25Session runner ties them together next.
-**Latest amendment:** [§17 entry 2026-05-12 Phase 2 interpreter: guard evaluator + action dispatcher](#17-amendment-log)
+**Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Next: more SDL pages.
+**Latest amendment:** [§17 entry 2026-05-12 Phase 2 runner: Ax25Session ties it together](#17-amendment-log)
 
 ---
 
@@ -656,6 +656,41 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-12 — Phase 2 runner: Ax25Session ties it together
+
+Third and last scaffolding slice. The session takes events, looks up
+the codegen-emitted transition tables, evaluates guards via the
+interpreter, runs action chains via the dispatcher, and updates state.
+
+- `Packet.Ax25.Session.Ax25Session`: takes `Ax25SessionContext`,
+  `ITimerScheduler`, `ActionDispatcher`, `GuardEvaluator`, a
+  state-name → transition-list lookup, an initial state, and an
+  optional `onUnhandledEvent` hook. `PostEvent(Ax25Event evt)` looks
+  up transitions for the current state, picks the first whose `On`
+  matches and whose guard evaluates true, runs the action chain,
+  advances to `Next`. Unhandled events flow to the callback (or are
+  silently dropped, matching SDL semantics).
+- `Packet.Ax25.Session.Ax25SessionBindings.CreateDefault(ctx, scheduler)`:
+  the standard binding table for `GuardEvaluator` — every identifier
+  the SDL transcriptions reference, mapped to a closure over context
+  state + scheduler.
+- `Packet.Ax25` now references `Packet.Ax25.Sdl` so the session can
+  consume the codegen's `TransitionSpec` tables directly. (Generated
+  code is the leaf; orchestration sits on top.)
+
+The runner is exercised end-to-end against all five transitions from
+our current transcription:
+  - DL-FLOW-OFF while busy → RNR response sent, ack-pending cleared.
+  - DL-FLOW-OFF while not busy → no-op.
+  - DL-FLOW-ON while not busy → no-op.
+  - DL-FLOW-ON while busy & T1 not running → RR command, T1 armed, T3 stopped.
+  - DL-FLOW-ON while busy & T1 running → RR command, timers untouched.
+  - Unhandled event (SABM) → reported via callback, state unchanged.
+
+8 new tests on top of foundations + interpreter. Phase 2's
+orchestrator stack is now complete; new SDL transcriptions plug in
+by adding to the transition-by-state lookup.
 
 ### 2026-05-12 — Phase 2 interpreter: guard evaluator + action dispatcher
 
