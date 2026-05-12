@@ -13,9 +13,9 @@ public class CallsignTests
     public void Construct_And_Format(string @base, byte ssid, string expected)
     {
         var c = new Callsign(@base, ssid);
-        c.ToString().ShouldBe(expected);
-        c.Base.ShouldBe(@base);
-        c.Ssid.ShouldBe(ssid);
+        c.ToString().Should().Be(expected);
+        c.Base.Should().Be(@base);
+        c.Ssid.Should().Be(ssid);
     }
 
     [Theory]
@@ -26,8 +26,8 @@ public class CallsignTests
     public void Parse_RoundTrips(string text, string expectedBase, byte expectedSsid)
     {
         var c = Callsign.Parse(text);
-        c.Base.ShouldBe(expectedBase);
-        c.Ssid.ShouldBe(expectedSsid);
+        c.Base.Should().Be(expectedBase);
+        c.Ssid.Should().Be(expectedSsid);
     }
 
     [Theory]
@@ -41,19 +41,19 @@ public class CallsignTests
     [InlineData("G7!XY")]            // non-alphanumeric
     public void TryParse_Rejects_Invalid(string? text)
     {
-        Callsign.TryParse(text, out _).ShouldBeFalse();
+        Callsign.TryParse(text, out _).Should().BeFalse();
     }
 
     [Fact]
     public void Constructor_Rejects_Invalid_Ssid()
     {
-        Should.Throw<ArgumentException>(() => new Callsign("G7XYZ", 16));
+        ((Action)(() => new Callsign("G7XYZ", 16))).Should().Throw<ArgumentException>();
     }
 
     [Fact]
     public void Constructor_Rejects_Empty_Base()
     {
-        Should.Throw<ArgumentException>(() => new Callsign("", 0));
+        ((Action)(() => new Callsign("", 0))).Should().Throw<ArgumentException>();
     }
 
     [Fact]
@@ -61,8 +61,8 @@ public class CallsignTests
     {
         var a = new Callsign("G7XYZ", 7);
         var b = new Callsign("G7XYZ", 7);
-        a.ShouldBe(b);
-        (a == b).ShouldBeTrue();
-        a.GetHashCode().ShouldBe(b.GetHashCode());
+        a.Should().Be(b);
+        (a == b).Should().BeTrue();
+        a.GetHashCode().Should().Be(b.GetHashCode());
     }
 }

@@ -22,7 +22,7 @@ public class Ax25AddressTests
             buf.Clear();
             input.Write(buf);
             var roundTripped = Ax25Address.Read(buf);
-            roundTripped.ShouldBe(input);
+            roundTripped.Should().Be(input);
         }
     }
 
@@ -35,12 +35,12 @@ public class Ax25AddressTests
         Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
         addr.Write(buf);
 
-        buf[0].ShouldBe((byte)('A' << 1));
-        buf[1].ShouldBe((byte)('B' << 1));
+        buf[0].Should().Be((byte)('A' << 1));
+        buf[1].Should().Be((byte)('B' << 1));
         // padding spaces
         for (int i = 2; i < 6; i++)
         {
-            buf[i].ShouldBe((byte)(' ' << 1));
+            buf[i].Should().Be((byte)(' ' << 1));
         }
     }
 
@@ -56,27 +56,28 @@ public class Ax25AddressTests
         addr.Write(buf);
 
         byte ssidByte = buf[6];
-        ((ssidByte & 0x80) != 0).ShouldBeTrue("C/H bit");
-        ((ssidByte & 0x60) == 0x60).ShouldBeTrue("reserved bits default 11");
-        ((ssidByte >> 1) & 0x0F).ShouldBe(7);
-        ((ssidByte & 0x01) != 0).ShouldBeTrue("E bit");
+        ((ssidByte & 0x80) != 0).Should().BeTrue("C/H bit");
+        ((ssidByte & 0x60) == 0x60).Should().BeTrue("reserved bits default 11");
+        ((ssidByte >> 1) & 0x0F).Should().Be(7);
+        ((ssidByte & 0x01) != 0).Should().BeTrue("E bit");
     }
 
     [Fact]
     public void Read_Rejects_Short_Span()
     {
         var buf = new byte[6];
-        Should.Throw<ArgumentException>(() => Ax25Address.Read(buf));
+        ((Action)(() => Ax25Address.Read(buf))).Should().Throw<ArgumentException>();
     }
 
     [Fact]
     public void Write_Rejects_Short_Span()
     {
         var addr = new Ax25Address(new Callsign("G7XYZ", 0), false, false);
-        Should.Throw<ArgumentException>(() =>
+        var act = () =>
         {
             var buf = new byte[6];
             addr.Write(buf);
-        });
+        };
+        act.Should().Throw<ArgumentException>();
     }
 }

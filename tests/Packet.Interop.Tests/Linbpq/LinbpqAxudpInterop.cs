@@ -43,10 +43,10 @@ public class LinbpqKissTcpInterop
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         var response = await http.GetAsync($"http://{Host}:{HttpPort}/Node/NodeIndex.html");
-        response.IsSuccessStatusCode.ShouldBeTrue($"LinBPQ web UI returned {(int)response.StatusCode}");
+        response.IsSuccessStatusCode.Should().BeTrue($"LinBPQ web UI returned {(int)response.StatusCode}");
 
         var body = await response.Content.ReadAsStringAsync();
-        body.ShouldContain("BPQ32 Node");
+        body.Should().Contain("BPQ32 Node");
     }
 
     [SkippableFact]

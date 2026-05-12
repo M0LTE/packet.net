@@ -17,7 +17,7 @@ public class Ax25EventTests
     public void Event_Names_Match_Spec_Catalog(Type eventType, string expectedName)
     {
         var evt = (Ax25Event)Activator.CreateInstance(eventType)!;
-        evt.Name.ShouldBe(expectedName);
+        evt.Name.Should().Be(expectedName);
     }
 
     [Fact]
@@ -26,8 +26,8 @@ public class Ax25EventTests
         var payload = new byte[] { 0x01, 0x02, 0x03 };
         var evt = new DlDataRequest(payload);
 
-        evt.Name.ShouldBe("DL_DATA_request");
-        evt.Data.ToArray().ShouldBe(payload);
+        evt.Name.Should().Be("DL_DATA_request");
+        evt.Data.ToArray().Should().Equal(payload);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class Ax25EventTests
             info:        "x"u8);
 
         var evt = new IFrameReceived(frame);
-        evt.Name.ShouldBe("I_received");
-        evt.Frame.ShouldBe(frame);
+        evt.Name.Should().Be("I_received");
+        evt.Frame.Should().Be(frame);
     }
 }

@@ -42,11 +42,11 @@ public class XrouterAxudpInterop
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         var response = await http.GetAsync($"http://{Host}:{WebPort}/");
-        response.IsSuccessStatusCode.ShouldBeTrue($"XRouter web UI returned {(int)response.StatusCode}");
+        response.IsSuccessStatusCode.Should().BeTrue($"XRouter web UI returned {(int)response.StatusCode}");
 
         var body = await response.Content.ReadAsStringAsync();
         // XRouter self-identifies as "XrLin" on its web pages.
-        body.ShouldContain("XrLin");
+        body.Should().Contain("XrLin");
     }
 
     [SkippableFact]
@@ -73,7 +73,7 @@ public class XrouterAxudpInterop
         await Task.Delay(500, cts.Token);
 
         var after = await GetAxudpValidCount();
-        after.ShouldBeGreaterThan(before, "XRouter's 'valid AXUDP received' counter should increment");
+        after.Should().BeGreaterThan(before, "XRouter's 'valid AXUDP received' counter should increment");
     }
 
     /// <summary>

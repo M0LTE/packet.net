@@ -7,10 +7,10 @@ public class NinoTncCatalogTests
     [Fact]
     public void Catalog_Has_All_Sixteen_Modes()
     {
-        NinoTncCatalog.ByMode.Count.ShouldBe(16);
+        NinoTncCatalog.ByMode.Count.Should().Be(16);
         for (byte i = 0; i <= 15; i++)
         {
-            NinoTncCatalog.ByMode.ContainsKey(i).ShouldBeTrue($"mode {i} should be in the catalog");
+            NinoTncCatalog.ByMode.ContainsKey(i).Should().BeTrue($"mode {i} should be in the catalog");
         }
     }
 
@@ -25,8 +25,8 @@ public class NinoTncCatalogTests
     public void Catalog_Matches_Kissproxy_Source(byte mode, string expectedName, int expectedBitRate)
     {
         var entry = NinoTncCatalog.ByMode[mode];
-        entry.Name.ShouldBe(expectedName);
-        entry.BitRateHz.ShouldBe(expectedBitRate);
+        entry.Name.Should().Be(expectedName);
+        entry.BitRateHz.Should().Be(expectedBitRate);
     }
 
     [Theory]
@@ -37,14 +37,14 @@ public class NinoTncCatalogTests
     public void Firmware_Byte_Lookup_Resolves_To_Correct_Mode(byte firmwareByte, byte expectedMode)
     {
         var resolved = NinoTncCatalog.TryGetByFirmwareByte(firmwareByte);
-        resolved.ShouldNotBeNull();
-        resolved!.Value.Mode.ShouldBe(expectedMode);
+        resolved.Should().NotBeNull();
+        resolved!.Value.Mode.Should().Be(expectedMode);
     }
 
     [Fact]
     public void Firmware_Byte_Lookup_Returns_Null_For_Unknown_Byte()
     {
-        NinoTncCatalog.TryGetByFirmwareByte(0xFF).ShouldBeNull();
+        NinoTncCatalog.TryGetByFirmwareByte(0xFF).Should().BeNull();
     }
 
     [Fact]
@@ -53,13 +53,13 @@ public class NinoTncCatalogTests
         // kissproxy: (frameBytes * 8.0 / BitRateHz) * 1000.0
         // 256 bytes at 1200 baud → 256 * 8 / 1200 * 1000 = 1706.666… ms
         var mode = NinoTncCatalog.ByMode[6]; // 1200 AFSK AX.25
-        mode.TransmissionMs(256).ShouldBe(1706.666666666666, tolerance: 0.001);
+        mode.TransmissionMs(256).Should().BeApproximately(1706.666666666666, 0.001);
     }
 
     [Fact]
     public void TransmissionMs_For_Variable_Rate_Mode_Is_Infinity()
     {
         var mode = NinoTncCatalog.ByMode[15]; // Set from KISS, BitRate = 0
-        double.IsPositiveInfinity(mode.TransmissionMs(100)).ShouldBeTrue();
+        double.IsPositiveInfinity(mode.TransmissionMs(100)).Should().BeTrue();
     }
 }

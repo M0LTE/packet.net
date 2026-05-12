@@ -37,23 +37,23 @@ public class Ax25FrameTests
             isCommand: true,
             pollFinal: false);
 
-        frame.ToBytes().ShouldBe(GoldenUi_AprsCommand_NoDigi);
+        frame.ToBytes().Should().Equal(GoldenUi_AprsCommand_NoDigi);
     }
 
     [Fact]
     public void TryParse_Decodes_Golden_Vector()
     {
-        Ax25Frame.TryParse(GoldenUi_AprsCommand_NoDigi, out var frame).ShouldBeTrue();
-        frame!.Destination.Callsign.ShouldBe(new Callsign("APRS", 0));
-        frame.Source.Callsign.ShouldBe(new Callsign("G7XYZ", 7));
-        frame.Digipeaters.ShouldBeEmpty();
-        frame.Control.ShouldBe((byte)0x03);
-        frame.Pid.ShouldBe((byte?)0xF0);
-        frame.Info.ToArray().ShouldBe("hello"u8.ToArray());
-        frame.IsUi.ShouldBeTrue();
-        frame.PollFinal.ShouldBeFalse();
-        frame.IsCommand.ShouldBeTrue();
-        frame.IsResponse.ShouldBeFalse();
+        Ax25Frame.TryParse(GoldenUi_AprsCommand_NoDigi, out var frame).Should().BeTrue();
+        frame!.Destination.Callsign.Should().Be(new Callsign("APRS", 0));
+        frame.Source.Callsign.Should().Be(new Callsign("G7XYZ", 7));
+        frame.Digipeaters.Should().BeEmpty();
+        frame.Control.Should().Be((byte)0x03);
+        frame.Pid.Should().Be((byte?)0xF0);
+        frame.Info.ToArray().Should().Equal("hello"u8.ToArray());
+        frame.IsUi.Should().BeTrue();
+        frame.PollFinal.Should().BeFalse();
+        frame.IsCommand.Should().BeTrue();
+        frame.IsResponse.Should().BeFalse();
     }
 
     [Fact]
@@ -66,17 +66,17 @@ public class Ax25FrameTests
             digipeaters: new[] { new Callsign("WIDE1", 1), new Callsign("WIDE2", 2) });
 
         var bytes = frame.ToBytes();
-        Ax25Frame.TryParse(bytes, out var decoded).ShouldBeTrue();
+        Ax25Frame.TryParse(bytes, out var decoded).Should().BeTrue();
 
-        decoded!.Destination.Callsign.ShouldBe(new Callsign("APRS", 0));
-        decoded.Source.Callsign.ShouldBe(new Callsign("M0LTE", 9));
-        decoded.Digipeaters.Count.ShouldBe(2);
-        decoded.Digipeaters[0].Callsign.ShouldBe(new Callsign("WIDE1", 1));
-        decoded.Digipeaters[1].Callsign.ShouldBe(new Callsign("WIDE2", 2));
-        decoded.Digipeaters[0].ExtensionBit.ShouldBeFalse();
-        decoded.Digipeaters[1].ExtensionBit.ShouldBeTrue("E bit migrates to last digipeater");
-        decoded.Source.ExtensionBit.ShouldBeFalse("source E bit is clear when digipeaters follow");
-        decoded.Info.ToArray().ShouldBe(new byte[] { 0x21, 0x22, 0x23 });
+        decoded!.Destination.Callsign.Should().Be(new Callsign("APRS", 0));
+        decoded.Source.Callsign.Should().Be(new Callsign("M0LTE", 9));
+        decoded.Digipeaters.Count.Should().Be(2);
+        decoded.Digipeaters[0].Callsign.Should().Be(new Callsign("WIDE1", 1));
+        decoded.Digipeaters[1].Callsign.Should().Be(new Callsign("WIDE2", 2));
+        decoded.Digipeaters[0].ExtensionBit.Should().BeFalse();
+        decoded.Digipeaters[1].ExtensionBit.Should().BeTrue("E bit migrates to last digipeater");
+        decoded.Source.ExtensionBit.Should().BeFalse("source E bit is clear when digipeaters follow");
+        decoded.Info.ToArray().Should().Equal(new byte[] { 0x21, 0x22, 0x23 });
     }
 
     [Fact]
@@ -88,10 +88,10 @@ public class Ax25FrameTests
             info: ReadOnlySpan<byte>.Empty,
             isCommand: false);
 
-        frame.Destination.CrhBit.ShouldBeFalse("dest C=0 for response");
-        frame.Source.CrhBit.ShouldBeTrue("source C=1 for response");
-        frame.IsResponse.ShouldBeTrue();
-        frame.IsCommand.ShouldBeFalse();
+        frame.Destination.CrhBit.Should().BeFalse("dest C=0 for response");
+        frame.Source.CrhBit.Should().BeTrue("source C=1 for response");
+        frame.IsResponse.Should().BeTrue();
+        frame.IsCommand.Should().BeFalse();
     }
 
     [Fact]
@@ -103,20 +103,20 @@ public class Ax25FrameTests
             info: ReadOnlySpan<byte>.Empty,
             pollFinal: true);
 
-        frame.Control.ShouldBe(Ax25Frame.ControlUiPollFinal);
-        frame.PollFinal.ShouldBeTrue();
+        frame.Control.Should().Be(Ax25Frame.ControlUiPollFinal);
+        frame.PollFinal.Should().BeTrue();
     }
 
     [Fact]
     public void TryParse_Rejects_Truncated_Input()
     {
-        Ax25Frame.TryParse(GoldenUi_AprsCommand_NoDigi.AsSpan(0, 10), out _).ShouldBeFalse();
+        Ax25Frame.TryParse(GoldenUi_AprsCommand_NoDigi.AsSpan(0, 10), out _).Should().BeFalse();
     }
 
     [Fact]
     public void TryParse_Rejects_Empty()
     {
-        Ax25Frame.TryParse(ReadOnlySpan<byte>.Empty, out _).ShouldBeFalse();
+        Ax25Frame.TryParse(ReadOnlySpan<byte>.Empty, out _).Should().BeFalse();
     }
 
     [Fact]
@@ -135,12 +135,12 @@ public class Ax25FrameTests
         var withFcs  = frame.ToBytesWithFcs();
         var body     = frame.ToBytes();
 
-        withFcs.Length.ShouldBe(body.Length + 2, "FCS adds exactly 2 bytes");
-        withFcs.AsSpan(0, body.Length).SequenceEqual(body).ShouldBeTrue("body must be unchanged");
+        withFcs.Length.Should().Be(body.Length + 2, "FCS adds exactly 2 bytes");
+        withFcs.AsSpan(0, body.Length).SequenceEqual(body).Should().BeTrue("body must be unchanged");
 
         var expectedCrc = Crc16Ccitt.Compute(body);
-        withFcs[^2].ShouldBe((byte)(expectedCrc & 0xFF),        "low byte first");
-        withFcs[^1].ShouldBe((byte)((expectedCrc >> 8) & 0xFF), "high byte second");
+        withFcs[^2].Should().Be((byte)(expectedCrc & 0xFF),        "low byte first");
+        withFcs[^1].Should().Be((byte)((expectedCrc >> 8) & 0xFF), "high byte second");
     }
 
     [Fact]
@@ -154,19 +154,19 @@ public class Ax25FrameTests
         var buf = new byte[frame.RequiredBytesWithFcs];
         var written = frame.WriteToWithFcs(buf);
 
-        written.ShouldBe(frame.RequiredBytesWithFcs);
-        written.ShouldBe(frame.RequiredBytes + 2);
+        written.Should().Be(frame.RequiredBytesWithFcs);
+        written.Should().Be(frame.RequiredBytes + 2);
     }
 
     [Fact]
     public void Ui_Rejects_More_Than_Eight_Digipeaters()
     {
         var nine = Enumerable.Range(0, 9).Select(i => new Callsign($"D{i}", 0));
-        Should.Throw<ArgumentException>(() =>
-            Ax25Frame.Ui(
-                destination: new Callsign("APRS", 0),
-                source: new Callsign("G7XYZ", 0),
-                info: ReadOnlySpan<byte>.Empty,
-                digipeaters: nine));
+        var act = () => Ax25Frame.Ui(
+            destination: new Callsign("APRS", 0),
+            source: new Callsign("G7XYZ", 0),
+            info: ReadOnlySpan<byte>.Empty,
+            digipeaters: nine);
+        act.Should().Throw<ArgumentException>();
     }
 }

@@ -225,19 +225,19 @@ internal static class Program
         sb.Append(GeneratedHeader);
         sb.Append('\n');
         sb.Append("using System.Linq;\n");
+        sb.Append("using AwesomeAssertions;\n");
         sb.Append("using Packet.Ax25.Sdl;\n");
-        sb.Append("using Shouldly;\n");
         sb.Append("using Xunit;\n\n");
         sb.Append("namespace Packet.Ax25.Conformance.Tests;\n\n");
         sb.AppendFormat(CultureInfo.InvariantCulture,
             "public class {0}_{1}_GeneratedTests\n{{\n", Pascal(page.Machine), page.State);
 
         sb.AppendFormat(CultureInfo.InvariantCulture,
-            "    [Fact] public void SourceFigure() => {0}_{1}.Source.Figure.ShouldBe(\"{2}\");\n\n",
+            "    [Fact] public void SourceFigure() => {0}_{1}.Source.Figure.Should().Be(\"{2}\");\n\n",
             Pascal(page.Machine), page.State, page.Source!.Figure);
 
         sb.AppendFormat(CultureInfo.InvariantCulture,
-            "    [Fact] public void TransitionsArePresent() => {0}_{1}.Transitions.Count.ShouldBe({2});\n\n",
+            "    [Fact] public void TransitionsArePresent() => {0}_{1}.Transitions.Count.Should().Be({2});\n\n",
             Pascal(page.Machine), page.State, page.Transitions.Count);
 
         foreach (var t in page.Transitions)
@@ -248,15 +248,15 @@ internal static class Program
                 "        var t = {0}_{1}.Transitions.Single(x => x.Id == \"{2}\");\n",
                 Pascal(page.Machine), page.State, t.Id);
             sb.AppendFormat(CultureInfo.InvariantCulture,
-                "        t.On.ShouldBe(\"{0}\");\n", t.On);
+                "        t.On.Should().Be(\"{0}\");\n", t.On);
             sb.AppendFormat(CultureInfo.InvariantCulture,
-                "        t.Next.ShouldBe(\"{0}\");\n", t.Next);
+                "        t.Next.Should().Be(\"{0}\");\n", t.Next);
             if (t.Guard is not null)
                 sb.AppendFormat(CultureInfo.InvariantCulture,
-                    "        t.Guard.ShouldBe({0});\n", EscapeString(t.Guard));
+                    "        t.Guard.Should().Be({0});\n", EscapeString(t.Guard));
             foreach (var a in t.Actions ?? new())
                 sb.AppendFormat(CultureInfo.InvariantCulture,
-                    "        t.Actions.ShouldContain({0});\n", EscapeString(a));
+                    "        t.Actions.Should().Contain({0});\n", EscapeString(a));
             sb.Append("    }\n\n");
         }
 

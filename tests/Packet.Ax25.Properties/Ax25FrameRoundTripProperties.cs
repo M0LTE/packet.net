@@ -36,16 +36,16 @@ public class Ax25FrameRoundTripProperties
             pollFinal: pollFinal);
 
         var bytes = original.ToBytes();
-        Ax25Frame.TryParse(bytes, out var decoded).ShouldBeTrue();
+        Ax25Frame.TryParse(bytes, out var decoded).Should().BeTrue();
 
-        decoded!.Destination.Callsign.ShouldBe(dest);
-        decoded.Source.Callsign.ShouldBe(src);
-        decoded.Control.ShouldBe(original.Control);
-        decoded.Pid.ShouldBe(original.Pid);
-        decoded.Info.ToArray().ShouldBe(info);
-        decoded.IsCommand.ShouldBe(isCommand);
-        decoded.IsResponse.ShouldBe(!isCommand);
-        decoded.PollFinal.ShouldBe(pollFinal);
+        decoded!.Destination.Callsign.Should().Be(dest);
+        decoded.Source.Callsign.Should().Be(src);
+        decoded.Control.Should().Be(original.Control);
+        decoded.Pid.Should().Be(original.Pid);
+        decoded.Info.ToArray().Should().Equal(info);
+        decoded.IsCommand.Should().Be(isCommand);
+        decoded.IsResponse.Should().Be(!isCommand);
+        decoded.PollFinal.Should().Be(pollFinal);
     }
 
     /// <summary>
