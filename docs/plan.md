@@ -663,6 +663,44 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Transcribe figc4.2 Data-Link Awaiting Connection state
+
+Second SDL page on the lossless schema. Tom drew
+`spec-sdl/data-link/DataLink_AwaitingConnection.graphml` (73 nodes, 78
+edges, 17 input columns); I converted to
+`spec-sdl/data-link/awaiting_connection.sdl.yaml` — **24 transitions**
+plus one page-level `save:` directive (DL-DISCONNECT request, drawn
+with the SDL Save parallelogram on column 1).
+
+First exposure to two new shape classes from figc1.1:
+- **Save** (parallelogram) — turns into `save: [DL_DISCONNECT_request]`
+  at page level; the column itself is not a transition.
+- **Internal Signal Generation** — `push_frame_on_queue` action with
+  `kind: internal_out`.
+
+Notable transcription details:
+- **Three chained decisions** on the UA-received path (`F == 1?`,
+  `Layer 3 Initiated?`, `V(s) == V(a)?`) enumerate to **four** distinct
+  UA-received transitions. The middle "V(s)==V(a) Yes" branch reaches
+  Connected *without* sending DL-CONNECT confirm to upper layer — the
+  spec's way of saying "we didn't initiate this, don't tell L3 it
+  happened from our side."
+- **Verification_pending** flag on the DL-DATA / I-frame-pops diamond
+  (`data_layer_3_initiated`). Tom's graphml labels the Yes/No branches
+  with "(Note: assumed; missing from spec)" — preserved verbatim as
+  `verification_pending:` notes on t13–t16. Candidate for upstream
+  spec review.
+- SABME-while-Awaiting-Connection transitions to a new state
+  `AwaitingConnection22` (figc4.6's "Awaiting 2.2 Connection"). Will
+  be tied off when figc4.6 lands.
+
+Five new decision identifiers introduced this page: `F_eq_1`,
+`layer_3_initiated` (already in `Ax25SessionBindings`), `V_s_eq_V_a`,
+`RC_eq_N2`, `P_eq_1` (re-used from figc4.1). The smoke test in the
+follow-up PR will bind the new ones.
+
+Test totals: 230 (was 204). +26 from new generated conformance tests.
+
 ### 2026-05-12 — Pin implementation references for all 17 figc4.1 transitions
 
 Stage 2 of structured implementation references — citations for the
