@@ -26,6 +26,7 @@
     <Project Path="tests/Packet.Kiss.Tests/Packet.Kiss.Tests.csproj" />
     <Project Path="tests/Packet.Node.Tests/Packet.Node.Tests.csproj" />
     <Project Path="tests/Packet.Rhp2.Tests/Packet.Rhp2.Tests.csproj" />
+    <Project Path="tests/Packet.Sdl.CodeGen.Tests/Packet.Sdl.CodeGen.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Packet.Sdl.CodeGen/Packet.Sdl.CodeGen.csproj" />
