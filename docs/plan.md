@@ -5,8 +5,8 @@
 > If you are reading this for the first time: start with [Why Packet.NET?](#1-why-packetnet) and [Working agreements](#2-working-agreements). If you are looking for *what to build next*, jump to [Roadmap](#5-phased-roadmap). If you are an agent: read [Working agreements](#2-working-agreements) carefully — those are the operating instructions that take precedence over your defaults.
 
 **As of:** 2026-05-12
-**Current phase:** Phase 2 starting — orchestration scaffolding (events, context, timer driver) lands first; action dispatch + Ax25Session runner to follow.
-**Latest amendment:** [§17 entry 2026-05-12 Phase 2 foundations: events, context, timer driver](#17-amendment-log)
+**Current phase:** Phase 2 in progress — guard evaluator + action dispatcher land on top of foundations; Ax25Session runner ties them together next.
+**Latest amendment:** [§17 entry 2026-05-12 Phase 2 interpreter: guard evaluator + action dispatcher](#17-amendment-log)
 
 ---
 
@@ -656,6 +656,31 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-12 — Phase 2 interpreter: guard evaluator + action dispatcher
+
+Second slice of the orchestrator scaffolding. Sits on top of the
+foundations (events / context / timer driver) and converts the SDL's
+guard expression strings and action-verb strings into actual mutations
+on the session.
+
+- `Packet.Ax25.Session.GuardEvaluator` — recursive-descent parser for
+  the boolean expression language used in `*.sdl.yaml` `guard:` fields.
+  Grammar: `expr := term ("or" term)* ; term := factor ("and" factor)* ;
+  factor := "not"? identifier`. Identifiers resolve via a caller-supplied
+  binding table (closures that read the session context). Empty / null /
+  whitespace expression is trivially true. Unbound identifier or syntax
+  error throws `GuardEvaluationException`.
+- `Packet.Ax25.Session.ActionDispatcher` — `switch` over action strings.
+  Implements every verb our current transcription uses (flag mutations,
+  T1/T2/T3 start/stop, supervisory-frame transmission via callback,
+  sequence-variable assignments). Unknown actions throw — typos in a
+  new transcription surface at first execution.
+- `Packet.Ax25.Session.SupervisoryFrameSpec` — `(SupervisoryFrameType, IsCommand)`
+  record. Dispatcher emits these via a sink callback so the session can
+  translate them into real `Ax25Frame`s in the runner PR.
+
+47 new tests, all using AwesomeAssertions per [§2.8](#28-new-tests-use-awesomeassertions).
 
 ### 2026-05-12 — Phase 2 foundations: events, context, timer driver
 
