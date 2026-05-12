@@ -43,10 +43,20 @@ public sealed class AxudpSocket : IDisposable
     /// <summary>
     /// Send a serialised AX.25 frame to <paramref name="remote"/>.
     /// </summary>
-    public async Task<int> SendAsync(IPEndPoint remote, Ax25Frame frame, CancellationToken cancellationToken = default)
+    /// <param name="remote">The remote endpoint to send to.</param>
+    /// <param name="frame">Frame to send.</param>
+    /// <param name="includeFcs">
+    /// If <c>true</c>, append the CRC-16-CCITT FCS (low-byte first) — required
+    /// by XRouter's AXUDP listener and the AXIP-with-CRC variant. If <c>false</c>
+    /// (the default), send the FCS-less form that LinBPQ's BPQAXIP driver
+    /// accepts. Set this to <c>true</c> whenever you're talking to a peer that
+    /// rejects bodies as "non-AXUDP".
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<int> SendAsync(IPEndPoint remote, Ax25Frame frame, bool includeFcs = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        var bytes = frame.ToBytes();
+        var bytes = includeFcs ? frame.ToBytesWithFcs() : frame.ToBytes();
         return await udp.SendAsync(bytes, remote, cancellationToken).ConfigureAwait(false);
     }
 
