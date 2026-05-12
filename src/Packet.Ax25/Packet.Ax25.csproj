@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Packet.Core\Packet.Core.csproj" />
+    <ProjectReference Include="..\Packet.Ax25.Sdl\Packet.Ax25.Sdl.csproj" />
   </ItemGroup>
 
 </Project>
