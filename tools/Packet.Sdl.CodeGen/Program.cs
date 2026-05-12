@@ -266,11 +266,15 @@ internal static class Program
 
             if (string.IsNullOrWhiteSpace(t.Next)) errors.Add($"{loc}: transition `{t.Id}` missing `next`");
 
-            if (t.Path is null || t.Path.Count == 0)
+            if (t.Path is null)
             {
-                errors.Add($"{loc}: transition `{t.Id}` missing `path` (must contain at least one decision-branch or action step)");
+                errors.Add($"{loc}: transition `{t.Id}` missing `path`. Use `path: []` for a no-op column (input → state with no intermediate boxes).");
                 continue;
             }
+
+            // Empty path is allowed: figc4.1's "All Other Primitives" (from
+            // lower layer) is drawn as input → state with no intermediate
+            // boxes, and that's a valid SDL pattern.
 
             for (int i = 0; i < t.Path.Count; i++)
             {
