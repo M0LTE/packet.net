@@ -20,6 +20,8 @@ internal static class Program
         new[] { "signal_upper", "signal_lower", "processing", "subroutine", "internal_out" },
         StringComparer.Ordinal);
 
+    private static readonly char[] GuardTokenSeparators = { ' ', '\t' };
+
     public static int Main(string[] args)
     {
         string inDir = "spec-sdl";
@@ -303,6 +305,148 @@ internal static class Program
                 }
             }
         }
+
+        LintDecisionBranchCompleteness(page, decisionsById, errors);
+        LintGuardOverlap(page, decisionsById, errors);
+    }
+
+    // ─── Lints ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every decision defined on a page must appear with both "Yes" and "No"
+    /// branches across some transition pair. A decision used with only one
+    /// branch means the figure's other branch is missing from the
+    /// transcription — almost always a transcription slip rather than an
+    /// intentional one-armed diamond.
+    /// </summary>
+    private static void LintDecisionBranchCompleteness(
+        SdlPage page,
+        IReadOnlyDictionary<string, SdlDecision> decisionsById,
+        List<string> errors)
+    {
+        var branchUses = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var t in page.Transitions)
+        {
+            foreach (var step in t.Path ?? new())
+            {
+                if (string.IsNullOrWhiteSpace(step.Decision)) continue;
+                if (!branchUses.TryGetValue(step.Decision!, out var seen))
+                {
+                    seen = new HashSet<string>(StringComparer.Ordinal);
+                    branchUses[step.Decision!] = seen;
+                }
+                if (!string.IsNullOrWhiteSpace(step.Branch))
+                {
+                    seen.Add(step.Branch!);
+                }
+            }
+        }
+
+        foreach (var id in decisionsById.Keys)
+        {
+            if (!branchUses.TryGetValue(id, out var seen))
+            {
+                errors.Add($"{page.SourcePath}: decision `{id}` is declared but never referenced in any transition path.");
+                continue;
+            }
+            if (!seen.Contains("Yes"))
+                errors.Add($"{page.SourcePath}: decision `{id}` missing 'Yes' branch in any transition (seen: {string.Join(", ", seen.OrderBy(s => s, StringComparer.Ordinal))}). Add the missing column or mark `coverage: partial` with a verification_pending note.");
+            if (!seen.Contains("No"))
+                errors.Add($"{page.SourcePath}: decision `{id}` missing 'No' branch in any transition (seen: {string.Join(", ", seen.OrderBy(s => s, StringComparer.Ordinal))}). Add the missing column or mark `coverage: partial` with a verification_pending note.");
+        }
+    }
+
+    /// <summary>
+    /// Two transitions sharing the same <c>on:</c> event for one state must
+    /// have provably-disjoint guards — otherwise the orchestrator silently
+    /// picks the first match and the second is dead code. Disjointness here
+    /// is decided by literal contradiction: if guard A contains <c>X</c>
+    /// positively and guard B contains <c>X</c> negatively (or vice versa),
+    /// they're disjoint. Guards with <c>or</c> are skipped (out of scope for
+    /// this lint).
+    /// </summary>
+    private static void LintGuardOverlap(
+        SdlPage page,
+        IReadOnlyDictionary<string, SdlDecision> decisionsById,
+        List<string> errors)
+    {
+        // Compile each transition's path into a guard-literal set for fast
+        // disjointness comparison. Skip transitions where the path-compile
+        // produced an `or` (we don't reason about disjunctive guards).
+        var compiled = page.Transitions
+            .Where(t => t.Path is not null)
+            .Select(t => (t, lits: CompileGuardLiterals(t, decisionsById)))
+            .ToList();
+
+        var byEvent = compiled.GroupBy(x => x.t.On, StringComparer.Ordinal);
+        foreach (var grp in byEvent)
+        {
+            var list = grp.ToList();
+            for (int i = 0; i < list.Count; i++)
+            {
+                for (int j = i + 1; j < list.Count; j++)
+                {
+                    if (list[i].lits is null || list[j].lits is null) continue;
+                    if (!AreDisjoint(list[i].lits!, list[j].lits!))
+                    {
+                        errors.Add($"{page.SourcePath}: transitions `{list[i].t.Id}` and `{list[j].t.Id}` both fire on event `{grp.Key}` with non-disjoint guards. The orchestrator will silently pick the first match. Add a contradicting decision branch on one path, or merge the transitions.");
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the set of literals making up the conjunctive guard for
+    /// <paramref name="t"/>, or <c>null</c> if the path includes a decision
+    /// whose canonical predicate contains <c>or</c> (disjunctive guards are
+    /// out of scope for the overlap check).
+    /// </summary>
+    private static HashSet<(string Ident, bool Positive)>? CompileGuardLiterals(
+        SdlTransition t,
+        IReadOnlyDictionary<string, SdlDecision> decisionsById)
+    {
+        var lits = new HashSet<(string, bool)>();
+        foreach (var step in t.Path ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(step.Decision)) continue;
+            if (!decisionsById.TryGetValue(step.Decision!, out var decision)) continue;
+            var predicate = decision.Predicate ?? string.Empty;
+            if (predicate.Contains(" or ", StringComparison.Ordinal))
+            {
+                return null;
+            }
+            // Predicate is a conjunction of (possibly negated) identifiers.
+            // Tokenize on whitespace; walk through "and"-separated literals.
+            var tokens = predicate.Split(GuardTokenSeparators, StringSplitOptions.RemoveEmptyEntries);
+            int idx = 0;
+            while (idx < tokens.Length)
+            {
+                if (tokens[idx] == "and") { idx++; continue; }
+                bool positive = true;
+                if (tokens[idx] == "not") { positive = false; idx++; }
+                if (idx >= tokens.Length) break;
+                var ident = tokens[idx++];
+                if (step.Branch == "No") positive = !positive;
+                lits.Add((ident, positive));
+            }
+        }
+        return lits;
+    }
+
+    private static bool AreDisjoint(
+        HashSet<(string Ident, bool Positive)> a,
+        HashSet<(string Ident, bool Positive)> b)
+    {
+        // Two conjunctive literal sets are disjoint iff one literal in a has
+        // its negation in b (or vice versa). Empty sets (unguarded) are not
+        // disjoint with anything — they always fire.
+        if (a.Count == 0 || b.Count == 0) return false;
+        foreach (var lit in a)
+        {
+            if (b.Contains((lit.Ident, !lit.Positive))) return true;
+        }
+        return false;
     }
 
     // ─── File IO ───────────────────────────────────────────────────────

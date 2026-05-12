@@ -45,6 +45,29 @@ cross-reference how at least one of the canonical implementations handles it
 (see `docs/plan.md` §13.2). Drop the citation into the transition's `notes:`
 field.
 
+### Reading SDL graphml: `d5` is the authoritative shape class (SDL work)
+
+Each node in a `spec-sdl/**/*.graphml` file carries a `<data key="d5">`
+description (e.g. "Signal reception from Lower Layer", "Signal generation
+to upper layer", "Processing description", "Test or decision"). That `d5`
+text is the **only** authoritative source for the node's shape class.
+
+**Do not** infer a node's meaning from the visual direction of its
+parallelogram (left-notch vs right-notch) or from your prior understanding
+of which layer DL-\* vs frame events "should" come from. The figures in
+the AX.25 spec do not always use shape direction the way figc1.1's legend
+suggests — for example, figc4.1 draws upper-layer DL-\* primitives with
+the "Signal reception from Lower Layer" shape. The figure is the source
+of truth (§2.1); `d5` records the figure's choice verbatim; we transcribe.
+
+When the same label appears under two different `d5` values, those are
+**two distinct events** in the catalogue. Disambiguate with a
+`__from_<shape-class>` suffix on the event id.
+
+When referring to a shape class in writing, quote `d5` verbatim (e.g.
+"`Signal reception from upper layer`"). Don't paraphrase from the shape's
+appearance.
+
 ### Keep the plan current
 
 `docs/plan.md` §17 Amendment log is updated *in the same PR* as the work that

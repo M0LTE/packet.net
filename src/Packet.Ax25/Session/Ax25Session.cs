@@ -24,7 +24,7 @@ namespace Packet.Ax25.Session;
 public sealed class Ax25Session
 {
     private readonly IReadOnlyDictionary<string, IReadOnlyList<TransitionSpec>> transitionsByState;
-    private readonly ActionDispatcher dispatcher;
+    private readonly IActionDispatcher dispatcher;
     private readonly GuardEvaluator guards;
     private readonly ITimerScheduler scheduler;
     private readonly Action<Ax25Event>? onUnhandledEvent;
@@ -56,7 +56,7 @@ public sealed class Ax25Session
     public Ax25Session(
         Ax25SessionContext context,
         ITimerScheduler scheduler,
-        ActionDispatcher dispatcher,
+        IActionDispatcher dispatcher,
         GuardEvaluator guards,
         IReadOnlyDictionary<string, IReadOnlyList<TransitionSpec>> transitionsByState,
         string initialState,
