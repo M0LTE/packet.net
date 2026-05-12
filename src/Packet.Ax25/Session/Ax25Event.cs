@@ -85,6 +85,11 @@ public sealed record ControlFieldError()        : Ax25Event("control_field_error
 public sealed record InfoNotPermittedInFrame()  : Ax25Event("info_not_permitted_in_frame");
 public sealed record UOrSFrameLengthError()     : Ax25Event("u_or_s_frame_length_error");
 
+// ─── Link-multiplexer events ────────────────────────────────────────────
+
+/// <summary>The link multiplexer has confirmed our SEIZE request — we own the medium.</summary>
+public sealed record LmSeizeConfirm() : Ax25Event("LM_SEIZE_confirm");
+
 // ─── Timer expiries ─────────────────────────────────────────────────────
 
 public sealed record T1Expiry() : Ax25Event("T1_expiry");
