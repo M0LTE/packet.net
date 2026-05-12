@@ -663,6 +663,81 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Validate figc4.4 — smoke test + 4-codebase references
+
+Combined validation pass for `connected.sdl.yaml` (the figc4.4
+transcription that landed in PR #20):
+
+1. **Orchestrator smoke test** (`DataLinkConnectedSmokeTests.cs`) — 69
+   facts, one per transition, with bindings for all 19 decision
+   predicates introduced on this page (P_eq_1, F_eq_1, command,
+   info_field_valid, V_a_le_N_r_le_V_s, N_s_eq_V_r, N_s_gt_V_r_plus_1,
+   V_s_eq_V_a, V_s_eq_V_a_plus_k, own_receiver_busy,
+   peer_receiver_busy, reject_exception, srej_enabled,
+   srej_exception_gt_0, acknowledge_pending, V_r_I_frame_stored,
+   version_2_2, P_or_F_eq_1, T1_running). Closes runtime loop YAML →
+   spec → orchestrator behaviour for the page's 69 transitions.
+
+2. **Implementation references** across all four pinned sources
+   (LinBPQ, Dire Wolf, rax25, Linux mod-orphan). Parallelised via four
+   subagents. The complete page now has citations in 53 of 69
+   transitions × multiple codebases — over 200 individual citations
+   merged via a Python text-injection script.
+
+**Cross-implementation findings durably captured**:
+
+- **rax25 and direwolf both fuse Connected (state 3) with TimerRecovery
+  (state 4)** into a single handler discriminated by an internal
+  flag/enum. figc4.5's transcription will share many code paths with
+  this page.
+
+- **All four implementations bypass DL-UNIT-DATA Request (t23)** — UI
+  sent via APRS/KISS/socket layers, never through the LAPB state
+  machine.
+
+- **LinBPQ disables spec-compliant FRMR recovery** via the FRMRHACK
+  macro (L2Code.c:24) — treats FRMR as DM (link drop). Original
+  spec-compliant code is commented out at L2Code.c:2192-2202. Notable
+  enough that the YAML calls it out by name.
+
+- **Linux silently drops AX25_SREJ as AX25_ILLEGAL** — Linux has no
+  SREJ implementation at all. SREJ frames fall through to the
+  FRMR/establish-data-link path.
+
+- **DL-ERROR codes inconsistently surfaced**:
+  - direwolf: text-message logs ("Protocol Error C: Unexpected UA...")
+  - rax25: typed DlError variants for some (D/E/G/K) but rejects O on
+    I-frame for being "not even remotely correct, since O means packet
+    too big" — emits DlError::S instead
+  - LinBPQ: mostly omits, uses FRMR transitions instead
+  - Linux: omits entirely; silently drops
+
+- **Direwolf's I-frame handler implements X.25 §2.4.6.4** rather than
+  AX.25's SDL (author Erratum 3014: "AX.25 protocol spec did not handle
+  SREJ very well. Based on X.25 section 2.4.6.4."). Major divergence.
+
+- **The n148 "V(r) I Frame Stored?" loop** (figc4.4 column 2 sub-tree)
+  is a deliberate spec feature per Tom. Currently encoded as one
+  iteration inline on t67-t69 with `verification_pending` notes;
+  follow-up PR will add a real `loop:` construct to the schema and
+  refactor.
+
+- **Two spec-version divergences flagged by rax25 author**:
+  - "1998 bug: Says to set rc=0. Fixed in 2017." (T3 expiry, t39)
+  - "2017 spec says DlError::K, which is undocumented" (UA in
+    Connected, t46) — uses DlError::C instead
+
+- **Direwolf author erratum on T3 expiry RC**: "Original sets RC to 0,
+  2006 revision sets RC to 1 which makes more sense." Direwolf follows
+  2006.
+
+- **`spec_prose` citations not added in this pass** — the volume of
+  inline notes plus implementation references is already substantial.
+  Spec-prose cross-check is a planned follow-up; in the meantime the
+  amendment log here captures the structural cross-impl findings.
+
+Test totals: 394 (was 325; +69 smoke tests).
+
 ### 2026-05-12 — Transcribe figc4.4 Data-Link Connected state
 
 Third SDL page, by far the biggest. Tom drew
