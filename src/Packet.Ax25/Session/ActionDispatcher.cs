@@ -3,6 +3,20 @@ using Packet.Ax25.Sdl;
 namespace Packet.Ax25.Session;
 
 /// <summary>
+/// Consumes the action chain attached to an SDL transition. Implementations
+/// decide how (or whether) to enforce action handlers — production uses
+/// <see cref="ActionDispatcher"/>, tests can substitute a recording stub.
+/// </summary>
+public interface IActionDispatcher
+{
+    /// <summary>
+    /// Execute the supplied <paramref name="actions"/> in order against the
+    /// session's state and scheduler.
+    /// </summary>
+    void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext context, ITimerScheduler scheduler);
+}
+
+/// <summary>
 /// Executes the action strings recorded in an SDL transition's
 /// <c>actions:</c> list. Each verb maps to one method on the dispatcher,
 /// which either mutates the <see cref="Ax25SessionContext"/>, arms /
@@ -23,7 +37,7 @@ namespace Packet.Ax25.Session;
 /// expose them as <c>init</c>-only properties.
 /// </para>
 /// </remarks>
-public sealed class ActionDispatcher
+public sealed class ActionDispatcher : IActionDispatcher
 {
     private readonly Action<string> onTimerExpiry;
     private readonly Action<SupervisoryFrameSpec> sendSFrame;
@@ -65,15 +79,15 @@ public sealed class ActionDispatcher
     /// is preserved on the spec for downstream tools (figure redraw, cross-language
     /// codegen) but the dispatcher looks up handlers by <see cref="ActionStep.Verb"/>.
     /// </summary>
-    public void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext ctx, ITimerScheduler scheduler)
+    public void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext context, ITimerScheduler scheduler)
     {
         ArgumentNullException.ThrowIfNull(actions);
-        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(scheduler);
 
         foreach (var step in actions)
         {
-            Execute(step.Verb, ctx, scheduler);
+            Execute(step.Verb, context, scheduler);
         }
     }
 

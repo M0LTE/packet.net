@@ -66,8 +66,20 @@ public sealed record TestReceived(Ax25Frame Frame)       : Ax25Event("TEST_recei
 /// <summary>The session's I-frame queue surfaced its next ready frame.</summary>
 public sealed record IFramePopsOffQueue() : Ax25Event("I_frame_pops_off_queue");
 
-/// <summary>Any primitive the current state doesn't have a specific handler for.</summary>
-public sealed record AllOtherPrimitives() : Ax25Event("all_other_primitives");
+// ─── Catch-all events ───────────────────────────────────────────────────
+// Source-class suffixed to disambiguate identical English labels appearing
+// under two different figc1.1 shape classes in the same figure (see
+// figc4.1's Disconnected state). The suffix names the `d5` description
+// the corresponding box was drawn with.
+
+/// <summary>Catch-all for unhandled boxes drawn with the "Signal reception from Lower Layer" shape.</summary>
+public sealed record AllOtherPrimitivesFromLowerLayer() : Ax25Event("all_other_primitives__from_lower_layer");
+
+/// <summary>Catch-all for unhandled boxes drawn with the "Signal reception from upper layer" shape.</summary>
+public sealed record AllOtherPrimitivesFromUpperLayer() : Ax25Event("all_other_primitives__from_upper_layer");
+
+/// <summary>Catch-all for command frames not explicitly handled by a state's transition table.</summary>
+public sealed record AllOtherCommands() : Ax25Event("all_other_commands");
 
 public sealed record ControlFieldError()        : Ax25Event("control_field_error");
 public sealed record InfoNotPermittedInFrame()  : Ax25Event("info_not_permitted_in_frame");

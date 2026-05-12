@@ -663,6 +663,55 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Validate figc4.1 Disconnected: orchestrator smoke test + codegen lints
+
+Two pieces of validation against the freshly-transcribed
+`disconnected.sdl.yaml`:
+
+1. **Behavioural smoke test** (`tests/Packet.Ax25.Tests/Session/
+DataLinkDisconnectedSmokeTests.cs`): drives all 17 transitions through
+   `Ax25Session` with a `RecordingActionDispatcher` (`IActionDispatcher`
+   extracted as an interface for this) and stub guard bindings for
+   `P_eq_1` and `able_to_establish`. Per transition: post the event,
+   assert `CurrentState == t.Next` and recorded actions equal `t.Actions`
+   in order. Catches orchestrator routing bugs, guard parsing bugs,
+   action-order bugs, state-update bugs.
+
+   Does *not* validate that the YAML matches figc4.1 semantically — that
+   still needs human review. But composed with the generated
+   conformance tests (YAML → TransitionSpec), the smoke test closes
+   the runtime loop: YAML → spec → orchestrator behaviour.
+
+2. **Two new codegen lints** in `tools/Packet.Sdl.CodeGen/Program.cs`:
+   - **Decision branch completeness**: every decision declared in
+     `decisions:` must appear with both `"Yes"` and `"No"` branches
+     across some transition pair. Catches a column drawn for one
+     branch but not the other.
+   - **Guard overlap**: two transitions with the same `on:` must have
+     provably disjoint guards (literal-contradiction analysis on the
+     compiled guard conjunctions). Catches accidental coverage gaps
+     where the orchestrator would silently pick the first match.
+   Sanity-tested by temporarily breaking the YAML — both lints fired
+   with clear errors.
+
+Also extracted `IActionDispatcher` interface and updated `Ax25Session`
+to depend on it (was on the sealed `ActionDispatcher` concrete class).
+Production behaviour unchanged; tests can now substitute a recording
+stub.
+
+Also removed the stale `AllOtherPrimitives` event record (the bare
+event was replaced by three suffixed variants when the catchall events
+were reworked) and added the three new event records:
+`AllOtherPrimitivesFromLowerLayer`, `AllOtherPrimitivesFromUpperLayer`,
+`AllOtherCommands`.
+
+Test totals: 204 (was 187). +17 from the smoke test.
+
+Also committed the **read-`d5`-not-the-shape** rule durably in
+`CLAUDE.md` under "Hard rules" — Tom asked not to have to explain
+graphml shape interpretation twice. The same rule lives in the
+agent's memory system.
+
 ### 2026-05-12 — First SDL transcription on the new schema: figc4.1 Data-Link Disconnected
 
 Tom drew Data Link Disconnected State in yEd as
