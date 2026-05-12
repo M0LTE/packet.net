@@ -29,7 +29,8 @@ public class Ax25SessionTests
             },
             Next: "Connected",
             Notes: null,
-            References: Array.Empty<ImplementationReference>()),
+            References: Array.Empty<ImplementationReference>(),
+            Loops: Array.Empty<LoopRange>()),
         new(
             Id: "t02_dl_flow_off_when_own_receiver_not_busy",
             From: "Connected",
@@ -38,7 +39,8 @@ public class Ax25SessionTests
             Actions: Array.Empty<ActionStep>(),
             Next: "Connected",
             Notes: null,
-            References: Array.Empty<ImplementationReference>()),
+            References: Array.Empty<ImplementationReference>(),
+            Loops: Array.Empty<LoopRange>()),
         new(
             Id: "t03_dl_flow_on_when_own_receiver_not_busy",
             From: "Connected",
@@ -47,7 +49,8 @@ public class Ax25SessionTests
             Actions: Array.Empty<ActionStep>(),
             Next: "Connected",
             Notes: null,
-            References: Array.Empty<ImplementationReference>()),
+            References: Array.Empty<ImplementationReference>(),
+            Loops: Array.Empty<LoopRange>()),
         new(
             Id: "t04_dl_flow_on_when_busy_and_T1_not_running",
             From: "Connected",
@@ -63,7 +66,8 @@ public class Ax25SessionTests
             },
             Next: "Connected",
             Notes: null,
-            References: Array.Empty<ImplementationReference>()),
+            References: Array.Empty<ImplementationReference>(),
+            Loops: Array.Empty<LoopRange>()),
         new(
             Id: "t05_dl_flow_on_when_busy_and_T1_running",
             From: "Connected",
@@ -77,7 +81,8 @@ public class Ax25SessionTests
             },
             Next: "Connected",
             Notes: null,
-            References: Array.Empty<ImplementationReference>()),
+            References: Array.Empty<ImplementationReference>(),
+            Loops: Array.Empty<LoopRange>()),
     };
 
     private static (Ax25Session session,
