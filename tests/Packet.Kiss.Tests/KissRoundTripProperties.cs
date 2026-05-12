@@ -21,9 +21,9 @@ public class KissRoundTripProperties
         var decoder = new KissDecoder();
         var frames = decoder.Push(encoded);
 
-        frames.Count.ShouldBe(1, $"port={port} cmd={(byte)command:X} payload={Convert.ToHexString(payload)} encoded={Convert.ToHexString(encoded)}");
-        frames[0].Port.ShouldBe(port);
-        frames[0].Command.ShouldBe(command);
-        frames[0].Payload.ShouldBe(payload);
+        frames.Count.Should().Be(1, $"port={port} cmd={(byte)command:X} payload={Convert.ToHexString(payload)} encoded={Convert.ToHexString(encoded)}");
+        frames[0].Port.Should().Be(port);
+        frames[0].Command.Should().Be(command);
+        frames[0].Payload.Should().Equal(payload);
     }
 }

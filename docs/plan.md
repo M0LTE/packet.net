@@ -6,7 +6,7 @@
 
 **As of:** 2026-05-12
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Next: more SDL pages.
-**Latest amendment:** [§17 entry 2026-05-12 Phase 2 runner: Ax25Session ties it together](#17-amendment-log)
+**Latest amendment:** [§17 entry 2026-05-12 Migrate Shouldly → AwesomeAssertions](#17-amendment-log)
 
 ---
 
@@ -107,9 +107,14 @@ Every meaningful change to direction, scope, or working agreement lands here as 
 
 Code that needs the current time, or that schedules anything timer-shaped, takes a `System.TimeProvider` and uses its `GetUtcNow()` / `CreateTimer()` etc. Production wires `TimeProvider.System`; tests inject `FakeTimeProvider` (from `Microsoft.Extensions.TimeProvider.Testing`) and advance virtual time deterministically with `Advance(TimeSpan)`. No `DateTime.Now`, no `Thread.Sleep` in test code, no real-time waits.
 
-### 2.8 New tests use AwesomeAssertions
+### 2.8 Tests use AwesomeAssertions
 
-For tests added from 2026-05-12 onwards, prefer AwesomeAssertions (license-friendly FluentAssertions fork). Both Shouldly and AwesomeAssertions are auto-imported via `tests/Directory.Build.props`. Existing Shouldly tests stay as-is — only migrated when touched for an unrelated reason.
+AwesomeAssertions (license-friendly FluentAssertions fork) is the sole assertion library — auto-imported via `tests/Directory.Build.props`. Shouldly was used briefly during Phase 0–1 but removed in favour of a single convention; mixing the two created cognitive load with no upside. Style:
+
+- Scalar equality: `value.Should().Be(expected);`
+- Collection equality (sequence): `bytes.Should().Equal(expected);` (not `.Be(expected)`, which compares references)
+- Negative constructor tests: `var act = () => new Foo(bad); act.Should().Throw<T>();`
+- Approximate floating-point: `x.Should().BeApproximately(y, tolerance);`
 
 ---
 
@@ -656,6 +661,23 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-12 — Migrate Shouldly → AwesomeAssertions, drop dual-library convention
+
+§2.8 simplified: AwesomeAssertions is the sole assertion library. The
+"both auto-imported, prefer AwesomeAssertions for new tests" compromise
+created cognitive load with no real upside — two libraries doing
+exactly the same thing.
+
+Migration: ~221 Shouldly call sites converted, `Should.Throw<T>(() => …)`
+rewritten as `var act = …; act.Should().Throw<T>()`, byte-array
+`Should.Be(arr)` rewritten as `Should.Equal(arr)` (AwesomeAssertions
+distinguishes scalar `Be` from collection `Equal`), `tolerance:` named
+arg replaced by `BeApproximately`. CA1806 suppressed for the
+construct-and-discard pattern used by negative constructor tests.
+
+Shouldly dropped from CPM and `tests/Directory.Build.props`. 175 tests
+green after migration.
 
 ### 2026-05-12 — Phase 2 runner: Ax25Session ties it together
 

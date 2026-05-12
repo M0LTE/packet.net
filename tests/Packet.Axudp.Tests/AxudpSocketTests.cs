@@ -23,8 +23,8 @@ public class AxudpSocketTests
         await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), frame, includeFcs: true, cancellationToken: cts.Token);
         var result = await receiveTask;
 
-        result.RawFrame.Length.ShouldBe(frame.RequiredBytesWithFcs);
-        result.RawFrame.AsSpan(0, frame.RequiredBytes).SequenceEqual(frame.ToBytes()).ShouldBeTrue();
+        result.RawFrame.Length.Should().Be(frame.RequiredBytesWithFcs);
+        result.RawFrame.AsSpan(0, frame.RequiredBytes).SequenceEqual(frame.ToBytes()).Should().BeTrue();
     }
 
     [Fact]
@@ -44,10 +44,10 @@ public class AxudpSocketTests
         await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), frame, cancellationToken: cts.Token);
 
         var result = await receiveTask;
-        result.DecodedFrame.ShouldNotBeNull();
-        result.DecodedFrame!.Source.Callsign.ShouldBe(new Callsign("G7XYZ", 7));
-        result.DecodedFrame.Destination.Callsign.ShouldBe(new Callsign("APRS", 0));
-        result.DecodedFrame.Info.ToArray().ShouldBe("hello"u8.ToArray());
+        result.DecodedFrame.Should().NotBeNull();
+        result.DecodedFrame!.Source.Callsign.Should().Be(new Callsign("G7XYZ", 7));
+        result.DecodedFrame.Destination.Callsign.Should().Be(new Callsign("APRS", 0));
+        result.DecodedFrame.Info.ToArray().Should().Equal("hello"u8.ToArray());
     }
 
     [Fact]
@@ -65,14 +65,14 @@ public class AxudpSocketTests
         await sender.SendRawAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), junk, cts.Token);
 
         var result = await receiveTask;
-        result.RawFrame.ShouldBe(junk);
-        result.DecodedFrame.ShouldBeNull("4 random bytes are too short to parse as an AX.25 frame");
+        result.RawFrame.Should().Equal(junk);
+        result.DecodedFrame.Should().BeNull("4 random bytes are too short to parse as an AX.25 frame");
     }
 
     [Fact]
     public void Local_Port_Is_Selected_When_Zero_Is_Requested()
     {
         using var s = new AxudpSocket(localPort: 0);
-        s.LocalPort.ShouldBeGreaterThan(0);
+        s.LocalPort.Should().BeGreaterThan(0);
     }
 }

@@ -4,67 +4,67 @@
 // </auto-generated>
 
 using System.Linq;
+using AwesomeAssertions;
 using Packet.Ax25.Sdl;
-using Shouldly;
 using Xunit;
 
 namespace Packet.Ax25.Conformance.Tests;
 
 public class DataLink_Connected_GeneratedTests
 {
-    [Fact] public void SourceFigure() => DataLink_Connected.Source.Figure.ShouldBe("figc4.4a");
+    [Fact] public void SourceFigure() => DataLink_Connected.Source.Figure.Should().Be("figc4.4a");
 
-    [Fact] public void TransitionsArePresent() => DataLink_Connected.Transitions.Count.ShouldBe(5);
+    [Fact] public void TransitionsArePresent() => DataLink_Connected.Transitions.Count.Should().Be(5);
 
     [Fact] public void t01_dl_flow_off_when_own_receiver_busy()
     {
         var t = DataLink_Connected.Transitions.Single(x => x.Id == "t01_dl_flow_off_when_own_receiver_busy");
-        t.On.ShouldBe("DL_FLOW_OFF_request");
-        t.Next.ShouldBe("Connected");
-        t.Guard.ShouldBe("own_receiver_busy");
-        t.Actions.ShouldContain("set_own_receiver_busy");
-        t.Actions.ShouldContain("RNR response");
-        t.Actions.ShouldContain("clear_acknowledge_pending");
+        t.On.Should().Be("DL_FLOW_OFF_request");
+        t.Next.Should().Be("Connected");
+        t.Guard.Should().Be("own_receiver_busy");
+        t.Actions.Should().Contain("set_own_receiver_busy");
+        t.Actions.Should().Contain("RNR response");
+        t.Actions.Should().Contain("clear_acknowledge_pending");
     }
 
     [Fact] public void t02_dl_flow_off_when_own_receiver_not_busy()
     {
         var t = DataLink_Connected.Transitions.Single(x => x.Id == "t02_dl_flow_off_when_own_receiver_not_busy");
-        t.On.ShouldBe("DL_FLOW_OFF_request");
-        t.Next.ShouldBe("Connected");
-        t.Guard.ShouldBe("not own_receiver_busy");
+        t.On.Should().Be("DL_FLOW_OFF_request");
+        t.Next.Should().Be("Connected");
+        t.Guard.Should().Be("not own_receiver_busy");
     }
 
     [Fact] public void t03_dl_flow_on_when_own_receiver_not_busy()
     {
         var t = DataLink_Connected.Transitions.Single(x => x.Id == "t03_dl_flow_on_when_own_receiver_not_busy");
-        t.On.ShouldBe("DL_FLOW_ON_request");
-        t.Next.ShouldBe("Connected");
-        t.Guard.ShouldBe("not own_receiver_busy");
+        t.On.Should().Be("DL_FLOW_ON_request");
+        t.Next.Should().Be("Connected");
+        t.Guard.Should().Be("not own_receiver_busy");
     }
 
     [Fact] public void t04_dl_flow_on_when_busy_and_T1_not_running()
     {
         var t = DataLink_Connected.Transitions.Single(x => x.Id == "t04_dl_flow_on_when_busy_and_T1_not_running");
-        t.On.ShouldBe("DL_FLOW_ON_request");
-        t.Next.ShouldBe("Connected");
-        t.Guard.ShouldBe("own_receiver_busy and not T1_running");
-        t.Actions.ShouldContain("clear_own_receiver_busy");
-        t.Actions.ShouldContain("RR command");
-        t.Actions.ShouldContain("clear_acknowledge_pending");
-        t.Actions.ShouldContain("stop_T3");
-        t.Actions.ShouldContain("start_T1");
+        t.On.Should().Be("DL_FLOW_ON_request");
+        t.Next.Should().Be("Connected");
+        t.Guard.Should().Be("own_receiver_busy and not T1_running");
+        t.Actions.Should().Contain("clear_own_receiver_busy");
+        t.Actions.Should().Contain("RR command");
+        t.Actions.Should().Contain("clear_acknowledge_pending");
+        t.Actions.Should().Contain("stop_T3");
+        t.Actions.Should().Contain("start_T1");
     }
 
     [Fact] public void t05_dl_flow_on_when_busy_and_T1_running()
     {
         var t = DataLink_Connected.Transitions.Single(x => x.Id == "t05_dl_flow_on_when_busy_and_T1_running");
-        t.On.ShouldBe("DL_FLOW_ON_request");
-        t.Next.ShouldBe("Connected");
-        t.Guard.ShouldBe("own_receiver_busy and T1_running");
-        t.Actions.ShouldContain("clear_own_receiver_busy");
-        t.Actions.ShouldContain("RR command");
-        t.Actions.ShouldContain("clear_acknowledge_pending");
+        t.On.Should().Be("DL_FLOW_ON_request");
+        t.Next.Should().Be("Connected");
+        t.Guard.Should().Be("own_receiver_busy and T1_running");
+        t.Actions.Should().Contain("clear_own_receiver_busy");
+        t.Actions.Should().Contain("RR command");
+        t.Actions.Should().Contain("clear_acknowledge_pending");
     }
 
 }

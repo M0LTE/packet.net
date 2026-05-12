@@ -14,11 +14,11 @@ public class TimerSchedulerTests
         sched.Arm("T1", TimeSpan.FromMilliseconds(3000), () => fired++);
 
         time.Advance(TimeSpan.FromMilliseconds(2999));
-        fired.ShouldBe(0);
+        fired.Should().Be(0);
 
         time.Advance(TimeSpan.FromMilliseconds(1));
-        fired.ShouldBe(1);
-        sched.IsRunning("T1").ShouldBeFalse("timer should clean itself up after firing");
+        fired.Should().Be(1);
+        sched.IsRunning("T1").Should().BeFalse("timer should clean itself up after firing");
     }
 
     [Fact]
@@ -31,8 +31,8 @@ public class TimerSchedulerTests
         sched.Cancel("T1");
 
         time.Advance(TimeSpan.FromMilliseconds(5000));
-        fired.ShouldBe(0);
-        sched.IsRunning("T1").ShouldBeFalse();
+        fired.Should().Be(0);
+        sched.IsRunning("T1").Should().BeFalse();
     }
 
     [Fact]
@@ -45,11 +45,11 @@ public class TimerSchedulerTests
         sched.Arm("T1", TimeSpan.FromMilliseconds(5000), () => secondFired++);
 
         time.Advance(TimeSpan.FromMilliseconds(1500));
-        firstFired.ShouldBe(0, "the replaced timer should never fire");
-        secondFired.ShouldBe(0, "we haven't reached the new due-time yet");
+        firstFired.Should().Be(0, "the replaced timer should never fire");
+        secondFired.Should().Be(0, "we haven't reached the new due-time yet");
 
         time.Advance(TimeSpan.FromMilliseconds(4000));
-        secondFired.ShouldBe(1);
+        secondFired.Should().Be(1);
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class TimerSchedulerTests
 
         time.Advance(TimeSpan.FromMilliseconds(3000));
 
-        fireOrder.ShouldBe(new[] { "T2", "T3", "T1" });
+        fireOrder.Should().Equal(new[] { "T2", "T3", "T1" });
     }
 
     [Fact]
@@ -81,15 +81,15 @@ public class TimerSchedulerTests
         sched.Arm("T1", TimeSpan.FromMilliseconds(1000), () => fired++);
 
         time.Advance(TimeSpan.FromMilliseconds(1000));
-        fired.ShouldBe(1);
-        sched.IsRunning("T1").ShouldBeFalse();
+        fired.Should().Be(1);
+        sched.IsRunning("T1").Should().BeFalse();
 
         // The dispatcher decides to re-arm after the expiry.
         sched.Arm("T1", TimeSpan.FromMilliseconds(1000), () => fired++);
-        sched.IsRunning("T1").ShouldBeTrue();
+        sched.IsRunning("T1").Should().BeTrue();
 
         time.Advance(TimeSpan.FromMilliseconds(1000));
-        fired.ShouldBe(2);
+        fired.Should().Be(2);
     }
 
     [Fact]
@@ -97,6 +97,6 @@ public class TimerSchedulerTests
     {
         var time = new FakeTimeProvider();
         using var sched = new SystemTimerScheduler(time);
-        sched.IsRunning("never_armed").ShouldBeFalse();
+        sched.IsRunning("never_armed").Should().BeFalse();
     }
 }

@@ -70,10 +70,10 @@ public class NetsimKissTcpInterop
             }
         }
 
-        decoded.ShouldNotBeNull("expected our UI frame to arrive on node b within the timeout");
-        decoded.Destination.Callsign.ShouldBe(new Callsign("APRS", 0));
-        decoded.Source.Callsign.ShouldBe(new Callsign("PN0TST", 9));
-        decoded.Info.ToArray().ShouldBe("Packet.NET → net-sim"u8.ToArray());
+        decoded.Should().NotBeNull("expected our UI frame to arrive on node b within the timeout");
+        decoded.Destination.Callsign.Should().Be(new Callsign("APRS", 0));
+        decoded.Source.Callsign.Should().Be(new Callsign("PN0TST", 9));
+        decoded.Info.ToArray().Should().Equal("Packet.NET → net-sim"u8.ToArray());
     }
 
     private static async Task<bool> IsNetsimHealthy()
