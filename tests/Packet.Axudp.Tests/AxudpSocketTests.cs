@@ -8,6 +8,26 @@ namespace Packet.Axudp.Tests;
 public class AxudpSocketTests
 {
     [Fact]
+    public async Task Loopback_Send_With_Fcs_Appends_Two_Bytes_Before_Body()
+    {
+        using var receiver = new AxudpSocket(localPort: 0);
+        using var sender   = new AxudpSocket(localPort: 0);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var frame = Ax25Frame.Ui(
+            destination: new Callsign("APRS", 0),
+            source:      new Callsign("G7XYZ", 0),
+            info:        "x"u8);
+
+        var receiveTask = receiver.ReceiveAsync(cts.Token);
+        await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), frame, includeFcs: true, cancellationToken: cts.Token);
+        var result = await receiveTask;
+
+        result.RawFrame.Length.ShouldBe(frame.RequiredBytesWithFcs);
+        result.RawFrame.AsSpan(0, frame.RequiredBytes).SequenceEqual(frame.ToBytes()).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Two_Loopback_Sockets_Exchange_A_UI_Frame()
     {
         using var receiver = new AxudpSocket(localPort: 0);
@@ -21,7 +41,7 @@ public class AxudpSocketTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
         var receiveTask = receiver.ReceiveAsync(cts.Token);
-        await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), frame, cts.Token);
+        await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort), frame, cancellationToken: cts.Token);
 
         var result = await receiveTask;
         result.DecodedFrame.ShouldNotBeNull();

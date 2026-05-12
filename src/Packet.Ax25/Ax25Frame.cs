@@ -169,6 +169,56 @@ public sealed class Ax25Frame
     }
 
     /// <summary>
+    /// Number of bytes <see cref="WriteToWithFcs"/> / <see cref="ToBytesWithFcs"/>
+    /// will write — the frame body plus the 2-octet FCS trailer.
+    /// </summary>
+    public int RequiredBytesWithFcs => RequiredBytes + 2;
+
+    /// <summary>
+    /// Serialise this frame with its CRC-16-CCITT FCS appended, in the byte
+    /// order used by AX.25 on the wire (low byte first, then high byte).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the format AXIP / AXUDP-with-CRC peers expect (e.g. XRouter).
+    /// LinBPQ's AXIP/AXUDP listener with UDP=1 accepts the FCS-less variant
+    /// produced by <see cref="ToBytes"/> as well, but real-on-air HDLC frames
+    /// and Xrouter's AXUDP both require the FCS to be present.
+    /// </para>
+    /// <para>
+    /// FCS byte-order note: AX.25 v2.2 §3.8 says "the FCS shall be transmitted
+    /// most-significant bit first" — that refers to the bit-stream order on
+    /// the radio, not the byte order of the serialised octets. In byte form
+    /// (and in AXUDP payloads) the FCS is octet-pair low-byte-first, then
+    /// high-byte. This has been verified empirically against XRouter (which
+    /// rejects high-byte-first as "non-AXUDP").
+    /// </para>
+    /// </remarks>
+    public byte[] ToBytesWithFcs()
+    {
+        var buffer = new byte[RequiredBytesWithFcs];
+        WriteToWithFcs(buffer);
+        return buffer;
+    }
+
+    /// <summary>
+    /// Serialise this frame with FCS into <paramref name="destination"/>.
+    /// Returns the number of bytes written.
+    /// </summary>
+    public int WriteToWithFcs(Span<byte> destination)
+    {
+        int bodyLength = WriteTo(destination);
+        if (destination.Length < bodyLength + 2)
+        {
+            throw new ArgumentException($"destination too short (need {bodyLength + 2} bytes, got {destination.Length})", nameof(destination));
+        }
+        ushort fcs = Crc16Ccitt.Compute(destination[..bodyLength]);
+        destination[bodyLength]     = (byte)(fcs & 0xFF);
+        destination[bodyLength + 1] = (byte)((fcs >> 8) & 0xFF);
+        return bodyLength + 2;
+    }
+
+    /// <summary>
     /// Serialise this frame into <paramref name="destination"/>. Returns the
     /// number of bytes written.
     /// </summary>

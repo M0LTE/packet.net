@@ -120,6 +120,45 @@ public class Ax25FrameTests
     }
 
     [Fact]
+    public void ToBytesWithFcs_Appends_LowByte_Then_HighByte()
+    {
+        // Empirically verified against XRouter's AXUDP listener: it accepts
+        // FCS as { low_byte, high_byte } and rejects { high_byte, low_byte }
+        // as "not AXUDP". This matches the convention on real HDLC wire too
+        // (the §3.8 "MSB-first" wording refers to bit-stream order, not byte
+        // order of the serialised octets).
+        var frame = Ax25Frame.Ui(
+            destination: new Callsign("APRS", 0),
+            source:      new Callsign("G7XYZ", 7),
+            info:        "hello"u8);
+
+        var withFcs  = frame.ToBytesWithFcs();
+        var body     = frame.ToBytes();
+
+        withFcs.Length.ShouldBe(body.Length + 2, "FCS adds exactly 2 bytes");
+        withFcs.AsSpan(0, body.Length).SequenceEqual(body).ShouldBeTrue("body must be unchanged");
+
+        var expectedCrc = Crc16Ccitt.Compute(body);
+        withFcs[^2].ShouldBe((byte)(expectedCrc & 0xFF),        "low byte first");
+        withFcs[^1].ShouldBe((byte)((expectedCrc >> 8) & 0xFF), "high byte second");
+    }
+
+    [Fact]
+    public void WriteToWithFcs_Returns_Total_Bytes_Written()
+    {
+        var frame = Ax25Frame.Ui(
+            destination: new Callsign("APRS", 0),
+            source:      new Callsign("G7XYZ", 0),
+            info:        new byte[] { 0xAA });
+
+        var buf = new byte[frame.RequiredBytesWithFcs];
+        var written = frame.WriteToWithFcs(buf);
+
+        written.ShouldBe(frame.RequiredBytesWithFcs);
+        written.ShouldBe(frame.RequiredBytes + 2);
+    }
+
+    [Fact]
     public void Ui_Rejects_More_Than_Eight_Digipeaters()
     {
         var nine = Enumerable.Range(0, 9).Select(i => new Callsign($"D{i}", 0));

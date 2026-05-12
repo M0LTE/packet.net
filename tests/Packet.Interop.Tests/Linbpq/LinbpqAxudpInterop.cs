@@ -66,7 +66,7 @@ public class LinbpqKissTcpInterop
             source: new Callsign("PN0TST", 9),
             info: "Packet.NET v0 hello (AXUDP)"u8);
 
-        await socket.SendAsync(new IPEndPoint(IPAddress.Loopback, AxudpPort), frame, cts.Token);
+        await socket.SendAsync(new IPEndPoint(IPAddress.Loopback, AxudpPort), frame, cancellationToken: cts.Token);
 
         // UDP is fire-and-forget. We can't read back "did LinBPQ receive it"
         // without AGW monitor or telnet — both deferred to later phases.
