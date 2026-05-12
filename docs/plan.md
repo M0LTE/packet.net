@@ -663,6 +663,39 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Codegen test project (Packet.Sdl.CodeGen.Tests)
+
+`tools/Packet.Sdl.CodeGen` previously had no dedicated test project —
+its behaviour was exercised only indirectly via the three real SDL
+pages. When a new schema feature lands (like the `loop_while`
+construct), there's no fast feedback that the codegen handles edge
+cases correctly until something downstream breaks.
+
+New project `tests/Packet.Sdl.CodeGen.Tests` with 9 **black-box**
+tests covering:
+
+1. Valid minimal page → `.g.cs` emitted with expected content.
+2. Unknown event in `on:` → fails with reference to `events.yaml`.
+3. Decision-branch-completeness lint (decision with only "Yes").
+4. Guard overlap lint (same-`on:` transitions with non-disjoint
+   guards).
+5. `loop_while` emits a `LoopRange(start, length, predicate)`
+   literal in the generated code.
+6. `loop_while` with nested decision in body → rejected.
+7. Duplicate transition id → caught during validation.
+8. Unknown action kind → rejected with the bad kind name surfaced.
+9. References entry whose `source:` isn't in `pinned_refs:` →
+   rejected.
+
+Black-box on purpose: each test spawns the codegen as a subprocess
+against a temp directory containing the fixture YAML. Refactors of
+`Program.cs` internals don't break tests; only behavioural changes
+do. `CodegenRunner` (the test helper) discovers the codegen DLL by
+walking up to `Packet.NET.slnx` (.NET 10 XML solution format) and
+invokes the tool with `dotnet <dll> --in ... --out ... --tests ...`.
+
+Test totals: 403 (was 394; +9 codegen tests).
+
 ### 2026-05-12 — spec_prose back-fill for figc4.1 + figc4.2
 
 Hygiene pass: bring figc4.1 (`disconnected.sdl.yaml`) and figc4.2
