@@ -663,6 +663,51 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — First SDL transcription on the new schema: figc4.1 Data-Link Disconnected
+
+Tom drew Data Link Disconnected State in yEd as
+`spec-sdl/data-link/DataLink_Disconnected.graphml` (58 nodes, 61 edges,
+14 input columns) — the first complete graphml transcription against the
+13-shape palette agreed in OQ-006. I converted it manually to
+`spec-sdl/data-link/disconnected.sdl.yaml`, which expands to **17
+transitions** once binary decisions (UI's `P == 1?` and one
+`Able to Establish?` per SABM/SABME) are enumerated.
+
+Decisions encoded:
+- The two `Able to Establish?` diamonds (SABM, SABME) are kept as
+  **separate `decisions:` entries** with the same canonical predicate
+  `able_to_establish`. Tom's call — they diverge before re-converging
+  (Set Version 2.0 vs Set Version 2.2 before joining at the UA send),
+  so collapsing them would muddle the redraw.
+- Multi-line processing boxes (`SRT := …; T1V := …`, `V(s)/V(a)/V(r) := 0`,
+  `Start T3; RC := 0`) split into **one action per line** in the YAML.
+  Tom's call — different operations should be different actions; the
+  redraw tool can re-group if the figure called for one box.
+
+Read-the-description discipline confirmed: the `d5` field on each node
+records the shape class authoritatively. Shape *direction* in figc4.1
+does not match figc1.1's stated meaning (DL-* primitives are drawn with
+"Signal reception from Lower Layer" shape; received frames are drawn
+with "Signal reception from upper layer"). We don't reconcile or
+interpret — the description is the source of truth.
+
+Events catalogue changes (`spec-sdl/events.yaml`):
+- Bare `all_other_primitives` removed.
+- New `catchalls:` group introduced for "all other X" boxes that need
+  source-class disambiguation. Three entries:
+  - `all_other_primitives__from_lower_layer`
+  - `all_other_primitives__from_upper_layer`
+  - `all_other_commands` (no suffix — unique label on this page)
+
+Codegen tweak: empty `path:` is now valid (figc4.1's
+"All Other Primitives" from lower layer is input → state with no
+intermediate boxes; that's a valid SDL pattern). Lint message updated
+to suggest `path: []` instead of dropping the field.
+
+Test totals: 187 (was 168). +19 from the new generated conformance
+tests (1 source-figure assertion + 1 transition-count + 17 per
+transition).
+
 ### 2026-05-12 — SDL YAML schema: lossless figure encoding
 
 The flat schema (`transitions: [{ on, guard, actions:[string], next }]`)
