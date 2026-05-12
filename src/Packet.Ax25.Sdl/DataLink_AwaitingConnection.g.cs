@@ -56,7 +56,7 @@ public static class DataLink_AwaitingConnection
             Actions: new ActionStep[] { new ActionStep("DL_ERROR_indication_D", ActionKind.SignalUpper) },
             Next: "AwaitingConnection",
             Notes: "UA without F=1 isn't a valid response to our polled SABM —\nDL-ERROR(D), keep waiting.\n",
-            References: new ImplementationReference[] { new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ua_frame", Line: 4917, Note: "else (f != 1) branch: logs 'Protocol Error D: UA received without F=1 when SABM or DISC was sent P=1', stays"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/state.rs", Function: "AwaitingConnection::ua", Line: 1207, Note: "early return Action::DlError(DlError::D) when !f; matches spec, stays implicitly") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§6.3.1 ¶4", Quote: "Reception of the UA response frame by the originating TNC causes it to cancel the T1 timer and set its internal state variables to '0'.", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ua_frame", Line: 4917, Note: "else (f != 1) branch: logs 'Protocol Error D: UA received without F=1 when SABM or DISC was sent P=1', stays"), new ImplementationReference(Source: "rax25", Cite: null, Quote: null, Path: "src/state.rs", Function: "AwaitingConnection::ua", Line: 1207, Note: "early return Action::DlError(DlError::D) when !f; matches spec, stays implicitly") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t05_ua_received_f_eq_1_layer_3_initiated",
@@ -136,7 +136,7 @@ public static class DataLink_AwaitingConnection
             Actions: new ActionStep[] { new ActionStep("UI_command", ActionKind.SignalLower) },
             Next: "AwaitingConnection",
             Notes: null,
-            References: new ImplementationReference[] { new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/af_ax25.c", Function: "ax25_sendmsg", Line: 1657, Note: "SOCK_DGRAM path builds UI command, ax25_queue_xmit. Works while STATE_1") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§6.3.7", Quote: "AX.25 uses a special frame for this operation, the Unnumbered Information (UI) frame.", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/af_ax25.c", Function: "ax25_sendmsg", Line: 1657, Note: "SOCK_DGRAM path builds UI command, ax25_queue_xmit. Works while STATE_1") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t13_dl_data_request_layer_3_initiated",
@@ -196,7 +196,7 @@ public static class DataLink_AwaitingConnection
             Actions: new ActionStep[] { new ActionStep("UI_Check", ActionKind.Subroutine), new ActionStep("DM F=1", ActionKind.SignalLower) },
             Next: "AwaitingConnection",
             Notes: null,
-            References: new ImplementationReference[] { new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ui_frame", Line: 5115, Note: "if (cr==cmd && pf==1): state_1 falls through with 0/2/5 to DM(F=pf). UI_Check explicitly omitted per header comment 5102-5104: 'UI frames don't go thru here for normal operation'"), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2LINKACTIVE", Line: 1065, Note: "UI dispatched at active-link entry irrespective of state; no DM on P=1, no P-bit branch — divergence"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 229, Note: "DIVERGES: UI handled before state-machine dispatch, uniformly for all states; no DM(F=1) response on UI(P=1)") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§6.3.5 ¶3", Quote: "UI frame with the P bit set to '1' responds with a DM frame with the F bit set to '1'.", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ui_frame", Line: 5115, Note: "if (cr==cmd && pf==1): state_1 falls through with 0/2/5 to DM(F=pf). UI_Check explicitly omitted per header comment 5102-5104: 'UI frames don't go thru here for normal operation'"), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2LINKACTIVE", Line: 1065, Note: "UI dispatched at active-link entry irrespective of state; no DM on P=1, no P-bit branch — divergence"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 229, Note: "DIVERGES: UI handled before state-machine dispatch, uniformly for all states; no DM(F=1) response on UI(P=1)") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t19_ui_received_p_eq_0",
@@ -206,7 +206,7 @@ public static class DataLink_AwaitingConnection
             Actions: new ActionStep[] { new ActionStep("UI_Check", ActionKind.Subroutine) },
             Next: "AwaitingConnection",
             Notes: null,
-            References: new ImplementationReference[] { new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ui_frame", Line: 5110, Note: "P=0 case falls through the cr==cmd&&pf==1 guard, function returns with no action. No UI_Check"), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2LINKACTIVE", Line: 1065, Note: "same path as t18; LinBPQ does not branch on P bit for UI"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 229, Note: "same UI bypass path as t18") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§6.3.5 ¶3", Quote: "The offending frame is ignored.", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "ui_frame", Line: 5110, Note: "P=0 case falls through the cr==cmd&&pf==1 guard, function returns with no action. No UI_Check"), new ImplementationReference(Source: "linbpq", Cite: null, Quote: null, Path: "L2Code.c", Function: "L2LINKACTIVE", Line: 1065, Note: "same path as t18; LinBPQ does not branch on P bit for UI"), new ImplementationReference(Source: "linux_oot", Cite: null, Quote: null, Path: "net/ax25/ax25_in.c", Function: "ax25_rcv", Line: 229, Note: "same UI bypass path as t18") },
             Loops: new LoopRange[] {  }),
         new TransitionSpec(
             Id: "t20_control_field_error",
@@ -256,7 +256,7 @@ public static class DataLink_AwaitingConnection
             Actions: new ActionStep[] { new ActionStep("F := P", ActionKind.Processing), new ActionStep("DM", ActionKind.SignalLower) },
             Next: "AwaitingConnection22",
             Notes: "SABME received while we sent SABM (v2.0). Reply DM and move to\n'Awaiting 2.2 Connection' (state 5 in the figure / figc4.6) — peer\nwants v2.2, we'll handle the next collision step there.\n",
-            References: new ImplementationReference[] { new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "sabm_e_frame", Line: 4379, Note: "case state_1 extended: build DM with f=p, enter_new_state(state_5_awaiting_v22_connection). Matches spec; direwolf explicitly notes 'Don't combine with state 5. They are slightly different.' at 4377") },
+            References: new ImplementationReference[] { new ImplementationReference(Source: "spec_prose", Cite: "§6.3.1 ¶3", Quote: "If the distant TNC receives a SABM(E) command and cannot enter the indicated state, it sends a DM frame.", Path: null, Function: null, Line: null, Note: null), new ImplementationReference(Source: "direwolf", Cite: null, Quote: null, Path: "src/ax25_link.c", Function: "sabm_e_frame", Line: 4379, Note: "case state_1 extended: build DM with f=p, enter_new_state(state_5_awaiting_v22_connection). Matches spec; direwolf explicitly notes 'Don't combine with state 5. They are slightly different.' at 4377") },
             Loops: new LoopRange[] {  }),
     };
 }
