@@ -663,6 +663,53 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-12 — Transcribe figc4.4 Data-Link Connected state
+
+Third SDL page, by far the biggest. Tom drew
+`spec-sdl/data-link/DataLink_Connected.graphml` (181 nodes, 209 edges,
+26 input columns); I converted to
+`spec-sdl/data-link/connected.sdl.yaml` — **69 transitions** after
+binary-decision enumeration.
+
+The "I received" column alone has 7 chained decisions producing 16
+distinct paths (and one of them turned out to be a graph loop —
+n148-n149-n150-n151-n148; one iteration of the loop body encoded inline
+on t67-t69 with `verification_pending` notes pointing at the unbounded
+loop the figure actually draws).
+
+New event in catalogue: `LM_SEIZE_confirm` (column 24, link-multiplexer
+seize-grant confirmation). Added a new `link_multiplexer:` group in
+`events.yaml`.
+
+Pre-write graphml hygiene pass:
+- Tom canonicalised several near-duplicate labels after my scan
+  (`'Ack pending?'` vs `'Ack Pending?'`, multiple `P == 1` variants,
+  `'Own receive busy?'` vs `'Own Receiver Busy?'`, etc.).
+- `LM-SIEZE` typo corrected to `LM-SEIZE` on input event; preserved on
+  the lower-layer action side (`LM_seize_request`).
+- One `verification_pending` marker deliberately preserved by Tom:
+  `'Push on I Frame Queue (note: word order?)'` in column 3 (DL-DATA
+  Request) — flag on t18 for upstream review.
+
+Decision-catalogue canonicalisation: predicates that appear in
+multiple drawn diamonds across columns (`Version 2.2?`,
+`V(a) <= N(r) <= V(s)?`, `P == 1?`, `Own Receiver Busy?`) share a
+single `decisions:` entry. Different transitions reference the same
+id. The codegen handles this; lints are happy. Pure canonicalisation,
+no semantic loss.
+
+State names:
+- `Disconnected`, `AwaitingConnection`, `AwaitingRelease`,
+  `Connected`, `TimerRecovery` — already established.
+- `AwaitingConnection22` — placeholder for figc4.6's 2.2-awaiting
+  state, used as `next:` on 14 transitions in figc4.4. To be tied off
+  when that figure lands.
+
+Test totals: 325 (was 254; +71 generated conformance tests).
+
+Validation chain (smoke test + spec_prose + 4-codebase implementation
+references) arrives in follow-up PR(s).
+
 ### 2026-05-12 — Validate figc4.2 — smoke test + spec_prose + 4-codebase references
 
 Combined validation pass for `awaiting_connection.sdl.yaml`: orchestrator
