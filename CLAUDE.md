@@ -16,6 +16,9 @@ Other essential reading:
 
 - [`docs/sdl-primer.md`](docs/sdl-primer.md) — SDL shape reference. Mandatory
   before touching `/spec-sdl/`.
+- [`docs/sdl-transcription-runbook.md`](docs/sdl-transcription-runbook.md) —
+  end-to-end per-figure workflow (graphml → transcription PR → validation
+  PR). Read this when starting a new SDL page.
 - [`docs/adr/0001-sdl-dsl.md`](docs/adr/0001-sdl-dsl.md) — why the SDL YAML
   DSL + codegen exists.
 
