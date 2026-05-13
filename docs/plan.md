@@ -663,6 +663,93 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-13 — Validate figc4.3 — smoke test + spec_prose + 4-codebase references
+
+Validation pass for `awaiting_release.sdl.yaml`: orchestrator smoke test
+(`DataLinkAwaitingReleaseSmokeTests.cs`, 20 [Fact]s — one per
+transition), 7 spec_prose citations, and structured references across
+the four pinned implementations (linbpq, direwolf, rax25, linux_oot).
+Implementation refs parallelised via four subagents — output merged
+into the YAML per-transition.
+
+New `IOrSCommandReceived(Ax25Frame)` event class added to
+`Packet.Ax25/Session/Ax25Event.cs` for the composite SDL input column
+"I, RR, RNR, REJ or SREJ Commands" (events.yaml entry was already
+landed in #26 transcription PR).
+
+**Triangulated upstream-spec findings** (these are the gold from this
+pass — patterns spotted by multiple implementers independently):
+
+1. **t01 (DL-DISCONNECT request → Expedited DM, stay)** — all four
+   implementations diverge. rax25 (`AwaitingRelease::disconnect`)
+   transitions to Disconnected with author erratum comments at
+   src/state.rs:1329 ("1998&2017 bug: What's an 'expedited' DM?") and
+   1332 ("1998&2017 bug: Doesn't specify pf"). direwolf
+   (`dl_disconnect_request:1138`) also goes to state_0 with similar
+   commentary at 1147-1148. linbpq and Linux never re-enter the
+   DL-DISCONNECT codepath in this state at all (one-shot release).
+   Candidate upstream-spec issue: "Expedited DM, stay" looks
+   implementationally unnatural.
+
+2. **t02 (T1 expiry RC==N2 → DL-ERROR(G))** — figure's "G" code is not
+   reproduced by any implementation. rax25 emits `DlError::H`
+   (different letter); direwolf only dw_printf's an untyped string;
+   linbpq silently `CLEAROUTLINK`s; Linux surfaces ETIMEDOUT. The "G"
+   appears figure-authoritative.
+
+3. **t14 (DISC received → UA, stay in AwaitingRelease)** — only
+   direwolf matches the figure (`disc_frame:4544` "keep current state,
+   2"). linbpq (`L2LINKACTIVE:1090`) and Linux
+   (`ax25_std_state2_machine:111`) send UA but go to Disconnected,
+   matching §6.3.4 ¶2 prose ("After receiving a valid DISC command,
+   the TNC sends a UA response frame and enters the disconnected
+   state"). Figure-vs-prose tension; rax25 omits this branch entirely.
+
+4. **t17 (UI P=1 → DM F=1)** — §6.3.5 ¶3 explicitly **excludes** UI
+   from the "respond DM" rule ("…receiving a command frame other than
+   a SABM(E) or UI frame with the P bit set to '1' responds with a DM
+   frame…"), yet the figure draws UI(P=1) → DM(F=1). direwolf alone
+   follows the figure (`ui_frame:5116`); linbpq, Linux and rax25
+   follow the prose. Trust-the-figure here but flagged.
+
+5. **t15 (DM F=1)** — direwolf erratum at `dm_frame:4677` captures
+   1998 vs 2006 spec ambiguity: "Original flow chart, page 91, shows
+   DL-CONNECT confirm. It should clearly be DISconnect rather than
+   Connect. 2006 has DISCONNECT *Indication*. Should it be indication
+   or confirm? Not sure." figc4.3 resolves it as DL-DISCONNECT
+   *confirm*.
+
+6. **t19 (I/S commands P=1 → DM F=1)** — direwolf erratum at
+   `rr_rnr_frame:3537-3541` flags a 1998-vs-2006 figure divergence:
+   "RR, RNR, REJ, SREJ responses would fall under all other
+   primitives. In the original, we simply ignore it and stay in state
+   2. The 2006 version, page 94, says go into 1 awaiting connection
+   state. That makes no sense to me." Separately at `srej_frame:4046`:
+   "Based on X.25, I don't think SREJ can be a command" — questioning
+   whether SREJ belongs in the figure's command-column at all.
+
+**Implementation divergence patterns** (collected from per-transition
+notes):
+
+- **No implementation emits typed DL-ERROR codes** in this state.
+  Figure transitions t02 (G), t05 (D), t09 (L), t10 (M), t11 (N) are
+  all figure-authoritative. rax25 partially does (D for t05) but uses
+  H instead of G for t02.
+- **rax25's `AwaitingRelease` is partial** — only 4 of 20 transitions
+  have explicit overrides (`dm`, `ua`, `t1`, `disconnect`). The
+  remaining 16 fall through to trait defaults that log
+  `'TODO: unexpected X'` — most concerning are t12/t13/t14 (collision
+  handling) and t17 (UI P=1 → DM F=1).
+- **linbpq lacks the L3-init flag and the Select_T1_Value algorithm**
+  for this page — `LINK->L2TIME` is fixed `PORTT1` at session setup
+  (`L2TIMEOUT:3802`).
+- **All four implementations skip UI_Check** for state-2 UI handling
+  — only direwolf reaches the DM-on-P=1 reply (partial match); the
+  others don't even deliver the UI payload to the upper layer while
+  in this state.
+
+Test totals: 445 (was 425; +20 generated smoke tests for figc4.3).
+
 ### 2026-05-13 — Hygiene: quote `d5` verbatim in YAML shape-class comments
 
 Caught during figc4.3 review: my prose used "lower-layer parallelogram"

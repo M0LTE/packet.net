@@ -66,6 +66,14 @@ public sealed record TestReceived(Ax25Frame Frame)       : Ax25Event("TEST_recei
 /// <summary>The session's I-frame queue surfaced its next ready frame.</summary>
 public sealed record IFramePopsOffQueue() : Ax25Event("I_frame_pops_off_queue");
 
+/// <summary>
+/// Composite frame-received event covering the single SDL input column
+/// "I, RR, RNR, REJ or SREJ Commands" drawn on figc4.3 Awaiting Release.
+/// The figure groups five distinct frame types into one input column; the
+/// orchestrator fans them in here to preserve the figure's structure.
+/// </summary>
+public sealed record IOrSCommandReceived(Ax25Frame Frame) : Ax25Event("i_or_s_command_received");
+
 // ─── Catch-all events ───────────────────────────────────────────────────
 // Source-class suffixed to disambiguate identical English labels appearing
 // under two different figc1.1 shape classes in the same figure (see
