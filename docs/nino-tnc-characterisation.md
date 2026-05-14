@@ -10,6 +10,7 @@ none of.
 
 Method: [`tools/Packet.NinoTnc.Spike`](../tools/Packet.NinoTnc.Spike/Soak.cs)
 `soak` sub-commands. Reports land under `artifacts/nino-tnc-soak/<ts>/`.
+Last campaign: 2026-05-14 `soak marathon` run.
 
 ## Hardware
 
@@ -22,116 +23,284 @@ Method: [`tools/Packet.NinoTnc.Spike`](../tools/Packet.NinoTnc.Spike/Soak.cs)
 - TXDELAY pots: minimum. KISS TXDELAY parameter is therefore honoured.
 - Firmware: 3.44 (board-reported via TX-Test frame).
 
-## What we know after the 2026-05-14 campaign
+## Headlines from the 2026-05-14 marathon
 
 ### Mode compatibility (1200 AFSK → 19200 4FSK)
 
-All seven candidate modes round-trip cleanly over the audio cross-wire:
+All seven candidate modes round-trip cleanly on the bench audio
+cross-wire:
 
-| Mode | Name | bps | A↔B success | Notes |
-|---:|---|---:|---:|---|
-| 6 | 1200 AFSK AX.25 | 1200 | 5/5 both | the historical packet-radio mode |
-| 7 | 1200 AFSK IL2P+CRC | 1200 | 5/5 both | IL2P-framed at AFSK rates |
-| 12 | 300 AFSK AX.25 | 300 | 5/5 + 4/5 | one A→B timeout in 5 |
-| 0 | 9600 GFSK AX.25 | 9600 | 5/5 both | legacy G3RUH-style 9600 |
-| 2 | 9600 GFSK IL2P+CRC | 9600 | 5/5 both | recommended modern 9600 |
-| 3 | 9600 4FSK | 9600 | 5/5 both | 4FSK at 9600 |
-| 1 | 19200 4FSK | 19200 | 5/5 both | fastest mode in the catalog |
+| Mode | Name | bps | A↔B success | Mean RTT ms (A→B / B→A) | Notes |
+|---:|---|---:|---:|---|---|
+| 6 | 1200 AFSK AX.25 | 1200 | 5/5 both | 1225 / 664 | the historical packet-radio mode |
+| 7 | 1200 AFSK IL2P+CRC | 1200 | 5/5 both | 1411 / 1138 | IL2P-framed at AFSK rates |
+| 12 | 300 AFSK AX.25 | 300 | 99/100 + 100/100 | 2579 / 2600 | see [§Mode 12 deep dive](#mode-12-deep-dive--what-the-5-frame-sample-missed) |
+| 0 | 9600 GFSK AX.25 | 9600 | 5/5 both | 912 / 878 | legacy G3RUH-style 9600 |
+| 2 | 9600 GFSK IL2P+CRC | 9600 | 5/5 both | 509 / 374 | recommended modern 9600 |
+| 3 | 9600 4FSK | 9600 | 5/5 both | 935 / 746 | 4FSK at 9600 |
+| 1 | 19200 4FSK | 19200 | 5/5 both | 510 / 297 | fastest mode in the catalog |
 
-The audio cross-wire is high-bandwidth enough to support every mode in
-the catalog up to 19200 4FSK. On a real FM-voice link, the audio
-bandwidth caps out around 2.5–3 kHz and the higher modes are out of
-reach. **For interop tests on real RF, plan for mode 6 (most lenient)
-or mode 2 (good 9600 baseline).**
+**For real-RF interop tests, plan for mode 6 (most lenient) or mode 2
+(good 9600 baseline).** The audio cross-wire is high-bandwidth enough
+to support every mode; on a real FM-voice link the higher modes are
+out of reach.
 
-### TXDELAY floor on this hardware (mode 6)
+### Mode 12 deep dive — what the 5-frame sample missed
 
-The KISS spec default is TXDELAY=50 (500 ms). On this audio link, the
-modem maintained 10/10 success all the way down to:
+The marathon's 5-frame mode-12 row read "4/5 A→B" and got flagged as
+flaky. With N=100 per direction, the truth is:
 
-```
-| TXDELAY units | TXDELAY ms | A→B 10/10 | B→A 10/10 |
-|---:|---:|---:|---:|
-|  1 |  10 ms | yes | yes |
-```
+| TXDELAY | A→B success | B→A success | Failure indexes |
+|---:|---:|---:|---|
+| 20 ms | 99/100 | 100/100 | A→B index 0 |
+| 50 ms | 99/100 | 100/100 | A→B index 0 |
+| 100 ms | 99/100 | **4/100** | A→B index 0 ; B→A 0, 5–99 |
 
-That tells us:
-- The audio path adds essentially no preamble-lock latency.
-- The modem's keying chain is fast — sub-10 ms.
-- Any defensive TXDELAY > ~10 ms in this setup is pure airtime tax.
+Payload-size sensitivity at TXDELAY=50, N=50 per row:
 
-On real RF this number will rise significantly (every transmitter has a
-key-up delay, and FM receivers need preamble to AGC and lock). The
-adaptive estimator's job is to discover the *actual* per-link minimum,
-not to use the spec-default.
+| Payload bytes | A→B | B→A |
+|---:|---:|---:|
+| 5 | 49/50 | 50/50 |
+| 20 | 50/50 | 50/50 |
+| 50 | 50/50 | 50/50 |
+| 100 | 50/50 | 50/50 |
+| 200 | 50/50 | 50/50 |
+
+Two real findings, distinct from "mode is flaky":
+
+1. **First-frame-after-SetMode artefact.** In every A→B run across
+   every TXDELAY tried, the failure is the same: the very first frame
+   (index 0) is lost. Every other frame in the run is fine. The 700 ms
+   post-`SetMode` settle this probe uses is *not* enough to guarantee
+   the first frame is received on the partner. The
+   `tools/Packet.NinoTnc.Spike` `ack-warmup-probe` shows the same
+   first-frame fragility at mode 6 when there's a backed-up TX queue.
+   Both point at "warm up the modem before the first measured frame"
+   as the right discipline for tests and the session layer.
+
+2. **TXDELAY=100 ms + mode 12 once produced a catastrophic B→A
+   failure** (4/100 succeeded; frames 5–99 all lost in a contiguous
+   run). This pattern is **not reproducible on demand** — two follow-
+   up probes (one at N=50 across modes 12/13/14, one re-running the
+   original probe verbatim) saw mode 12 at TXDELAY=1000 ms come back
+   to 49/50 / 50/50 with only the first-frame artefact. The original
+   break may be: a thermal / electrical transient; a specific
+   accumulated state in the modem firmware that this probe sequence
+   doesn't reliably trigger; or an interaction with some other
+   process on the host that one run hit. **Mode 13 (AFSKPLL IL2P)
+   and mode 14 (AFSKPLL IL2P+CRC) at the same TXDELAY=1000 ms are
+   100/100 clean** — neither shares mode 12's vulnerability, even
+   though they share the 300 baud air time. Whatever the original
+   pathology was, it appears specific to mode 12's AFSK-without-PLL
+   demod path. **The conservative rule remains: keep TXDELAY ≤ 50
+   on mode 12** — at 50 ms the link is reliable, at 100 ms it's
+   either reliable or catastrophic with no apparent middle.
+
+Payload size has **no effect** on mode-12 failure rate. The earlier
+small-sample "flaky" finding is fully explained by the first-frame
+artefact above.
+
+See `artifacts/nino-tnc-mode12/<timestamp>/report.md` for raw data;
+re-run with `dotnet run --project tools/Packet.NinoTnc.Spike --
+mode12-probe COM6 COM8`. Cross-mode comparison at 300 baud
+(`slow-mode-probe`) lives under
+`artifacts/nino-tnc-slow-modes/<timestamp>/report.md`:
+
+| Mode | Demod / framing | TXDELAY=500 ms | TXDELAY=1000 ms |
+|---:|---|---|---|
+| 12 | AFSK / AX.25 | 49/50 A→B (first only), 50/50 B→A | 49/50 A→B (first only), 50/50 B→A |
+| 13 | AFSKPLL / IL2P | 49/50 A→B (idx 9), 50/50 B→A | 50/50 both |
+| 14 | AFSKPLL / IL2P+CRC | 50/50 A→B, 49/50 B→A (first only) | 50/50 both |
+
+### Per-mode TXDELAY floor
+
+Walking TXDELAY down a ladder `{50, 30, 20, 15, 10, 8, 5, 3, 2, 1}` per
+mode, 10 frames each direction:
+
+| Mode | Name | bps | Min TXDELAY 10/10 | Min ms | Note |
+|---:|---|---:|---:|---:|---|
+| 6 | 1200 AFSK AX.25 | 1200 | 1 | 10 | |
+| 7 | 1200 AFSK IL2P+CRC | 1200 | 1 | 10 | |
+| 12 | 300 AFSK AX.25 | 300 | — | — | breaks at TXDELAY=50 with 9/10 |
+| 0 | 9600 GFSK AX.25 | 9600 | 1 | 10 | |
+| 2 | 9600 GFSK IL2P+CRC | 9600 | 1 | 10 | |
+| 3 | 9600 4FSK | 9600 | 1 | 10 | |
+| 1 | 19200 4FSK | 19200 | 1 | 10 | |
+
+The KISS spec default of TXDELAY=50 (500 ms) is **50× over-conservative
+on this audio path**. Six of the seven modes maintain 100 % success at
+TXDELAY=1 (10 ms). Mode 12 is the odd one out: 9/10 even at the
+spec default, suggesting a mode-specific demod issue rather than a
+preamble-length issue.
+
+On real RF this floor will rise significantly (transmitter key-up
+delays, receiver AGC + sync acquisition). The adaptive estimator's
+job is to discover the *actual* per-link minimum, not to use the
+spec-default.
+
+### Payload size sweep (mode 6)
+
+| INFO bytes | A→B success | A→B mean ms | B→A success | B→A mean ms |
+|---:|---:|---:|---:|---:|
+| 1 | 5/5 | 528 | 5/5 | 814 |
+| 16 | 5/5 | 1169 | 5/5 | 616 |
+| 64 | 5/5 | 1467 | 5/5 | 1112 |
+| 128 | 5/5 | 1571 | 5/5 | 1486 |
+| 200 | 5/5 | 2120 | 5/5 | 1993 |
+| 230 | 5/5 | 2386 | 5/5 | 2173 |
+
+The 230-byte frame's air time at 1200 bps is `(230 + 17 header + 2
+FCS) * 8 / 1200 ≈ 1.66 s`. RTT of ~2.4 s allows ~700 ms for TX-delay
++ key-up + receive-side decode + ACK echo — consistent with the
+slower TXDELAYs we used here.
+
+### Binary payload (KISS escape stress)
+
+30 frames of pseudo-random AX.25 INFO bytes biased to ~60 % `0xC0` /
+`0xDB` / `0xDC` / `0xDD` (FEND/FESC/TFEND/TFESC), to exercise the KISS
+escape path through the actual driver and modem:
+
+- **30/30 (100 %) round-trip success.** Escape coding is solid.
+
+### Sustained throughput, ACK-paced
+
+20 frames of 200-byte AX.25 INFO sent A→B in ACKMODE: each
+`SendFrameWithAckAsync` awaits the TX-completion echo before the next
+is queued. TXDELAY=5 (50 ms) on every mode.
+
+| Mode | Frames | All ACKed? | Effective B/s | Efficiency |
+|---:|---:|---:|---:|---:|
+| 6 (1200 AFSK AX.25) | 20 | yes | 87 | 58 % |
+| 7 (1200 AFSK IL2P+CRC) | 20 | yes | 78 | 52 % |
+| 12 (300 AFSK AX.25) | 20 | yes | 34 | 91 % |
+| 2 (9600 GFSK IL2P+CRC) | 20 | yes | 346 | 29 % |
+
+**Finding:** the ACK-pacing pattern is the right one for the
+session-layer integration. Every frame ACKs on the first try at
+TXDELAY=50 ms, so the only overhead per frame is the TX-DELAY +
+slot-time + per-frame ACK-echo round-trip. Mode 12 (300 AFSK)
+shows the best efficiency because its per-frame air time is large
+relative to that fixed overhead; mode 2 (9600 GFSK) shows the
+lowest because the per-frame air time is much shorter than the
+fixed overhead.
+
+**Earlier finding, retracted:** a non-paced version of this test
+bursted Data frames without awaiting completion; on three of four
+modes it delivered ~0 % of the frames because the TNC silently
+queued and (under sufficient pressure) dropped them. That number is
+**not** representative of the modem's actual throughput — it's a
+property of unmanaged-queue behaviour. The session-layer integration
+must use ACK-pacing or some other queue-depth control.
+
+### High-volume stress, ACK-paced (mode 6, TXDELAY=5)
+
+200 sequential ACK-paced frames at the lowest reliable TXDELAY:
+
+- **200/200 (100 %) success.**
+- Round-trip ms: min 1166, p50 1600, p95 2443, p99 2763, max 2970.
+
+p99 within ~2× of p50 — well-behaved tail.
 
 ### ACKMODE concurrency
 
-| N submitted concurrently | All echoed? | Min ms | Mean ms | Max ms |
-|---:|---:|---:|---:|---:|
-| 2 | yes | 224 | 335 | 446 |
-| 4 | yes | 226 | 559 | 892 |
-| 8 | yes | 225 | 1000 | 1773 |
+Multiple ACKMODE frames in flight simultaneously, mode 6:
 
-The N=1 batch took 15 s on the campaign run — likely a first-TX warmup
-artefact on a freshly-opened port; subsequent batches at N=2,4,8 all
-returned in well under 2 s for the slowest member. Worth a follow-up
-investigation if it reproduces.
+| N concurrent | All echoed? | Total elapsed s | Min ms | Mean ms | Max ms |
+|---:|---:|---:|---:|---:|---:|
+| 1 | yes | **15.03** | 15029 | 15029 | 15029 |
+| 2 | yes | 0.45 | 222 | 335 | 447 |
+| 4 | yes | 0.91 | 226 | 560 | 891 |
+| 8 | yes | 1.81 | 226 | 1001 | 1773 |
 
-### Bidirectional simultaneous send (half-duplex contention)
+**Resolved post-marathon:** the soak's `throughput` sub-command runs
+just before `ackmode-concurrent`, bursting 20 frames at the modem
+without ACK pacing. The TNC silently queues frames it can't transmit
+immediately. When `ackmode-concurrent`'s first measured frame is
+submitted, its ACKMODE echo correctly waits for every previously-
+queued frame to drain off the TX queue first — that's ~15 s of
+1200 AFSK at 200 bytes per frame.
 
-10 rounds of A and B sending the same instant: 9/10 both peers received.
-CSMA + the modem's built-in deferral is doing its job; one collision in
-ten is consistent with KISS PERSIST=63 / SLOTTIME=10 ms defaults.
+The `tools/Packet.NinoTnc.Spike` `ack-warmup-probe` sub-command
+reproduces this on demand:
+
+```
+Scenario 5: Open + SetMode + 20 back-to-back Data frames + ACKMODE
+  first ACK (after burst): 17 467 ms
+  second ACK:                  213 ms
+```
+
+The other four scenarios (vanilla, long settle, prime-with-data,
+prime-with-ack) all return the first ACK in **228–857 ms**. The 15 s
+is not a firmware initialisation cost; it is the modem's TX queue
+draining correctly.
+
+**Implication:** the driver / session layer should treat ACKMODE
+elapsed time as a *true* TX-completion measure, not a queueing
+measure. If you `await Send(...)` and care about TX completion, use
+`SendFrameWithAckAsync`. Don't burst plain Data frames followed by
+"how long did the next one take" — that measures the queue, not the
+modem.
+
+### Bidirectional simultaneous send (half-duplex CSMA contention)
+
+10 rounds of A and B sending the same instant, TXDELAY=20:
+
+- **9/10 rounds both peers received the other's frame.**
+
+CSMA + the modem's built-in deferral does its job. PERSIST=63 /
+SLOTTIME=10 ms defaults are good enough for two-station contention.
 
 ### Adaptive estimator (`TxDelayHillClimbEstimator`) — live run
 
-40 frames with aggressive tuning (`SuccessesPerStepDown=3`, `StepUnits=2`,
-`MinTxDelay=2`) starting from TXDELAY=50:
+40 frames with aggressive tuning (`SuccessesPerStepDown=3`,
+`StepUnits=2`, `MinTxDelay=2`) starting from TXDELAY=50:
 
 - All 40 ACKMODE round trips succeeded.
-- Estimator walked TXDELAY 50 → 24 across the 40 frames.
+- Estimator walked TXDELAY 50 → 24 across the 40 frames (reproducible
+  across runs).
 - Final 240 ms is still wildly above the 10 ms floor — the algorithm
-  is conservative. Tuning for production: a larger `StepUnits` or
-  smaller `SuccessesPerStepDown` would converge faster; we'll set
-  defaults after a real-RF run.
-
-### Throughput (back-to-back, no airtime spacing)
-
-Mode 6: 20 × 200 B frames in ~3.3 s yielded only 1 echoed-and-uniqued
-frame — most were swallowed somewhere between the KISS layer and the
-TNC's TX queue. This is a **finding**: rapid-fire submission of plain
-KISS data frames does not produce rapid air transmission; the TNC drops
-or queues silently. For sustained throughput the host needs to:
-
-1. Use ACKMODE (so we know when one frame is actually on the air).
-2. Pace submissions to one-at-a-time, or
-3. Build a multi-outstanding pipeline with explicit ACK correlation.
-
-The driver's `SendFrameWithAckAsync` already supports option (3). The
-upcoming session-layer integration should default to ACK-paced TX.
+  is conservative. For production on a stable benchtop link, tune
+  `StepUnits` higher or `SuccessesPerStepDown` lower; for production
+  on real RF, the current cadence is sensible (frame-loss penalty is
+  +10 units, so 5 consecutive non-losses to recover from one bad
+  frame).
 
 ### Long-idle stability
 
-2-minute idle watch with both modems open and in mode 6: no spurious
-inbound frames, no pump errors. Driver is stable while quiescent.
+2-minute idle watch with both modems open and in mode 6:
+
+- 0 spurious inbound frames on either side.
+- 0 driver pump errors.
+
+The driver is quiet when there's nothing to do.
 
 ## Caveats
 
 - **Single host, single setup.** Findings reflect the dev box's specific
-  USB ports and one cable. Different USB controllers may produce
+  USB ports and one audio cable. Different USB controllers may produce
   different TXDELAY floors.
-- **No noise, no fading.** A real link will see retransmits where this
-  setup sees clean ACKs.
+- **No noise, no fading, no real radios.** The bench audio cross-wire
+  is artificially clean. **Adaptive TXDELAY tuning is essentially
+  unexercised here** — every mode hits the 10 ms floor and the
+  estimator has no failures to ratchet against. The estimator's value
+  shows up when there are real transmitters with hundreds of ms of
+  key-up delay, real receivers needing meaningful preamble for AGC
+  and sync, and conditions that drift over time. **The numbers in this
+  document are a benchtop floor, not a tuning target.**
 - **Firmware v3.44.** Future firmware may change TX behaviour.
+- **Avoid TXDELAY=100 on mode 12.** It breaks the receiver under
+  sustained traffic in one direction. See the deep-dive section
+  above. Other TXDELAY values (≤ 50) at mode 12 are fine.
 
 ## How to re-run
 
 ```sh
 $env:PACKETNET_NINOTNC_PORTS = "COM6,COM8"
-dotnet run --project tools/Packet.NinoTnc.Spike -- soak all COM6 COM8
-# or, for the longer "I have hours" run with stress + per-mode TXDELAY:
 dotnet run --project tools/Packet.NinoTnc.Spike -- soak marathon COM6 COM8
 ```
 
 Output lands under `artifacts/nino-tnc-soak/<timestamp>/results.md`.
+The `soak` tool has narrower sub-commands too (`mode-sweep`,
+`txdelay-sweep`, `payload-sweep`, `throughput`, `ackmode`,
+`bidirectional`, `idle`, `estimator-live`, `stress`,
+`per-mode-txdelay`, `binary-payload`).
