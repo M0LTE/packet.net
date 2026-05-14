@@ -34,10 +34,11 @@ var opts = ParseArgs(args);
 
 return opts.Mode switch
 {
-    "oneshot" => await OneshotMode.RunAsync(opts),
-    "collect" => await CollectMode.RunAsync(opts),
-    "analyse" => await AnalyseMode.RunAsync(opts),
-    _         => Fail($"unknown mode: {opts.Mode}"),
+    "oneshot"  => await OneshotMode.RunAsync(opts),
+    "collect"  => await CollectMode.RunAsync(opts),
+    "analyse"  => await AnalyseMode.RunAsync(opts),
+    "direwolf" => await DirewolfMode.RunAsync(opts),
+    _          => Fail($"unknown mode: {opts.Mode}"),
 };
 
 static int Fail(string msg) { Console.Error.WriteLine($"# {msg}"); return 1; }
@@ -64,6 +65,9 @@ static Options ParseArgs(string[] args)
         DataDir = "/home/tf/aprs-is-data",
         Db = "",
         Limit = 0,
+        DirewolfBin = "/usr/bin/decode_aprs",
+        BatchSize = 1000,
+        Reprocess = false,
     };
 
     for (int i = 1; i < args.Length; i++)
@@ -105,6 +109,15 @@ static Options ParseArgs(string[] args)
             case "--limit":
                 opts.Limit = int.Parse(next() ?? throw new ArgumentException("--limit requires value"));
                 break;
+            case "--direwolf-bin":
+                opts.DirewolfBin = next() ?? throw new ArgumentException("--direwolf-bin requires path");
+                break;
+            case "--batch-size":
+                opts.BatchSize = int.Parse(next() ?? throw new ArgumentException("--batch-size requires value"));
+                break;
+            case "--reprocess":
+                opts.Reprocess = true;
+                break;
             default:
                 throw new ArgumentException($"unknown arg: {a}");
         }
@@ -129,5 +142,9 @@ namespace Packet.AprsIs.Spike
         public string Db { get; set; } = "";
         public string DataDir { get; set; } = "";
         public int Limit { get; set; }
+        // direwolf mode:
+        public string DirewolfBin { get; set; } = "";
+        public int BatchSize { get; set; }
+        public bool Reprocess { get; set; }
     }
 }

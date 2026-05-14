@@ -813,6 +813,53 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — SP-001b: direwolf reference-decode pipeline — differential testing baseline
+
+`Packet.AprsIs.Spike` gained a `direwolf` mode that pipes the captured
+corpus through `decode_aprs` (the system-installed direwolf utility)
+and persists the structured output into a sibling `direwolf_decoded`
+table inside the same SQLite file. Implements the "feed APRS-IS data
+through both direwolf and our library, compare and validate" pipeline
+the spike backlog (SP-002) called for.
+
+**Sanitisation**: each TNC2 line has its APRS-IS q-construct path
+stripped (`,qA.*:` → `:`) before being fed to direwolf — the exact
+transformation the direwolf man page recommends.
+
+**Throughput**: ~23,400 lines/sec on a single `decode_aprs`
+subprocess with 1000-line batches. 276k-line corpus → 12.4 s. Fast
+enough to re-run on every accumulation.
+
+**Differential signal surfaced** (full narrative in
+[findings.md](../tools/Packet.AprsIs.Spike/findings.md)):
+
+- **Direwolf accepts, we reject** — almost entirely lowercase
+  callsigns (`dl9mfl-6`, `iw0uwf-4`, `vk4zu-13`). Direwolf warns
+  but parses on; our strict `Callsign` refuses. Validates the case
+  for a separate `AprsCallsign` permissive type in SP-008's
+  `Packet.Aprs`.
+- **We accept, direwolf rejects** — valid AX.25 envelopes carrying
+  malformed APRS payloads (unknown DTIs, invalid compressed
+  longitudes, APRSdroid/APRSIS32 bugs leaking into the wild). We
+  haven't been validating the payload; direwolf does.
+
+Top error buckets:
+- 58,609 × "Bad source address"
+- 4,453 × invalid compressed-longitude characters
+- 3,521 × unknown DTI "H" (APRSIS32 bug)
+- 1,849 × unknown DTI "2" (APRSdroid bug)
+
+The corpus is now a **differential testing baseline**. For any future
+`Packet.Aprs` decoder, every frame has a direwolf interpretation in
+the same SQLite. Diff frame-by-frame → bug candidates (in us, in
+direwolf, or in the upstream sender).
+
+**Operational note**: direwolf mode and the collector both want write
+locks on the SQLite file. They can't run concurrently (SQLite WAL is
+1-writer). For now: stop the collector wrapper before a direwolf
+pass, restart after. Snapshot/backup-based concurrent processing is
+a follow-up if it becomes friction.
+
 ### 2026-05-14 — SP-001b: APRS payload-type classifier — 62 % positions
 
 Tier 0 unblocker on the corpus. `AprsPayloadType.Classify` buckets each

@@ -58,6 +58,43 @@ An `AFTER INSERT` trigger keeps `run_meta.line_count` + `ended_at_us`
 exact. The collector doesn't parse the AX.25 envelope — that's offline
 against the corpus by design, so parser changes can be re-run.
 
+### `direwolf` — pipe corpus through direwolf as a reference decoder
+
+```sh
+dotnet run --project tools/Packet.AprsIs.Spike -- direwolf \
+  --data-dir /home/tf/aprs-is-data
+```
+
+For every `lines` row, pipes the TNC2 line (with APRS-IS q-construct
+stripped per direwolf's recommended `,qA.*:` regex) through
+`/usr/bin/decode_aprs` and writes the structured output back into a
+sibling `direwolf_decoded` table in the same SQLite file:
+
+```sql
+CREATE TABLE direwolf_decoded (
+  line_id      INTEGER PRIMARY KEY,
+  decoded_type TEXT,           -- e.g., 'Position with time, Repeater, SharkRF openSPOT4'
+  latitude     REAL,           -- decimal degrees
+  longitude    REAL,
+  altitude_m   REAL,
+  comment      TEXT,
+  has_error    INTEGER NOT NULL DEFAULT 0,
+  error_first  TEXT,
+  raw_output   TEXT NOT NULL,  -- direwolf's full per-frame output
+  FOREIGN KEY (line_id) REFERENCES lines(id)
+);
+```
+
+This gives the corpus a **reference interpretation** for every line —
+ground truth from the most authoritative public APRS decoder. When we
+eventually build our own decoders, every diff against
+`direwolf_decoded` is a candidate bug (in us, in direwolf, or in the
+upstream sender).
+
+`--reprocess` re-runs over rows that already have direwolf output;
+default is resume-style (skip rows already processed). `--limit N`
+caps; `--batch-size N` controls the chunk-per-subprocess.
+
 ### Common args
 
 | Flag | Default | Meaning |
