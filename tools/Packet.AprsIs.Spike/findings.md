@@ -6,6 +6,138 @@ raw stats.md / failures.jsonl land in `artifacts/aprs-is-analysis/<ts>/`
 
 Re-run with `dotnet run --project tools/Packet.AprsIs.Spike -- analyse`.
 
+## 2026-05-14 — Cross-reference: corpus errors vs APRS12c spec
+
+Each error class surfaced by the direwolf pipeline (previous section) mapped
+to the canonical updated APRS specification.
+
+**Sources:**
+
+- `APRS101.pdf` — the original 1998 spec Tom linked. Now explicitly marked
+  obsolete by [how.aprs.works/aprs101-pdf-is-obsolete](https://how.aprs.works/aprs101-pdf-is-obsolete/).
+- `APRS12c.pdf` — version 1.2 draft C, the current de-facto spec. Maintained
+  by `wb2osz` (direwolf author) at
+  [github.com/wb2osz/aprsspec](https://github.com/wb2osz/aprsspec).
+- `Understanding-APRS-Packets.pdf` — a more accessible "what real packets
+  look like, including the common bugs" companion document by the same
+  author.
+
+Both updated docs available at
+`https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf` and
+`https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf`.
+
+### Headline: direwolf is right, the wild is wrong
+
+Every error class direwolf rejected in our corpus is **provably non-spec**
+under APRS12c. The corpus is showing us real firmware bugs and historical
+sloppiness, not over-strict decoding.
+
+### Per-error mapping
+
+#### "Bad source address" (58,609 cases — biggest bucket)
+
+Direwolf flags lowercase / >6-char / weird-SSID source addresses
+(`dl9mfl-6`, `WINLINK`, `BD8AWU-18`, `BI4KVT-8G`).
+
+**Spec position** — APRS12c Chapter 4: *"the field conforms to the standard
+AX.25 callsign format (i.e. up to 6 upper case alphanumeric characters plus
+SSID)"*. Understanding-APRS-Packets §1.1 lists invalid examples:
+`N2GH-0`, `N2GH-16`, `N2GH -1`, **`n2gh`** — *"Must be upper case."*
+
+§5.9 calls out lowercase as one of the documented common bugs.
+
+→ **Our strict `Callsign.TryParse` is spec-correct.** Direwolf's "warn and
+parse on" is a pragmatic lenience, not a spec interpretation. The
+`AprsCallsign` permissive type we discussed should be a **display-layer
+type**, not a relaxation of `Callsign`.
+
+#### "Unknown APRS Data Type Indicator 'H' (KJ4ERJ APRSIS32)" (3,521 cases)
+
+**Spec position** — APRS12c Chapter 5, DTI table:
+
+| Range | Status |
+|---|---|
+| `A–S` (uppercase letters in this range) | **"[Do not use]"** |
+| `U–Z` | **"[Do not use]"** |
+
+`H` is in the explicit no-use range. **APRSIS32 is violating the spec.**
+
+#### "Unknown APRS Data Type Indicator '2'" (1,849 cases, APRSdroid)
+
+**Spec position** — APRS12c Chapter 5, DTI table: `0–9` is explicitly
+listed as **"[Do not use]"**. APRSdroid is violating the spec.
+
+#### "Unknown APRS Data Type Indicator '-'" / "' '" (space) / etc.
+
+**Spec position** — APRS12c Chapter 5: `-` is in the `[Unused]` row. Space
+(0x20) is not in the DTI table at all — implies the payload starts with
+whitespace (a mis-formed frame).
+
+#### "Invalid character in compressed longitude. Must be in range of '!' to '{'." (4,453 cases)
+
+**Spec position** — APRS12c Chapter 9 (Compressed Position Report Data
+Formats):
+
+> *"The values of YYYY and XXXX are computed as follows: YYYY is 380926 ×
+> (90 − latitude) [base 91] … XXXX is 190463 × (180 + longitude) [base 91]
+> … To obtain the corresponding ASCII characters, 33 is added to each of
+> these values."*
+
+Base-91 values 0–90, plus 33 offset = ASCII 33 (`!`) through 123 (`{`).
+Anything outside that range is impossible under valid encoding. **Direwolf
+is correct.** The sender emitted a malformed compressed frame.
+
+#### "Invalid symbol table id for compressed position" (2,871 cases)
+
+**Spec position** — APRS12c Chapter 9 + 20: the Symbol Table Identifier is
+`/` (primary) or `\` (secondary) or `0–9 / A–Z` (overlay characters).
+Anything else is not a valid table id and the leading character is then
+ambiguous (compressed-position or numeric-lat/long?). **Direwolf is
+correct.**
+
+### Net implication for our codebase
+
+We have **two distinct lenience levers** to think about:
+
+1. **AX.25 envelope** (`Callsign`, `Ax25Frame`): stay strict per spec. Real
+   strictness is what we want on the wire — invalid frames shouldn't be
+   accepted as "valid AX.25 + happens to have lowercase". Direwolf agrees;
+   it warns rather than rejects but that's a UX choice, not a spec
+   reading.
+2. **APRS payload** (future `Packet.Aprs`): validate per APRS12c
+   directly. The bugs in the wild (APRSIS32, APRSdroid, Kenwood TM-D710
+   0xFF burst — §5.10 in Understanding-APRS-Packets) are real and
+   documented. Our decoder should reject them cleanly and surface the
+   reason (matching direwolf's class of error message), not silently
+   accept.
+
+For the **monitor / display layer** we likely want a permissive read-only
+`AprsCallsign` type that round-trips real-world strings without trying to
+fit them through the strict AX.25 mould. Lossy is fine: surface
+"`dl9mfl-6` (lowercase, non-spec)" rather than rejecting.
+
+For **frame production** (we send) we never emit lowercase or weird
+SSIDs — strict `Callsign` is the right input type.
+
+### APRS101 vs APRS12c — which to follow?
+
+The community-maintained `wb2osz/aprsspec` repo explicitly says
+APRS101.pdf is obsolete. APRS12c.pdf incorporates decades of corrections
++ extensions (Base-91 comment telemetry, mic-E extensions, deviceid
+discipline, etc.) that APRS101 doesn't have. **For SP-008 (`Packet.Aprs`),
+APRS12c is the right reference.** When 101 and 12c differ, 12c wins.
+
+The original APRS101.pdf at `ui-view.net` is still up but is the
+**unchanged 1998 document**. The 12c document on the wb2osz repo is the
+maintained successor.
+
+Direct refs for the eventual `Packet.Aprs` work, pinned by URL:
+
+- [`APRS12c.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf) — primary spec.
+- [`Understanding-APRS-Packets.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf) — implementer's companion + common-bugs catalogue.
+- [`APRS-Symbols.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Symbols.pdf) — full symbol table reference (when we render).
+- [`APRS-Digipeater-Algorithm.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Digipeater-Algorithm.pdf) — for the digipeating logic when we eventually digipeat.
+
 ## 2026-05-14 — Direwolf reference pipeline (276k lines, ~1 h capture)
 
 First end-to-end pass of the corpus through direwolf's `decode_aprs`
