@@ -299,7 +299,13 @@ public class GitHubNinoTncFirmwareCatalogueTests
         // concrete class through an interface-typed reference. This
         // catches "default method exists but isn't dispatched" regressions
         // that the FakeCatalogue tests can mask.
+        //
+        // The interface-typed variable is the entire point — CA1859's
+        // "use the concrete type for performance" recommendation directly
+        // contradicts what we're testing.
+#pragma warning disable CA1859
         INinoTncFirmwareCatalogue catalogue = NewCatalogue(SampleContents);
+#pragma warning restore CA1859
 
         var availability = await catalogue.CheckForUpdateAsync(new NinoTncFirmwareVersion(3, 43));
 
