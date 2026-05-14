@@ -390,6 +390,94 @@ The differentiator no other TNC stack does well: treat the radio + modem as firs
 - NinoTNC mode-change demonstrated end-to-end (manual trigger, no auto-negotiation needed for exit).
 - `packetnet ctl flash-tnc` working from CLI; web UI integration optional.
 
+### 5.X Spike backlog ⬜
+
+Smaller, time-boxed exploration tasks. Not phase-sequenced — each can land
+whenever it's the highest-leverage next thing. Listed in approximate order
+of leverage-per-effort.
+
+**SP-001 — LinBPQ MQTT frame feed ingestion** (high leverage, low effort).
+Tom operates a live LinBPQ node with four real RF ports and is willing to
+expose an MQTT feed of every AX.25 frame sent/received (with or without KISS
+wrapper). Build a `Packet.Replay.MqttIngest` tool that subscribes to the
+feed, decodes frames, runs them through our parser, and emits structured
+records (frame type, callsigns, control bits, payload size, decoded errors).
+Acts as a 24/7 corpus of real-world frame traffic across four real RF
+channels — vastly richer than synthetic test traffic. Specifically catches
+parser edge cases that property-tests won't generate. Feeds the regression
+corpus in SP-003.
+
+**SP-002 — Direwolf-as-reference end-to-end harness** (high leverage, medium
+effort). Docker-containerise direwolf, expose KISS-TCP, point Packet.NET at
+it. For every transcribed transition, A/B our orchestrator's behaviour
+against direwolf's actual output. Direwolf is the closest-to-figure
+implementation (see SI-* triangulation in [`docs/spec-issues.md`](spec-issues.md)),
+so behavioural equivalence with direwolf is a strong correctness signal.
+Strongest force multiplier on the SDL transcription work.
+
+**SP-003 — Replay/record harness** (high leverage, medium effort). pcap-
+style timestamped capture of KISS + AX.25 wire bytes with per-frame direction
++ port + source labels. Replay later to repro bugs, build a regression
+library of weird-frames-seen-in-the-wild, and A/B real on-air behaviour
+against the orchestrator's projection. Foundation for SP-001's persistence
++ for future "I saw a strange frame, replay this against the state machine"
+debugging. Storage as JSON-lines or capnproto; both fine.
+
+**SP-004 — AX.25 wire-format fuzzer (SharpFuzz)** (medium leverage, low
+effort). Plan §7 already promises this for nightly. Frame parser as target.
+Mostly mechanical: a fuzz harness against `Ax25Frame.TryParse`, plus
+`KissFrame.TryParse`. Likely surfaces real bugs in edge cases (oversized
+fields, weird PIDs, malformed addresses). Cheap and overdue.
+
+**SP-005 — Multi-Packet.NET-instance interop via net-sim** (medium leverage,
+low effort). Net-sim already in the interop stack. Spin up 2-3 Packet.NET
+instances and let them talk to each other through net-sim's lossy channel.
+Any drift between identical implementations exposes a state-machine bug
+cheaper than against LinBPQ — and complements interop tests against
+heterogeneous peers.
+
+**SP-006 — Spec-prose-to-stub-test extractor** (higher effort, payoff after
+Phase 2). Parse the AX.25 v2.2 spec markdown, pull every "shall" sentence
+into a stub xUnit test (initially `[Skip]`). Surfaces gaps where the SDL
+transcription doesn't cover a prose mandate. Lower priority — the SDL
+transcription itself already does most of the work, but this acts as a
+backstop.
+
+**SP-007 — NinoTNC KISS-side SNR proxy** (low leverage but useful fallback).
+Even without Tait integration, can we infer link quality from frame-quality
+bits / retry rates / error counts alone? If yes, gives `IRadioControl`'s
+quality signal a fallback path for users without CAT-capable radios.
+Investigate after SP-001 has produced enough real-world data to baseline.
+
+### 5.Y Hardware-arrival probe playbook ⬜
+
+Concrete first-day actions for when the 2× NinoTNC + 2× Tait rig lands on
+the bench. Listed so the autonomous agent has a ready playbook the moment
+hardware is available.
+
+1. **Tait capability inventory** — query both radios via CCDI, dump full
+   capability list (channels, modes, frequencies, audio levels, supported
+   commands) into `artifacts/radio-capabilities/<radio-serial>.json`.
+2. **NinoTNC capability probe** — SETHW iteration over modes 0–15 + the
+   `+16` no-flash variant; record what KISS responses come back; observe
+   whether mode change is immediate or requires re-init. Directly answers
+   OQ-009.
+3. **SNR vs TX-level baseline** — step the Tait TX audio level across the
+   cross-wire; log SNR on the receiving Tait at each level. Builds a
+   per-rig calibration curve usable by the adaptive estimator.
+4. **NinoTNC mode-by-SNR survey** — for each NinoTNC mode that decodes on
+   the cross-wire, find the SNR floor at which BER starts climbing. Lets us
+   pick mode-switch thresholds.
+5. **1000-iteration AX.25 soak** — SABM → UA → I-frames → DISC → UA round-
+   trip, 1000 times, through both radios. Records frame error rate, retry
+   distribution, T1 variance, mode-stability across the run.
+6. **Cross-coupling degradation** — TX on radio 1, deliberately mistune
+   radio 2. Plot decode success vs offset. Maps the "graceful degradation"
+   shape of the audio path.
+
+Outputs all land in `artifacts/hardware-probe/<date>/` and feed into Phase
+10's adaptive-parameter tuning.
+
 ---
 
 ## 6. SDL transcription discipline
@@ -724,6 +812,23 @@ Three new open questions added to §15:
 - **OQ-010** NinoTNC bootloader protocol (read flashtnc source).
 - **OQ-011** `IRadioControl` abstraction shape (common subset vs
   per-radio feature probes).
+
+Same edit also added §5.X "Spike backlog" — seven SP-NNN candidates
+ordered by leverage-per-effort:
+
+- **SP-001** LinBPQ MQTT frame feed ingestion (Tom-supplied real-world
+  corpus from 4 RF ports; high leverage, low effort — top of the list).
+- **SP-002** Direwolf-as-reference end-to-end harness (force multiplier
+  on SDL transcription work).
+- **SP-003** Replay/record harness (pcap-style capture of KISS + AX.25
+  bytes for repro + regression corpus).
+- **SP-004** AX.25 wire-format fuzzer (SharpFuzz — promised by §7).
+- **SP-005** Multi-Packet.NET-instance interop via net-sim.
+- **SP-006** Spec-prose-to-stub-test extractor (post-Phase 2).
+- **SP-007** NinoTNC KISS-side SNR proxy (fallback for no-CAT radios).
+
+And §5.Y "Hardware-arrival probe playbook" — 6 concrete first-day
+actions to run autonomously when the 2× NinoTNC + 2× Tait rig lands.
 
 ### 2026-05-14 — Soak campaign + adaptive transport + hardware-loop test serialisation
 
