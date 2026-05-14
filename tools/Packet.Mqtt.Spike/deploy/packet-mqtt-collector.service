@@ -1,0 +1,37 @@
+[Unit]
+Description=Packet.NET — LinBPQ MQTT frame-feed collector (SP-001)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/packet-mqtt-collector/Packet.Mqtt.Spike collect \
+  --broker 127.0.0.1:1883 \
+  --topic 'PACKETNODE/#' \
+  --out-dir /var/lib/packet-mqtt-collector \
+  --filename-prefix gb7rdg
+Restart=on-failure
+RestartSec=10
+User=packet-mqtt
+Group=packet-mqtt
+
+# Hardening — minimum-viable systemd defence-in-depth.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/packet-mqtt-collector
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false   # .NET JIT writes executable pages, leave this off.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=packet-mqtt-collector
+
+[Install]
+WantedBy=multi-user.target
