@@ -1,9 +1,9 @@
 using Packet.Kiss;
 using Packet.Kiss.Adaptive;
 
-namespace Packet.Kiss.NinoTnc.Tests;
+namespace Packet.Kiss.Tests.Adaptive;
 
-public class AdaptiveNinoTncTransportTests
+public class AdaptiveKissTransportTests
 {
     [Fact]
     public async Task Send_Applies_Estimator_Parameters_Before_Tx_Then_Observes_Success()
@@ -13,7 +13,7 @@ public class AdaptiveNinoTncTransportTests
         {
             Recommendation = new KissParameters(TxDelayTenMsUnits: 30, Persistence: null, SlotTimeTenMsUnits: null, TxTailTenMsUnits: null),
         };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator, TimeProvider.System);
+        await using var transport = new AdaptiveKissTransport(modem, estimator, TimeProvider.System);
 
         var payload = new byte[] { 1, 2, 3 };
         await transport.SendAsync("M0LTE-1", payload, TimeSpan.FromSeconds(1));
@@ -34,7 +34,7 @@ public class AdaptiveNinoTncTransportTests
         {
             Recommendation = new KissParameters(TxDelayTenMsUnits: 20, Persistence: 100, SlotTimeTenMsUnits: 5, TxTailTenMsUnits: null),
         };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
 
         for (int i = 0; i < 3; i++)
         {
@@ -55,7 +55,7 @@ public class AdaptiveNinoTncTransportTests
         {
             Recommendation = new KissParameters(TxDelayTenMsUnits: 40, Persistence: null, SlotTimeTenMsUnits: null, TxTailTenMsUnits: null),
         };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
 
         await transport.SendAsync("PEER", new byte[] { 1 }, TimeSpan.FromSeconds(1));
         estimator.Recommendation = estimator.Recommendation with { TxDelayTenMsUnits = 30 };
@@ -71,7 +71,7 @@ public class AdaptiveNinoTncTransportTests
     {
         var modem = new FakeModem { Behavior = FakeModem.Mode.AlwaysTimeOut };
         var estimator = new RecordingEstimator { Recommendation = KissParameters.SpecDefaults };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
 
         var act = async () => await transport.SendAsync("PEER", new byte[] { 1 }, TimeSpan.FromMilliseconds(50));
         await act.Should().ThrowAsync<TimeoutException>();
@@ -88,7 +88,7 @@ public class AdaptiveNinoTncTransportTests
         {
             Recommendation = new KissParameters(TxDelayTenMsUnits: 25, Persistence: 200, SlotTimeTenMsUnits: 7, TxTailTenMsUnits: null),
         };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
         await transport.SendAsync("PEER", new byte[] { 1 }, TimeSpan.FromSeconds(1));
 
         var sample = estimator.Observations.Single();
@@ -103,7 +103,7 @@ public class AdaptiveNinoTncTransportTests
     {
         var modem = new FakeModem();
         var estimator = new RecordingEstimator { Recommendation = KissParameters.SpecDefaults };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
         transport.RecordLoss("M0LTE-3", payloadBytes: 250);
 
         estimator.Observations.Should().HaveCount(1);
@@ -117,7 +117,7 @@ public class AdaptiveNinoTncTransportTests
     {
         var modem = new FakeModem();
         var estimator = new RecordingEstimator { Recommendation = KissParameters.SpecDefaults };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
         transport.RecordRetransmittedAck("M0LTE-2", payloadBytes: 50);
 
         estimator.Observations.Should().HaveCount(1);
@@ -133,7 +133,7 @@ public class AdaptiveNinoTncTransportTests
             SuccessDelay = TimeSpan.FromMilliseconds(50),
         };
         var estimator = new RecordingEstimator { Recommendation = KissParameters.SpecDefaults };
-        await using var transport = new AdaptiveNinoTncTransport(modem, estimator);
+        await using var transport = new AdaptiveKissTransport(modem, estimator);
 
         var tasks = Enumerable.Range(0, 5)
             .Select(i => transport.SendAsync("PEER", new byte[] { (byte)i }, TimeSpan.FromSeconds(2)))
@@ -146,7 +146,7 @@ public class AdaptiveNinoTncTransportTests
         modem.MaxConcurrentSendObserved.Should().Be(1);
     }
 
-    private sealed class FakeModem : INinoTncModem
+    private sealed class FakeModem : IKissModem
     {
         public enum Mode { Success, SuccessDelayed, AlwaysTimeOut }
 

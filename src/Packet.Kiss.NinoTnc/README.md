@@ -1,23 +1,44 @@
 # Packet.Kiss.NinoTnc
 
-NinoTNC (N9600A) driver for Packet.NET. Speaks KISS over USB-CDC serial,
-with first-class support for:
+NinoTNC (N9600A) driver for Packet.NET. A thin overlay over
+[`Packet.Kiss`](../Packet.Kiss/) that adds firmware-specific bits
+(mode catalog, SETHW byte semantics, TX-Test parsing, USB VID/PID
+discovery). All the *generic* KISS surface — `IKissModem`,
+`AdaptiveKissTransport`, the typed-event hierarchy, the adaptive
+estimators — lives in `Packet.Kiss` and works with any KISS-speaking
+modem (QtSoundModem, Dire Wolf, etc.).
+
+This package adds:
 
 - The NinoTNC `SETHW` mode-selection extension (mode 0–14 + `+16`
   non-persist offset).
+- The synthetic TX-Test diagnostic frame the modem emits when its
+  front-panel button is pressed
+  (`NinoTncTxTestFrameReceivedEvent` — firmware version, serial
+  number, uptime, packet counters, running mode).
+- The over-air TX-Test UI frame heard via the modem when a *partner*
+  presses *their* button
+  (`NinoTncAirTestFrameReceivedEvent` — partner's learned callsign,
+  per-press sequence counter, deterministic ASCII pattern).
+- USB VID/PID-based port discovery (`04D8:00DD`).
+- A NinoTNC-specific frame classifier that overlays the generic one
+  in `Packet.Kiss` and upgrades the synthetic / over-air TX-Test
+  cases to the typed events above.
+
+From `Packet.Kiss` you also get (and which work with any KISS modem):
+
+- KISS framing (`KissEncoder`, `KissDecoder`, `KissFrame`,
+  `KissCommand`, `KissFraming`).
 - The G8BPQ `ACKMODE` KISS extension (KISS command `0x0C`) with
-  per-tag TX-completion correlation.
-- A typed inbound event surface that classifies every received frame
-  as an AX.25 frame, a TX-Test diagnostic, an ACKMODE-Data frame, or
-  unknown — no per-call re-parsing.
-- The on-demand "TX-Test" diagnostic frame the modem emits when its
-  front-panel button is pressed (firmware version, serial number,
-  uptime, packet counters, running mode).
+  per-tag TX-completion correlation through `IKissModem.SendFrameWithAckAsync`.
+- The typed inbound event hierarchy (`KissInboundEvent`,
+  `Ax25FrameReceivedEvent`, `AckModeDataReceivedEvent`,
+  `UnknownInboundEvent`) and `KissFrameClassifier`.
 - Per-peer adaptive KISS parameters via `Packet.Kiss.Adaptive`:
   `TxDelayHillClimbEstimator` (TXDELAY) + `CsmaContentionEstimator`
   (PERSIST + SLOTTIME), composed with `CompositeAdaptiveEstimator`.
-- USB VID/PID-based port discovery on Windows + Linux (no env-var
-  override needed when the host has only the NinoTNC plugged in).
+- `AdaptiveKissTransport` that ties an estimator to any
+  `IKissModem`.
 
 The driver models one modem = one serial port = one radio. The KISS
 multi-drop port nibble is supported at the framing level but not

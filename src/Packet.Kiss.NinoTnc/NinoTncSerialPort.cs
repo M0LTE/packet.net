@@ -13,7 +13,7 @@ namespace Packet.Kiss.NinoTnc;
 /// transmit-completion echoes are correlated through
 /// <see cref="SendFrameWithAckAsync"/>.
 /// </summary>
-public sealed class NinoTncSerialPort : INinoTncModem, IAsyncDisposable, IDisposable
+public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposable
 {
     /// <summary>The NinoTNC's documented USB-serial baud rate.</summary>
     public const int DefaultBaudRate = 57600;
@@ -68,7 +68,7 @@ public sealed class NinoTncSerialPort : INinoTncModem, IAsyncDisposable, IDispos
     /// ACKMODE-Data, or unknown). Strongly typed for ergonomic handler
     /// dispatch. Subscribers run on the read-pump task.
     /// </summary>
-    public event EventHandler<NinoTncInboundEvent>? InboundEvent;
+    public event EventHandler<KissInboundEvent>? InboundEvent;
 
     /// <summary>
     /// Open the named serial port at 57 600 8N1 and start the background read pump.
@@ -358,18 +358,4 @@ public sealed class NinoTncSerialPort : INinoTncModem, IAsyncDisposable, IDispos
 
     /// <inheritdoc/>
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-}
-
-/// <summary>
-/// What you get back from <see cref="NinoTncSerialPort.SendFrameWithAckAsync(System.ReadOnlyMemory{byte},System.Nullable{System.TimeSpan},System.Nullable{ushort},System.Threading.CancellationToken)"/>:
-/// the sequence tag the host chose (or the driver auto-assigned), the moment
-/// the frame was handed to the wire, and the moment the TNC echoed back.
-/// </summary>
-/// <param name="SequenceTag">The 16-bit ACKMODE tag round-tripped by the TNC.</param>
-/// <param name="Queued">When the host wrote the frame to the serial stream.</param>
-/// <param name="Acknowledged">When the TNC's echo arrived back.</param>
-public readonly record struct AckModeReceipt(ushort SequenceTag, DateTimeOffset Queued, DateTimeOffset Acknowledged)
-{
-    /// <summary>Wall-clock time between submission and TX-completion echo.</summary>
-    public TimeSpan Elapsed => Acknowledged - Queued;
 }

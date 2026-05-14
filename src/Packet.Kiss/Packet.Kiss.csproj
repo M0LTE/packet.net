@@ -6,4 +6,16 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!--
+    Packet.Kiss depends on Packet.Ax25 so it can decode KISS-Data
+    payloads into typed AX.25 frame events. KISS is in practice always
+    used with AX.25 (it was named "Keep It Simple, Stupid" for that
+    pairing); the alternative — having Packet.Kiss emit untyped "raw
+    payload" events and pushing AX.25 decoding into every consumer —
+    would be purer in layering but worse for ergonomics.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Packet.Ax25\Packet.Ax25.csproj" />
+  </ItemGroup>
+
 </Project>

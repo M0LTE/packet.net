@@ -10,7 +10,7 @@ namespace Packet.Interop.Tests.Hardware;
 
 [Trait("Category", "HardwareLoop")]
 [Collection(HardwareLoopCollection.Name)]
-public class AdaptiveNinoTncTransportLoopback
+public class AdaptiveKissTransportLoopback
 {
     private const byte LoopbackMode = 6;
 
@@ -32,7 +32,7 @@ public class AdaptiveNinoTncTransportLoopback
             MinTxDelay = 5,
             LossPenaltyUnits = 10,
         };
-        await using var transport = new AdaptiveNinoTncTransport(a, estimator);
+        await using var transport = new AdaptiveKissTransport(a, estimator);
 
         const string peer = "BB-2";
         int rxCount = 0;

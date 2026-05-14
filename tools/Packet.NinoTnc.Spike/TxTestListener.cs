@@ -1,3 +1,4 @@
+using Packet.Kiss;
 using Packet.Kiss.NinoTnc;
 
 namespace Packet.NinoTnc.Spike;
@@ -5,7 +6,7 @@ namespace Packet.NinoTnc.Spike;
 /// <summary>
 /// Sits on a port and prints every typed inbound event. Intended for the
 /// "press the TX-Test button now" demo: we expect to see one
-/// <see cref="TxTestFrameReceivedEvent"/> immediately after the press,
+/// <see cref="NinoTncTxTestFrameReceivedEvent"/> immediately after the press,
 /// alongside (or instead of) any AX.25 frame the modem also keys onto
 /// the air.
 /// </summary>
@@ -29,19 +30,23 @@ internal static class TxTestListener
             var stamp = DateTimeOffset.UtcNow.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
             switch (evt)
             {
-                case TxTestFrameReceivedEvent t:
+                case NinoTncTxTestFrameReceivedEvent t:
                     var d = t.Diagnostic;
                     Console.WriteLine($"[{stamp}] TX-Test pressed");
-                    Console.WriteLine($"          firmware:        {d.FirmwareVersion}");
-                    Console.WriteLine($"          serial:          {d.SerialNumber ?? "(not set)"}");
-                    Console.WriteLine($"          uptime:          {d.Uptime}");
-                    Console.WriteLine($"          board revision:  0x{d.BoardRevision:X2}");
-                    Console.WriteLine($"          DIP position:    {d.DipSwitchPosition}");
-                    Console.WriteLine($"          firmware mode:   0x{d.FirmwareModeByte:X2}");
-                    Console.WriteLine($"          running mode:    {d.RunningMode?.Name ?? "(unknown — firmware byte not in catalog)"}");
-                    Console.WriteLine($"          AX25 rx pkts:    {d.Ax25RxPackets}");
-                    Console.WriteLine($"          IL2P rx pkts:    {d.Il2pRxPackets}");
-                    Console.WriteLine($"          TX pkts:         {d.TxPacketCount}");
+                    Console.WriteLine($"          firmware:           {d.FirmwareVersion}");
+                    Console.WriteLine($"          serial:             {d.SerialNumber ?? "(not set)"}");
+                    Console.WriteLine($"          uptime:             {d.Uptime}");
+                    Console.WriteLine($"          board revision:     0x{d.BoardRevision:X2}");
+                    Console.WriteLine($"          DIP position:       {d.DipSwitchPosition}");
+                    Console.WriteLine($"          firmware mode:      0x{d.FirmwareModeByte:X2}");
+                    Console.WriteLine($"          running mode:       {d.RunningMode?.Name ?? "(unknown — firmware byte not in catalog)"}");
+                    Console.WriteLine($"          AX25 rx pkts:       {d.Ax25RxPackets}");
+                    Console.WriteLine($"          IL2P rx pkts:       {d.Il2pRxPackets}");
+                    Console.WriteLine($"          IL2P rx uncorr:     {d.Il2pRxUncorrectable}");
+                    Console.WriteLine($"          TX pkts:            {d.TxPacketCount}");
+                    Console.WriteLine($"          preamble count:     {d.PreambleCount}");
+                    Console.WriteLine($"          loop cycles:        {d.LoopCycles}");
+                    Console.WriteLine($"          lost ADC samples:   {d.LostAdcSamples}");
                     break;
                 case Ax25FrameReceivedEvent ax:
                     Console.WriteLine($"[{stamp}] AX.25 frame   src={ax.Ax25.Source.Callsign} dst={ax.Ax25.Destination.Callsign} info={ax.Ax25.Info.Length}B");

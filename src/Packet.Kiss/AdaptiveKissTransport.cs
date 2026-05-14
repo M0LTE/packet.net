@@ -1,39 +1,39 @@
-using Packet.Kiss;
 using Packet.Kiss.Adaptive;
 
-namespace Packet.Kiss.NinoTnc;
+namespace Packet.Kiss;
 
 /// <summary>
-/// Glues an <see cref="IAdaptiveParameterEstimator"/> to a
-/// <see cref="NinoTncSerialPort"/>. Before each TX it asks the estimator
-/// what parameters to use for the destination peer, applies them via KISS
-/// SETTING commands, sends the frame using ACKMODE so we get a real
-/// TX-completion signal, then feeds the outcome back into the estimator.
+/// Glues an <see cref="IAdaptiveParameterEstimator"/> to any
+/// <see cref="IKissModem"/>. Before each TX it asks the estimator what
+/// parameters to use for the destination peer, applies them via KISS
+/// parameter commands, sends the frame using ACKMODE so the host gets
+/// a real TX-completion signal, then feeds the outcome back into the
+/// estimator.
 /// </summary>
 /// <remarks>
 /// <para>
-/// KISS parameters (TXDELAY etc.) are <em>per-modem</em>, not per-peer — the
-/// TNC applies whatever value was last configured to every subsequent
-/// transmission. To realise per-peer adaptive parameters on a single modem,
-/// this transport re-applies the per-peer recommendation immediately before
-/// each TX. That costs one extra short serial write per frame, which is
-/// negligible against any reasonable airtime budget.
+/// KISS parameters (TXDELAY etc.) are <em>per-modem</em>, not per-peer
+/// — the TNC applies whatever value was last configured to every
+/// subsequent transmission. To realise per-peer adaptive parameters on
+/// a single modem, this transport re-applies the per-peer recommendation
+/// immediately before each TX. That costs one extra short serial write
+/// per frame, which is negligible against any reasonable airtime budget.
 /// </para>
 /// <para>
 /// Concurrent <see cref="SendAsync"/> calls would race the parameter
-/// changes (a frame for peer A could fly out with peer B's TXDELAY). The
-/// transport serialises sends through an internal semaphore so callers
-/// don't have to.
+/// changes (a frame for peer A could fly out with peer B's TXDELAY).
+/// The transport serialises sends through an internal semaphore so
+/// callers don't have to.
 /// </para>
 /// <para>
-/// The transport tracks the last-applied value for each parameter and only
-/// sends a SET command when the value has changed, to avoid spamming the
-/// TNC's parameter writes.
+/// The transport tracks the last-applied value for each parameter and
+/// only sends a SET command when the value has changed, to avoid spamming
+/// the TNC's parameter writes.
 /// </para>
 /// </remarks>
-public sealed class AdaptiveNinoTncTransport : IAsyncDisposable, IDisposable
+public sealed class AdaptiveKissTransport : IAsyncDisposable, IDisposable
 {
-    private readonly INinoTncModem modem;
+    private readonly IKissModem modem;
     private readonly IAdaptiveParameterEstimator estimator;
     private readonly SemaphoreSlim sendLock = new(1, 1);
     private readonly TimeProvider time;
@@ -44,8 +44,8 @@ public sealed class AdaptiveNinoTncTransport : IAsyncDisposable, IDisposable
     /// <summary>The default ACKMODE timeout if the caller doesn't supply one.</summary>
     public TimeSpan DefaultAckTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
-    public AdaptiveNinoTncTransport(
-        INinoTncModem modem,
+    public AdaptiveKissTransport(
+        IKissModem modem,
         IAdaptiveParameterEstimator estimator,
         TimeProvider? time = null)
     {
@@ -121,8 +121,8 @@ public sealed class AdaptiveNinoTncTransport : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Record an externally-observed loss (e.g. AX.25-layer retransmit
-    /// timeout, peer never ACKed). The estimator uses this signal alongside
-    /// the per-send ACKMODE outcomes.
+    /// timeout, peer never ACKed). The estimator uses this signal
+    /// alongside the per-send ACKMODE outcomes.
     /// </summary>
     public void RecordLoss(string peer, int payloadBytes)
     {
@@ -137,9 +137,10 @@ public sealed class AdaptiveNinoTncTransport : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Record an AX.25-layer retransmit (the frame did eventually get through
-    /// but only after one or more replays). Counted as a soft signal — the
-    /// estimator won't bump TXDELAY up but it'll reset the success streak.
+    /// Record an AX.25-layer retransmit (the frame did eventually get
+    /// through but only after one or more replays). Counted as a soft
+    /// signal — the estimator won't bump TXDELAY up but it'll reset the
+    /// success streak.
     /// </summary>
     public void RecordRetransmittedAck(string peer, int payloadBytes)
     {
