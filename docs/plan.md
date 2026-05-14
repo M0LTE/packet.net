@@ -824,6 +824,30 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl: route Enquiry_Response_F_0 / _F_1 legacy aliases to canonical spec
+
+Follow-up to PR #102. Originally I made the legacy aliases no-op even
+after `Wire()` — wrong; production semantics had `connected.sdl.yaml`
+calling `Enquiry_Response_F_0` / `_F_1` and the registry silently
+doing nothing.
+
+Per "Trust the figure": figc4.4 actually has two distinct
+subroutine-call boxes (`Enquiry Response (F = 0)` and
+`Enquiry Response (F = 1)`), so the transcription is correct to use
+two verb names. They're not different subroutines though — figc4.7's
+redraw collapses them into one `Enquiry_Response` body whose first
+decision (`F == 1 & (Frame==RR || …)?`) reads the F bit from the
+incoming frame.
+
+Fix: `LegacyAliases` is now a `Dictionary<string,string>` mapping
+each legacy name to its canonical target. `Wire()` resolves each
+alias to the corresponding `SubroutineSpec` walker. Both legacy
+names now walk the `Enquiry_Response` body when invoked.
+
+Two new theory cases prove the resolution
+(`Legacy_Alias_Walks_Canonical_Enquiry_Response_Spec`). User-Register
+overrides still win.
+
 ### 2026-05-14 — sdl: figc4.7 subroutines codegen + registry walker
 
 PR 2 of the figc4.7 arc. Adds the data types, the codegen pipeline, and

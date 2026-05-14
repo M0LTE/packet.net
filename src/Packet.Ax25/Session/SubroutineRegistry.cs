@@ -59,16 +59,24 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
     /// <summary>
     /// Legacy subroutine names that remain referenced by older
     /// state-machine YAML pages (e.g. <c>connected.sdl.yaml</c>'s
-    /// <c>Enquiry_Response_F_0</c> / <c>_F_1</c>) but don't have their
-    /// own entries in the redrawn <c>figc4.7</c>. Kept as no-op stubs
-    /// for back-compat; they'll be retired when the referring state
-    /// pages are re-transcribed to use the canonical name.
+    /// <c>Enquiry_Response_F_0</c> / <c>_F_1</c>) but aren't separate
+    /// subroutines in the redrawn <c>figc4.7</c> — both call the same
+    /// <c>Enquiry_Response</c> body, with the F-bit choice arising
+    /// naturally from the spec's first-decision predicate
+    /// <c>F == 1 &amp; (Frame==RR || Frame==RNR || Frame==I)?</c>.
     /// </summary>
-    private static readonly string[] LegacyAliases =
-    {
-        "Enquiry_Response_F_0",
-        "Enquiry_Response_F_1",
-    };
+    /// <remarks>
+    /// Each entry maps the legacy alias name to the canonical spec
+    /// name to walk. After <see cref="Wire"/>, invoking the legacy
+    /// alias runs the canonical body; the figure-faithful caller-side
+    /// name in <c>connected.sdl.yaml</c> stays unchanged.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string> LegacyAliases =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Enquiry_Response_F_0"] = "Enquiry_Response",
+            ["Enquiry_Response_F_1"] = "Enquiry_Response",
+        };
 
     /// <summary>
     /// Canonical names of every subroutine the transcribed pages reference.
@@ -78,7 +86,7 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
     /// </summary>
     public static IReadOnlyList<string> KnownSubroutines { get; } =
         DataLink_Subroutines.Subroutines.Select(s => s.Name)
-            .Concat(LegacyAliases)
+            .Concat(LegacyAliases.Keys)
             .ToList();
 
     /// <summary>
@@ -105,12 +113,12 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         {
             subroutines[spec.Name] = _ => { /* no-op until Wire() is called */ };
         }
-        // Legacy aliases (e.g. Enquiry_Response_F_0 / _F_1) — no spec body
-        // in the redrawn figc4.7, but still referenced by older
-        // transcriptions. Always no-op even after Wire.
-        foreach (var alias in LegacyAliases)
+        // Legacy aliases (e.g. Enquiry_Response_F_0 / _F_1) — referenced
+        // by older transcriptions; resolved to the same body as their
+        // canonical target once Wire() runs.
+        foreach (var alias in LegacyAliases.Keys)
         {
-            subroutines[alias] = _ => { /* legacy alias — no walker */ };
+            subroutines[alias] = _ => { /* no-op until Wire() is called */ };
         }
     }
 
@@ -133,11 +141,22 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         ArgumentNullException.ThrowIfNull(guards);
         wiredDispatcher = dispatcher;
         wiredGuards = guards;
+        var specsByName = specs.ToDictionary(s => s.Name, s => s, StringComparer.Ordinal);
         foreach (var spec in specs)
         {
             if (userOverridden.Contains(spec.Name)) continue;
             var captured = spec;   // close-over copy
             subroutines[spec.Name] = tx => WalkSubroutine(captured, tx);
+        }
+        // Each legacy alias walks the canonical spec body it maps to.
+        // Existing tests that Register a recorder under the legacy name
+        // continue to win (userOverridden check).
+        foreach (var (alias, canonicalName) in LegacyAliases)
+        {
+            if (userOverridden.Contains(alias)) continue;
+            if (!specsByName.TryGetValue(canonicalName, out var spec)) continue;
+            var captured = spec;
+            subroutines[alias] = tx => WalkSubroutine(captured, tx);
         }
     }
 

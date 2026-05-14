@@ -108,6 +108,37 @@ public class DefaultSubroutineRegistryWalkerTests
         actionsExecuted.Should().NotContain("SABM");
     }
 
+    [Theory]
+    [InlineData("Enquiry_Response_F_0")]
+    [InlineData("Enquiry_Response_F_1")]
+    public void Legacy_Alias_Walks_Canonical_Enquiry_Response_Spec(string legacyAlias)
+    {
+        // figc4.4 has two distinct subroutine-call boxes — `Enquiry Response (F = 0)`
+        // and `Enquiry Response (F = 1)` — that the redraw of figc4.7 collapses
+        // into a single Enquiry_Response body. Per "Trust the figure" we keep
+        // the figc4.4 transcription faithful (two verbs at the call site);
+        // the registry resolves both to the same canonical spec.
+        //
+        // Pick the first-path actions the Enquiry_Response spec emits when
+        // poll_supervisory_or_i is false (the simplest path:
+        // t01_not_polled_rr_response → N(r) <- V(r); RR Response;
+        // Clear Acknowledge Pending).
+        var actionsExecuted = new List<string>();
+        var dispatcher = new RecordingDispatcher(actionsExecuted);
+        var guards = MakeGuards(_ => false);   // every predicate false → t01 path
+        var registry = new DefaultSubroutineRegistry();
+        registry.Wire(dispatcher, guards);
+
+        registry.Invoke(legacyAlias, MakeContext());
+
+        actionsExecuted.Should().Equal(new[]
+        {
+            "N(r) <- V(r)",
+            "RR Response",
+            "Clear Acknowledge Pending",
+        });
+    }
+
     [Fact]
     public void Walker_Tolerates_Unbound_Predicate_As_NoMatch()
     {
