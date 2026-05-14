@@ -48,6 +48,7 @@ public sealed class ActionDispatcher : IActionDispatcher
     private readonly Action<string> onTimerExpiry;
     private readonly Action<SupervisoryFrameSpec> sendSFrame;
     private readonly Action<UFrameSpec> sendUFrame;
+    private readonly Action<UiFrameSpec> sendUiFrame;
 
     /// <summary>Default acknowledgement timer (T1).</summary>
     public TimeSpan T1Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
@@ -79,14 +80,23 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// Defaults to a no-op sink when omitted so the dispatcher can run
     /// in test harnesses that don't care about U-frame emission.
     /// </param>
+    /// <param name="sendUiFrame">
+    /// Called when an action requests transmission of a UI frame
+    /// (typically <c>UI_command</c> triggered by a
+    /// <see cref="DlUnitDataRequest"/>). The session translates the
+    /// spec into an <see cref="Ax25Frame"/> and ships it. Defaults to a
+    /// no-op sink.
+    /// </param>
     public ActionDispatcher(
         Action<string> onTimerExpiry,
         Action<SupervisoryFrameSpec> sendSFrame,
-        Action<UFrameSpec>? sendUFrame = null)
+        Action<UFrameSpec>? sendUFrame = null,
+        Action<UiFrameSpec>? sendUiFrame = null)
     {
         this.onTimerExpiry = onTimerExpiry ?? throw new ArgumentNullException(nameof(onTimerExpiry));
         this.sendSFrame    = sendSFrame    ?? throw new ArgumentNullException(nameof(sendSFrame));
         this.sendUFrame    = sendUFrame    ?? (_ => { });
+        this.sendUiFrame   = sendUiFrame   ?? (_ => { });
     }
 
     /// <inheritdoc/>
@@ -220,6 +230,16 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "SABM (P == 1)":                  sendUFrame(BuildUFrame(UFrameType.Sabm,  isCommand: true,  pfBitOverride: true, isExpedited: false, tx)); break;
             case "SABME (P = 1)":                  sendUFrame(BuildUFrame(UFrameType.Sabme, isCommand: true,  pfBitOverride: true, isExpedited: false, tx)); break;
             case "DISC (P = 1)":                   sendUFrame(BuildUFrame(UFrameType.Disc,  isCommand: true,  pfBitOverride: true, isExpedited: false, tx)); break;
+
+            // ─── UI-frame transmissions ────────────────────────────────
+            //
+            // `UI_command` is drawn in every state's DL_UNIT_DATA_request
+            // column (figc4.1 t02, figc4.2 t12, figc4.3 t07, figc4.4 t23,
+            // figc4.6 t02). The payload + PID come from the triggering
+            // DL_UNIT_DATA_request primitive; the P/F bit defaults to
+            // false unless populated via `tx.Pending.PfBit` by a
+            // preceding processing verb.
+            case "UI_command":                     sendUiFrame(BuildUiFrame(isCommand: true, tx)); break;
 
             // ─── Sequence-variable assignments (pure context) ──────────
             //
@@ -362,6 +382,24 @@ public sealed class ActionDispatcher : IActionDispatcher
     {
         bool pfBit = pfBitOverride ?? tx.Pending.PfBit ?? false;
         return new UFrameSpec(type, IsCommand: isCommand, PfBit: pfBit, IsExpedited: isExpedited);
+    }
+
+    /// <summary>
+    /// Build a <see cref="UiFrameSpec"/> for the <c>UI_command</c> verb.
+    /// Payload + PID come from the triggering
+    /// <see cref="DlUnitDataRequest"/>; P/F bit consumes
+    /// <see cref="PendingFrame.PfBit"/> (default false). Throws if the
+    /// trigger isn't a DL-UNIT-DATA request.
+    /// </summary>
+    private static UiFrameSpec BuildUiFrame(bool isCommand, TransitionContext tx)
+    {
+        if (tx.Trigger is not DlUnitDataRequest dud)
+        {
+            throw new InvalidOperationException(
+                $"action `UI_command` requires the trigger to be DL_UNIT_DATA_request, but it was '{tx.Trigger.Name}'.");
+        }
+        bool pfBit = tx.Pending.PfBit ?? false;
+        return new UiFrameSpec(IsCommand: isCommand, PfBit: pfBit, Info: dud.Data, Pid: dud.Pid);
     }
 
     private static Ax25Frame RequireIncomingFrame(TransitionContext tx, string verb)
