@@ -27,9 +27,18 @@ services:
     restart: unless-stopped
     volumes:
       # LinBPQ writes runtime state under /data (HTML templates, .log files,
-      # PIDs, the MH heard list, etc.), so this mount must be read-write.
-      # The bpq32.cfg in the bind-mount is treated as the canonical config.
-      - ./linbpq:/data
+      # PIDs, the MH heard list, etc.). The container runs as root inside,
+      # so a worktree bind-mount would leave root-owned files on the host
+      # which `actions/checkout` can't clean up between CI runs.
+      #
+      # Strategy: a named volume for writable state, with the canonical
+      # `bpq32.cfg` layered on top as a read-only bind. The named volume
+      # populates from the image's `/data` contents on first use (HTML
+      # templates, defaults, etc. survive), and `docker compose down -v`
+      # (already in the workflow) tears it down between runs so we still
+      # get a clean slate. The host worktree is never written.
+      - linbpq-data:/data
+      - ./linbpq/bpq32.cfg:/data/bpq32.cfg:ro
     ports:
       - "127.0.0.1:8008:8008"     # HTTPPORT (web UI)
       - "127.0.0.1:8010:8010"     # TELNETPORT (node prompt)
@@ -96,3 +105,10 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+
+volumes:
+  # See the linbpq service for rationale — keeps LinBPQ's runtime state
+  # off the host worktree so root-owned files don't leak into the next
+  # CI run. Anonymous-style lifecycle: lives between `up` and `down -v`,
+  # tearing it down rebuilds from the image's /data contents.
+  linbpq-data:
