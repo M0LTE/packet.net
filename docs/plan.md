@@ -813,6 +813,59 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — SP-001: LinBPQ MQTT feed collector (probe + collect)
+
+New `tools/Packet.Mqtt.Spike` with three modes:
+
+- `probe` — short-window exploratory subscription; dumps each message
+  to JSONL with hex/ASCII preview, renders a topic-frequency +
+  payload-size summary. Used to learn the wire format.
+- `collect` — **long-running daemon** that persists every received
+  message to per-day SQLite files (`<prefix>-YYYY-MM-DD.sqlite`).
+  Daily rotation at UTC midnight, automatic reconnect with exponential
+  backoff, graceful shutdown on SIGTERM/SIGINT, WAL-mode SQLite. A
+  trigger keeps `run_meta.message_count` exact without a heartbeat
+  path. Intended to run as a systemd service on the LinBPQ host —
+  systemd unit + deploy README at `tools/Packet.Mqtt.Spike/deploy/`.
+- `monitor` — placeholder. AX.25 parsing happens offline against the
+  SQLite corpus by design (collector behaviour shouldn't depend on
+  parser changes).
+
+`MQTTnet 4.3.7.1207` + `Microsoft.Data.Sqlite` added/used.
+
+**Topic structure observed on `mqtt.lan`:**
+
+```
+PACKETNODE/kiss/<NODE>/<rcvd|sent>/<port>                      ← raw KISS bytes
+PACKETNODE/ax25/trace/bpqformat/<NODE>/<rcvd|sent>/<port>      ← JSON envelope
+```
+
+LinBPQ publishes the same frame in both formats per send/receive
+event. KISS-sent has standard `c0 ... c0` framing; KISS-rcvd uses a
+pre-decoded length-prefixed structure (4-byte zero + 2-byte BE length
++ control byte + AX.25 frame). The JSON envelope contains
+`{"from": "...", "to": "...", "payload": "<TNC2-monitor-text>"}`.
+
+The collector stores both formats verbatim — KISS is what would hit
+our parser; the JSON envelope gives LinBPQ's authoritative
+interpretation to cross-check against.
+
+**Initial 30-s probe** missed everything because real RF on 4 ports is
+sparse. A 45-s smoke run of `collect` against the live broker caught 8
+messages (Tom's tear-down of a recent connection), exact
+`messages`/`run_meta` match confirmed via the trigger.
+
+Schema is intentionally simple (one `messages` table + `run_meta`).
+Denormalised topic components on ingest so queries don't re-parse the
+topic string. See `tools/Packet.Mqtt.Spike/SqliteSink.cs` for the
+canonical schema.
+
+**Deployment** path: `dotnet publish -r linux-{arm64,x64}
+--self-contained` → rsync to `gb7rdg-node` → systemd unit at
+`/etc/systemd/system/packet-mqtt-collector.service`. Steps in
+`tools/Packet.Mqtt.Spike/deploy/README.md`. Not yet deployed — Tom to
+trigger when ready.
+
 ### 2026-05-14 — SP-001b: APRS-IS UI-frame ingestion spike
 
 New `tools/Packet.AprsIs.Spike` connects to APRS-IS as a read-only

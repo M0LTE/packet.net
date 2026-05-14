@@ -30,6 +30,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Packet.AprsIs.Spike/Packet.AprsIs.Spike.csproj" />
+    <Project Path="tools/Packet.Mqtt.Spike/Packet.Mqtt.Spike.csproj" />
     <Project Path="tools/Packet.NinoTnc.Spike/Packet.NinoTnc.Spike.csproj" />
     <Project Path="tools/Packet.Sdl.CodeGen/Packet.Sdl.CodeGen.csproj" />
     <Project Path="tools/Packet.Sdl.Lint/Packet.Sdl.Lint.csproj" />
