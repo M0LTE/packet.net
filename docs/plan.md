@@ -824,6 +824,70 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl: figc4.7 subroutines transcription (PR 1 of 2)
+
+Tom landed the redrawn `DataLink_Subroutines.graphml` on main. This PR
+follows the SDL transcription runbook stages 0–4: inspect, schema,
+transcribe.
+
+**New artefacts:**
+
+- `spec-sdl/schema/sdl-subroutines.schema.json` — JSON Schema for
+  subroutine pages. Distinct from `sdl-machine.schema.json`: a
+  subroutine has `name` + `paths` (each path is a sequence of
+  decision-branch + action steps), no `state` / `on` / `next`. Reuses
+  the existing `decisions`, `path`, `references`, `pinned_refs`
+  shapes.
+- `spec-sdl/data-link/subroutines.sdl.yaml` — all 13 figc4.7
+  subroutines transcribed verbatim from the graphml dump: 31 total
+  paths, 19 decisions. New subroutines vs the existing
+  `DefaultSubroutineRegistry` stub list: `Establish_Extended_Data_Link`,
+  `Set_Version_2_0`, `Set_Version_2_2`. The `Enquiry_Response_F_0` /
+  `_F_1` split from the stub registry collapses to a single
+  `Enquiry_Response` subroutine in the redraw (F-bit handled inside
+  the body).
+- Codegen tool now skips subroutine pages with a `skip` notice (full
+  codegen integration is PR 2). 5 state-machine pages still generate
+  identically.
+
+**Two figure ambiguities flagged with `verification_pending:` references**
+per the "Trust the figure" hard rule:
+
+1. **`Enquiry_Response` / `SREJ Enabled? = No`** — the graphml's
+   n22 has only a Yes outgoing edge. Logically the No path should
+   join the RR Response arm, but the redraw doesn't specify.
+   Transcribed as-is, noted.
+2. **`Establish_Data_Link` / `Mod 128? = Yes`** — the Yes edge is
+   unlabeled in the graphml (only No → SABM is labeled). Inferred
+   as Yes → SABME by elimination plus spec prose §4.3.3.2.
+
+**Path counts per subroutine (preview of codegen scope):**
+
+| Subroutine | Paths | Decisions |
+|---|---:|---:|
+| N_r_Error_Recovery | 1 | 0 |
+| Clear_Exception_Conditions | 1 | 0 |
+| Transmit_Enquiry | 2 | 1 |
+| Enquiry_Response | 6 | 5 |
+| Invoke_Retransmission | 1 | 1 (loop_while) |
+| Check_I_Frame_Acknowledged | 5 | 4 |
+| Establish_Data_Link | 2 | 1 |
+| Establish_Extended_Data_Link | 2 | 1 |
+| Check_Need_For_Response | 3 | 2 |
+| UI_Check | 3 | 2 |
+| Select_T1_Value | 3 | 2 |
+| Set_Version_2_0 | 1 | 0 |
+| Set_Version_2_2 | 1 | 0 |
+| **Total** | **31** | **19** |
+
+**Next PR (validation):** codegen extension to emit one C# method per
+subroutine, registered into `DefaultSubroutineRegistry`. Replaces
+the 12 hand-stubbed no-op delegates. Plus: smoke tests per the
+runbook + spec_prose cross-checks + four-codebase implementation
+references via parallel subagents.
+
+Full test suite (1,043+ tests) still green; codegen idempotent.
+
 ### 2026-05-14 — policy: spec-compliant by default; pragmatism is a named flag
 
 New CLAUDE.md hard rule codifying the strictness philosophy. Future

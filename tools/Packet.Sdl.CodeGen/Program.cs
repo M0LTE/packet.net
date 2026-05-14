@@ -65,10 +65,23 @@ internal static class Program
         var events = LoadEventCatalog(Path.Combine(inDir, "events.yaml"));
         var actions = LoadActionCatalog(Path.Combine(inDir, "actions.yaml"));
 
-        var pages = Directory.EnumerateFiles(inDir, "*.sdl.yaml", SearchOption.AllDirectories)
+        // Subroutine pages (figc4.7-style) use a different schema and
+        // are consumed by separate codegen logic (TODO). For now, skip
+        // them with a notice so the existing state-machine codegen
+        // doesn't trip on the missing `state:` / `transitions:` fields.
+        var yamlFiles = Directory.EnumerateFiles(inDir, "*.sdl.yaml", SearchOption.AllDirectories)
             .OrderBy(p => p, StringComparer.Ordinal)
-            .Select(LoadPage)
             .ToList();
+        var pages = new List<SdlPage>(yamlFiles.Count);
+        foreach (var path in yamlFiles)
+        {
+            if (IsSubroutinePage(path))
+            {
+                Console.WriteLine($"  skip {path}  (subroutine page — codegen integration pending)");
+                continue;
+            }
+            pages.Add(LoadPage(path));
+        }
 
         var errors = new List<string>();
         foreach (var page in pages)
@@ -335,6 +348,24 @@ internal static class Program
         page.SourcePath = path;
         page.Transitions ??= new();
         return page;
+    }
+
+    /// <summary>
+    /// True if <paramref name="path"/> is a subroutine page (figc4.7 style)
+    /// rather than a state-machine page. Subroutine pages use a top-level
+    /// `subroutines:` key instead of `state:` + `transitions:`. Detected by
+    /// a simple line-prefix scan rather than full YAML deserialisation so
+    /// we don't pay parse cost twice.
+    /// </summary>
+    private static bool IsSubroutinePage(string path)
+    {
+        foreach (var line in File.ReadLines(path))
+        {
+            if (line.StartsWith("subroutines:", StringComparison.Ordinal)) return true;
+            if (line.StartsWith("state:",       StringComparison.Ordinal)) return false;
+            if (line.StartsWith("transitions:", StringComparison.Ordinal)) return false;
+        }
+        return false;
     }
 
     private static void ValidatePage(SdlPage page, HashSet<string> events, List<string> errors)
