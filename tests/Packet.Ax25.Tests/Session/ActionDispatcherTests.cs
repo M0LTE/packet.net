@@ -155,22 +155,53 @@ public class ActionDispatcherTests
 
     // ─── Sequence-variable assignments ─────────────────────────────────
 
-    [Fact]
-    public void RC_Assignment_Resets_To_Zero()
+    [Theory]
+    [InlineData("RC := 0", 7, 0)]
+    [InlineData("RC := 1", 7, 1)]
+    [InlineData("RC := RC + 1", 4, 5)]
+    public void RC_Assignment_Verbs_Mutate_RC(string action, int initial, int expected)
     {
         var (d, ctx, s, _, _, _) = NewRig();
-        ctx.RC = 7;
-        d.Execute("RC := 0", ctx, s);
-        ctx.RC.Should().Be(0);
+        ctx.RC = initial;
+        d.Execute(action, ctx, s);
+        ctx.RC.Should().Be(expected);
     }
 
     [Fact]
-    public void VS_Increment_Wraps_At_Modulus()
+    public void VS_Set_To_Zero_Resets_The_Field()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        ctx.VS = 5;
+        d.Execute("V(s) := 0", ctx, s);
+        ctx.VS.Should().Be((byte)0);
+    }
+
+    [Fact]
+    public void VS_Increment_Wraps_At_Mod8_Modulus()
     {
         var (d, ctx, s, _, _, _) = NewRig();
         ctx.VS = 7;
-        d.Execute("V(S) := V(S) + 1", ctx, s);
+        d.Execute("V(s) := V(s) + 1", ctx, s);
         ctx.VS.Should().Be((byte)0, "mod-8 by default; 7 + 1 wraps to 0");
+    }
+
+    [Fact]
+    public void VS_Increment_Wraps_At_Mod128_Modulus_When_Extended()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        ctx.IsExtended = true;
+        ctx.VS = 127;
+        d.Execute("V(s) := V(s) + 1", ctx, s);
+        ctx.VS.Should().Be((byte)0, "mod-128 in extended mode; 127 + 1 wraps to 0");
+    }
+
+    [Fact]
+    public void VR_Set_To_Zero_Resets_The_Field()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        ctx.VR = 5;
+        d.Execute("V(r) := 0", ctx, s);
+        ctx.VR.Should().Be((byte)0);
     }
 
     [Fact]
@@ -178,8 +209,17 @@ public class ActionDispatcherTests
     {
         var (d, ctx, s, _, _, _) = NewRig();
         ctx.VR = 7;
-        d.Execute("V(R) := V(R) + 1", ctx, s);
+        d.Execute("V(r) := V(r) + 1", ctx, s);
         ctx.VR.Should().Be((byte)0);
+    }
+
+    [Fact]
+    public void VA_Set_To_Zero_Resets_The_Field()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        ctx.VA = 5;
+        d.Execute("V(a) := 0", ctx, s);
+        ctx.VA.Should().Be((byte)0);
     }
 
     // ─── Bulk execute + error path ─────────────────────────────────────

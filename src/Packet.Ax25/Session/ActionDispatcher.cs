@@ -148,9 +148,23 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "SREJ response":                  sendSFrame(new SupervisoryFrameSpec(SupervisoryFrameType.Srej, IsCommand: false)); break;
 
             // ─── Sequence-variable assignments ─────────────────────────
+            //
+            // Verb spellings here track the figure-canonical lowercase form
+            // (`V(s)`, `V(r)`, `V(a)`) used in /spec-sdl/*.sdl.yaml. The
+            // catalogue (`spec-sdl/actions.yaml`) reserves these as the
+            // canonical names; any future uppercase variants would be
+            // normalised to lowercase at codegen time.
+            //
+            // `V(s) := V(s) + 1` and the `V(r)` analogue wrap at the active
+            // modulus (8 for mod-8, 128 for mod-128) — see §4.2.2.
+            case "V(s) := 0":                      ctx.VS = 0; break;
+            case "V(s) := V(s) + 1":               ctx.VS = ctx.IncrementSeq(ctx.VS); break;
+            case "V(r) := 0":                      ctx.VR = 0; break;
+            case "V(r) := V(r) + 1":               ctx.VR = ctx.IncrementSeq(ctx.VR); break;
+            case "V(a) := 0":                      ctx.VA = 0; break;
             case "RC := 0":                        ctx.RC = 0; break;
-            case "V(S) := V(S) + 1":               ctx.VS = ctx.IncrementSeq(ctx.VS); break;
-            case "V(R) := V(R) + 1":               ctx.VR = ctx.IncrementSeq(ctx.VR); break;
+            case "RC := 1":                        ctx.RC = 1; break;
+            case "RC := RC + 1":                   ctx.RC++; break;
 
             default:
                 throw new InvalidOperationException(

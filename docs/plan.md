@@ -824,6 +824,40 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: dispatcher wires lowercase `V(s)/V(r)/V(a)` + `RC` assignments, plus first integration-test layer
+
+Dispatcher previously had `V(S) := V(S) + 1` / `V(R) := V(R) + 1`
+uppercase — neither spelling appears in any transcribed YAML, so the
+verbs were effectively unwired. Replaced with the figure-canonical
+lowercase forms and filled in the missing pure-context assignments:
+
+- `V(s) := 0`, `V(s) := V(s) + 1` (mod-8 or mod-128 wrapping)
+- `V(r) := 0`, `V(r) := V(r) + 1`
+- `V(a) := 0`
+- `RC := 1`, `RC := RC + 1`
+
+These cover every variable assignment in the transcribed pages that
+doesn't depend on the triggering frame (the harder cases like
+`V(a) := N(r)`, `N(r) := V(r)`, `F := P`, `p := 0` need access to the
+incoming frame and pending-outgoing frame builder — deferred to a
+follow-up PR that refactors the dispatcher signature).
+
+Added a new integration-test layer (`Ax25SessionIntegrationTests`) that
+drives the **real** `ActionDispatcher` through `Ax25Session` against
+synthetic transition tables, asserting context state, timer state, and
+emitted supervisory frames after `PostEvent`. The smoke tests use a
+recording dispatcher to prove orchestrator routing is correct; these
+integration tests prove the dispatcher actually executes verbs and the
+side effects are observable through the public API. Four tests:
+in-order action mutation, modulus wrapping, timer + frame emission,
+guard gating against a context flag.
+
+Still blocked from driving a real-figure transition end-to-end through
+the real dispatcher: figc4.1 t03 (DL_CONNECT_request) references
+`SRT := Initial Default`, `T1V := 2 * SRT`, and the
+`Establish_Data_Link` subroutine — none wired. That's the dispatcher-
+arc PR-C territory (frame builder, link parameters, subroutine table).
+
 ### 2026-05-14 — sdl: action-verb catalogue (`spec-sdl/actions.yaml`) with alias normalisation
 
 The AX.25 SDL figures sometimes draw the same semantic verb with different
