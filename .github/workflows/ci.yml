@@ -25,10 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
+      - name: report .NET
+        run: dotnet --version
+        # .NET 10 SDK is pre-installed system-wide on the self-hosted
+        # runner. We skip actions/setup-dotnet because it would try to
+        # re-install per-job into a path the `gh` user can't write to.
 
       - name: restore
         run: dotnet restore
@@ -58,10 +59,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
+      - name: report .NET
+        run: dotnet --version
+        # .NET 10 SDK is pre-installed system-wide on the self-hosted
+        # runner. We skip actions/setup-dotnet because it would try to
+        # re-install per-job into a path the `gh` user can't write to.
 
       - name: run codegen
         run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --in spec-sdl --out src/Packet.Ax25.Sdl --tests tests/Packet.Ax25.Conformance.Tests
