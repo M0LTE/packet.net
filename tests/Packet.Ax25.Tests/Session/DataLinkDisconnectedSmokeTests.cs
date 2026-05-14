@@ -116,7 +116,7 @@ public class DataLinkDisconnectedSmokeTests
         AssertTransitionFires("t04_all_other_primitives_from_lower_layer", new AllOtherPrimitivesFromLowerLayer());
 
     [Fact] public void t05_all_other_commands() =>
-        AssertTransitionFires("t05_all_other_commands", new AllOtherCommands());
+        AssertTransitionFires("t05_all_other_commands", new AllOtherCommands(Frame()));
 
     [Fact] public void t06_all_other_primitives_from_upper_layer() =>
         AssertTransitionFires("t06_all_other_primitives_from_upper_layer", new AllOtherPrimitivesFromUpperLayer());

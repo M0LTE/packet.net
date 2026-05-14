@@ -824,6 +824,28 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: AllOtherCommands carries Frame; start_T1 uses ctx.T1V
+
+Two follow-up cleanups to close the small loose ends from the
+dispatcher arc.
+
+**`AllOtherCommands` carries a triggering frame**. The catch-all
+event for command frames that didn't match any explicit transition
+now has a `Frame` parameter. This unlocks figc4.1 t05 end-to-end
+testing: the YAML's path is `F := P; DM`, and `F := P` needs to read
+the incoming frame's PollFinal bit. New E2E test confirms a polled
+unhandled command produces a DM(F=1) response.
+
+**`start_T1` reads `ctx.T1V`** instead of the dispatcher's static
+`T1Duration` property. Reflects the spec's per-session T1 timeout
+value, which `T1V := 2 * SRT` (figc4.1 t03) and figc4.7's eventual
+`Select_T1_Value` subroutine mutate dynamically. T2 and T3 stay on
+the dispatcher's static defaults (no SDL verb mutates them today).
+New unit test confirms `T1V := 2 * SRT` then `start_T1` arms the
+timer for the computed duration, not the dispatcher default.
+
+687 tests green (was 685).
+
 ### 2026-05-14 — ax25: I-frame emission + session-loop queue drain machinery
 
 The final piece: `I_command` verb + the session loop that pops

@@ -175,12 +175,30 @@ public class DataLinkDisconnectedEndToEndTests
         r.Session.CurrentState.Should().Be("AwaitingConnection");
     }
 
-    // NOTE: t05_all_other_commands (action chain: F := P; DM) requires
-    // the AllOtherCommands event to carry the triggering frame so
-    // F := P can read its PollFinal bit. Today AllOtherCommands has no
-    // Frame field — refactoring it is out of scope for this PR. The
-    // F := P verb is covered by ActionDispatcherTests; the orchestrator
-    // routing for t05 is covered by the smoke tests.
+    [Fact]
+    public void t05_All_Other_Commands_Sets_F_From_P_And_Emits_DM_Response()
+    {
+        // figc4.1 t05: catch-all command → F := P; DM. The DM response's
+        // F bit echoes the incoming command's P bit.
+        var r = NewRig();
+
+        // Build a UI command frame with P=1 — stands in for any unhandled
+        // command frame the link multiplexer routes to all_other_commands.
+        var triggerFrame = Ax25Frame.Ui(
+            destination: new Callsign("M0LTE", 0),
+            source:      new Callsign("G7XYZ", 7),
+            info:        "x"u8,
+            pollFinal:   true);
+
+        r.Session.PostEvent(new AllOtherCommands(triggerFrame));
+
+        r.Session.CurrentState.Should().Be("Disconnected");
+        r.UFrames.Should().ContainSingle();
+        var u = r.UFrames[0];
+        u.Type.Should().Be(UFrameType.Dm);
+        u.IsCommand.Should().BeFalse("DM is a response");
+        u.PfBit.Should().BeTrue("F := P echoed incoming P=1");
+    }
 
     [Fact]
     public void t06_All_Other_Primitives_From_Upper_Layer_Discards_Primitive_Stays_Disconnected()

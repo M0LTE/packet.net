@@ -93,8 +93,12 @@ public sealed record AllOtherPrimitivesFromLowerLayer() : Ax25Event("all_other_p
 /// <summary>Catch-all for unhandled boxes drawn with the "Signal reception from upper layer" shape.</summary>
 public sealed record AllOtherPrimitivesFromUpperLayer() : Ax25Event("all_other_primitives__from_upper_layer");
 
-/// <summary>Catch-all for command frames not explicitly handled by a state's transition table.</summary>
-public sealed record AllOtherCommands() : Ax25Event("all_other_commands");
+/// <summary>
+/// Catch-all for command frames not explicitly handled by a state's
+/// transition table. Carries the triggering frame so verbs in the
+/// catch-all path (typically <c>F := P</c>) can read its control bits.
+/// </summary>
+public sealed record AllOtherCommands(Ax25Frame Frame) : Ax25Event("all_other_commands");
 
 public sealed record ControlFieldError()        : Ax25Event("control_field_error");
 public sealed record InfoNotPermittedInFrame()  : Ax25Event("info_not_permitted_in_frame");

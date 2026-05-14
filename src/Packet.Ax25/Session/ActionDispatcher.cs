@@ -227,7 +227,14 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "clear_layer_3_initiated":        ctx.Layer3Initiated    = false; break;
 
             // ─── Timer operations ──────────────────────────────────────
-            case "start_T1":                       scheduler.Arm("T1", T1Duration, () => onTimerExpiry("T1")); break;
+            //
+            // T1 uses the per-session <see cref="Ax25SessionContext.T1V"/>
+            // value — refreshed dynamically by figc4.7's Select_T1_Value
+            // subroutine and by figc4.1/4.2's link-establishment paths
+            // (SRT := Initial Default; T1V := 2 * SRT). T2 and T3 stay on
+            // the dispatcher's static defaults until per-session values
+            // get wired (the SDL pages don't currently mutate them).
+            case "start_T1":                       scheduler.Arm("T1", ctx.T1V,     () => onTimerExpiry("T1")); break;
             case "start_T2":                       scheduler.Arm("T2", T2Duration, () => onTimerExpiry("T2")); break;
             case "start_T3":                       scheduler.Arm("T3", T3Duration, () => onTimerExpiry("T3")); break;
             case "stop_T1":                        scheduler.Cancel("T1"); break;
