@@ -824,6 +824,31 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — aprs: message decoder (`:` DTI)
+
+`AprsMessage` + `AprsMessageDecoder` per APRS101 §14.
+
+Format:
+```
+:NNNNNNNNN:body[{messageId}]
+```
+
+- 9-byte fixed-width addressee (right-space-padded; trimmed for callers)
+- `:` body separator
+- free-form body (decoded as UTF-8, trailing CR/LF stripped)
+- optional `{NNN…}` trailing message ID, 1–5 chars
+
+Same envelope covers person-to-person messages, bulletins
+(`BLNn` / `BLNxxx`), acks (`ackNNN`), rejects (`rejNNN`), and
+telemetry parameter definition messages from §13 (`PARM.…`,
+`UNIT.…`, `EQNS.…`, `BITS.…`). The decoder doesn't interpret the
+body — callers route by content (e.g. starts-with `ack` /
+`rej` / `PARM.` etc.).
+
+9.1% of the live corpus is `:` DTI (273k rows).
+
+14 new tests; full suite green.
+
 ### 2026-05-14 — aprs: telemetry decoder (`T` DTI)
 
 `AprsTelemetry` + `AprsTelemetryDecoder` per APRS101 §13.
