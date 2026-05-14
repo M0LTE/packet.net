@@ -845,6 +845,57 @@ further on the Packet.NET side; if the firmware author wants to
 chase it, a firmware build that traces the AFSK demod state
 machine is the lowest-effort next step.
 
+### 2026-05-14 — ax25: relax `Callsign` base length to 0–6 (spec-pragmatic receive path)
+
+The BPQ corpus differential (above) surfaced 42 real wire frames our
+parser was rejecting: BPQ's own ID beacons (`>IS Port=N <UI C>`, empty
+source) and PD4R-12's QRV broadcasts (`PD4R-12>,TEST Port=3 <UI C>:`,
+empty destination with TEST as digipeater). On the wire these are
+6-byte all-space callsign slots — encoded as 6 × 0x40 plus an SSID
+byte. Our strict `Callsign` constructor was throwing on the empty
+base, which propagated out of `Ax25Address.Read` and turned into a
+`TryParse → false` rejection at the frame level.
+
+Spec basis for relaxing:
+
+- **§3.12.2**: "If the call sign contains fewer than six characters,
+  it is padded with ASCII spaces between the last call sign character
+  and the SSID octet" — does not specify a minimum.
+- **§6.1.1**: "Operation with destination addresses other than actual
+  amateur call signs is a subject for further study" — explicitly
+  acknowledges the spec does not formally define non-callsign address
+  content, and tacitly accepts that it exists on the wire.
+
+Conclusion: per Postel's principle ("be liberal in what you accept")
+the receive path should accept these frames. The construction path
+already had to fail-safe for short callsigns; relaxing to allow
+zero-length costs nothing.
+
+Change:
+
+- `Callsign` constructor now allows `Base.Length` 0–6 (was 1–6).
+- `Callsign.Parse` / `Callsign.TryParse` remain strict (`>= 1` char) —
+  those parse user-typed text where empty is a typo, not a legitimate
+  wire value.
+- New `Ax25AddressTests`: `Read_Accepts_All_Space_Address_Slot` and
+  `Empty_Callsign_RoundTrips_Through_Wire_Form`.
+- Old `Constructor_Rejects_Empty_Base` test replaced by
+  `Constructor_Accepts_Empty_Base` + `TryParse_Still_Rejects_Empty_Text`.
+
+Verification: BPQ corpus differential after the change:
+
+| Bucket | % |
+|---|---:|
+| `Match` | **99.93%** |
+| `UnpairedSkew` | 0.07% |
+
+**Zero parse rejections**, zero real disagreements. The 0.07% are MQTT
+stream-drift cases (kiss and bpqformat pair timestamps ~1s apart in 3
+of 4,591 pairs) — not a parser issue.
+
+All 935+ existing tests still pass; this is purely a permission
+expansion at the receive boundary.
+
 ### 2026-05-14 — bpq: connected-mode A/B differential against BPQ's monitor render
 
 New `bpq_differential` spike mode (under `tools/Packet.AprsIs.Spike` —
