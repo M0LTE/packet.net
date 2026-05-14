@@ -708,6 +708,17 @@ Pinned in [`Directory.Packages.props`](../Directory.Packages.props). Versions so
 - **KISS TNC protocol**: `https://github.com/packethacking/ax25spec/blob/main/doc/kiss-tnc-protocol.md`.
 - **Multi-drop KISS / ACKMODE (Karl Medcalf WK5M, John Wiseman G8BPQ)**: `https://github.com/packethacking/ax25spec/blob/main/doc/multi-drop-kiss-operation.md`.
 
+#### APRS (for SP-008 + direwolf-reference pipeline)
+
+The original [`APRS101.pdf`](http://www.ui-view.net/files/APRS101.pdf) from 1998 is **explicitly marked obsolete** by [how.aprs.works/aprs101-pdf-is-obsolete](https://how.aprs.works/aprs101-pdf-is-obsolete/). Canonical updated specs live in [`wb2osz/aprsspec`](https://github.com/wb2osz/aprsspec) (maintained by the direwolf author):
+
+- [`APRS12c.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf) — primary spec (v1.2 draft C). Replaces APRS101 for new work. ~130 pp.
+- [`Understanding-APRS-Packets.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf) — implementer-friendly companion + **catalogued common bugs** (lowercase callsigns, Kenwood 0xFF bursts, etc.).
+- [`APRS-Symbols.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Symbols.pdf) — full symbol table.
+- [`APRS-Digipeater-Algorithm.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Digipeater-Algorithm.pdf) — digipeater behaviour (when we ever digipeat).
+
+When APRS101 and APRS12c disagree, **APRS12c wins** for our purposes.
+
 ### 13.2 Reference implementations
 
 - **LinBPQ** (John Wiseman G8BPQ) — *the* canonical implementation. Local clone: [`/home/tf/src/linbpq/`](/home/tf/src/linbpq/). Notable files:
@@ -812,6 +823,47 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-14 — SP-001b: corpus errors mapped to APRS12c (direwolf is spec-correct)
+
+Walked every direwolf error class surfaced in the corpus against the
+canonical updated spec ([`APRS12c.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf)
++ [`Understanding-APRS-Packets.pdf`](https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf)
+from `wb2osz/aprsspec`). Findings narrative in
+[`tools/Packet.AprsIs.Spike/findings.md`](../tools/Packet.AprsIs.Spike/findings.md);
+short version:
+
+**Every direwolf error class is provably non-spec under APRS12c.** The
+corpus is showing us real firmware bugs and historical sloppiness, not
+over-strict decoding.
+
+| Error | Spec section | Verdict |
+|---|---|---|
+| Bad source address (58,609 hits) | APRS12c §4: "up to 6 upper case alphanumeric characters plus SSID"; UAP §1.1 lists `n2gh` as invalid | Direwolf right |
+| Unknown DTI `"H"` (3,521, APRSIS32) | APRS12c §5: `A–S` = "[Do not use]" | APRSIS32 violates spec |
+| Unknown DTI `"2"` (1,849, APRSdroid) | APRS12c §5: `0–9` = "[Do not use]" | APRSdroid violates spec |
+| Unknown DTI `"-"`, `" "` (space) | APRS12c §5: `-` is "[Unused]"; space not in DTI table at all | Direwolf right |
+| Invalid compressed-longitude char (4,453) | APRS12c §9: base-91 + 33 offset → valid range `!`–`{` (ASCII 33–123) | Direwolf right |
+| Invalid symbol table id (compressed pos) (2,871) | APRS12c §9 + §20: must be `/`, `\`, `0–9` or `A–Z` overlay | Direwolf right |
+
+**Doc update**: §13.1 (Reference shelf) extended with the APRS spec
+links. APRS101.pdf is now flagged obsolete; APRS12c.pdf is the
+reference for SP-008.
+
+**Implication for the codebase**:
+
+1. **AX.25 envelope** (`Callsign`, `Ax25Frame`) — stay strict. Our hard
+   rejection of lowercase / >6-char / weird-SSID matches the spec.
+   Direwolf's "warn and parse on" is a UX choice, not a different
+   reading.
+2. **APRS payload** (future `Packet.Aprs`) — validate per APRS12c
+   directly. The bugs in the wild are real and documented; our decoder
+   should reject them and surface the reason (matching direwolf's error
+   class), not silently accept.
+3. **Display / monitor layer** — a permissive read-only `AprsCallsign`
+   type that round-trips real-world strings (lossy is fine) lets the
+   web UI show all traffic. Doesn't relax the strict `Callsign` we use
+   for frame production.
 
 ### 2026-05-14 — SP-001b: direwolf reference-decode pipeline — differential testing baseline
 
