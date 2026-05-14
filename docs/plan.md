@@ -824,6 +824,99 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl: figc4.7 validation — four-codebase implementation references
+
+Validation PR for the figc4.7 arc, per the runbook's stages 6-10
+(adapted: spec_prose entries are minimal because §C5 is a primitives
+listing rather than per-subroutine prose — the figure is the canonical
+spec for the subroutines themselves).
+
+**Method.** Spawned four parallel general-purpose subagents — one per
+canonical reference codebase — each producing per-subroutine
+implementation-reference YAML blocks against the pinned commits per
+the runbook's Stage 8. Merged their findings into
+`spec-sdl/data-link/subroutines.sdl.yaml` as per-subroutine
+`references:` blocks. Required a small schema extension
+(`sdl-subroutines.schema.json` gains a `references:` field at the
+subroutine level) and a `pinned_refs:` block at the file header so
+line numbers stay valid against the pinned commits.
+
+**Triangulated findings (the gold per Stage 8):**
+
+- **`Enquiry_Response` is the most-diverged subroutine across all
+  four implementations.** direwolf rewrites it with an X.25-borrowed
+  SREJ branch (their "Detour 1" at line 5936) and notes a spec-erratum
+  comment ("RR/RNR as response not command", line 5918). rax25 omits
+  the SREJ branches entirely (TODO at line 642). linbpq routes via
+  `RR_OR_RNR` which inspects internal state instead of the spec's
+  `own_receiver_busy` bit. linux_oot's `ax25_std_enquiry_response`
+  omits REJ-on-rej-condition. Common pattern: the figure's SREJ /
+  out-of-sequence-buffer dance is widely-implemented-in-summary, not
+  faithfully.
+
+- **`Establish_Data_Link` and `Establish_Extended_Data_Link`
+  collapse to a single body in three of four codebases** (direwolf,
+  rax25, linux_oot — all dispatch on a stored `modulus` field at
+  `SendSabm` time, exactly mirroring our generated walker since both
+  subroutines share the same `paths:` content). linbpq is the
+  outlier: it doesn't emit SABME at all on the outbound side and
+  treats inbound SABME as plain SABM ("Although some say V2.2
+  requires SABME I don't agree!" — `L2FORUS` line 687-689 verbatim
+  comment).
+
+- **`Select_T1_Value` IIR formula is universally simplified.**
+  direwolf substitutes linear `RC*0.25 + SRT*2` (line 6362) for the
+  spec's exponential `2^(RC+1)*SRT` with rationale at lines
+  6352-6358 ("ridiculous to retry over an hour"). rax25 has the
+  formula as a TODO. linbpq omits adaptive T1 entirely (fixed
+  L2TIME from port config). linux_oot uses configurable
+  exponential/linear backoff. **Our PR #105 binding currently uses
+  the worst-case approximation (`T1V` as the new-sample input);
+  these references confirm that no canonical implementation runs
+  the spec formula verbatim — so our approximation is in good
+  company. Worth tracking the proper-IIR work but not blocking.**
+
+- **`Set_Version_2_0` / `Set_Version_2_2` are not modelled as
+  subroutines** in three of four codebases. linbpq, linux_oot, and
+  partly direwolf treat the version-set as XID-negotiation side
+  effects; only rax25 has explicit `set_version_2` / `set_version_2_2`
+  methods. The full `Modulo := / N1 := / k := / T2 := / N2 := /
+  HalfDuplex / ImplicitReject` six-field set figc4.7 prescribes is
+  unique to our implementation and rax25 (partially) — every other
+  implementation hard-codes these elsewhere.
+
+- **`linux_oot` largely confirms the rotted-memory entry**: 8 of 13
+  subroutines have no clean equivalent and are marked `omitted:` in
+  the references. The 5 that do exist are `nr_error_recovery` (very
+  abbreviated), `establish_data_link`, `transmit_enquiry`,
+  `enquiry_response`, `check_iframes_acked` — and most diverge from
+  the spec materially.
+
+- **Two of the four canonical implementations contain explicit
+  spec-erratum comments** flagging concerns in figc4.7 itself:
+  direwolf's `establish_data_link` RC off-by-one (line 5768);
+  direwolf's `enquiry_response` cmd-vs-response (line 5918);
+  direwolf's `select_t1_value` RC==0 test (line 6309); direwolf's
+  exponential-backoff substitution rationale (line 6352); rax25's
+  TODO blocks (lines 642-646, 686, 695, 836). The figure is being
+  questioned by its implementers in multiple places — a strong
+  signal for spec-issue files when we land them.
+
+**Implementation references at file scope:** added `pinned_refs:`
+block to `subroutines.sdl.yaml` binding each `source:` name to its
+pinned commit (linbpq `88a68988…`, direwolf `a231971a…`,
+rax25 `d97b7ab7…`, linux_oot `40188e90…`).
+
+`references:` is a new optional field on the subroutine schema
+(`sdl-subroutines.schema.json` extended). Codegen ignores it for now
+via `IgnoreUnmatchedProperties` — it's documentation only. A future
+PR can wire it through `SubroutineSpec.References` if we want runtime
+introspection.
+
+Full test suite (1,055+ tests) green. Codegen idempotent. 13 of 13
+subroutines now have 1-4 implementation citations each + per-source
+divergence notes.
+
 ### 2026-05-14 — sdl: figc4.7 predicate + action-verb bindings; Ax25Session auto-Wires
 
 The runtime side of the figc4.7 arc. Three pieces:
