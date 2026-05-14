@@ -824,6 +824,39 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: subroutine stub registry (12 figc4.7 subroutines)
+
+Every `kind: subroutine` verb the transcribed pages reference now routes
+through a new `ISubroutineRegistry`. The dispatcher gains an optional
+`subroutines` constructor parameter; default is a
+`DefaultSubroutineRegistry` pre-populated with no-op stubs for the 12
+known subroutine names:
+
+`Establish_Data_Link`, `Clear_Exception_Conditions`, `UI_Check`,
+`Select_T1_Value`, `Check_I_Frame_Acknowledged`,
+`Check_I_Frames_Acknowledged`, `Check_Need_For_Response`,
+`Transmit_Enquiry`, `Invoke_Retransmission`, `N_r_Error_Recovery`,
+`Enquiry_Response_F_0`, `Enquiry_Response_F_1`.
+
+Tests can register custom implementations via
+`DefaultSubroutineRegistry.Register(name, action)`. Unknown subroutine
+names throw — transcription typos surface fast.
+
+This unblocks **end-to-end execution of every figc4.x transition
+through the real dispatcher** — even ones whose action chains include
+subroutine calls. The subroutine bodies don't do anything specific
+yet (no-op stubs), but the orchestrator routing, context-variable
+mutations, timer ops, and frame emissions around the subroutine calls
+all work. Once figc4.7 is transcribed, the real bodies replace the
+stubs without dispatcher changes.
+
+15 new tests (Theory across all 12 known names + custom-registration +
+unknown-name error + transition-context access). 643 tests green.
+
+Only **`I_command`** remains unwired in the transcribed vocabulary,
+and that's a session-loop machinery problem (active queue pop + posting
+synthetic `I_frame_pops_off_queue` events), not a verb-wiring one.
+
 ### 2026-05-14 — ax25: long-tail processing verbs wired (queue / storage / counters / aliases)
 
 Mechanical batch closing out 19 long-tail verbs that the transcribed

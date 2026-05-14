@@ -863,4 +863,83 @@ public class ActionDispatcherTests
 
         upward.Should().BeEmpty();
     }
+
+    // ─── Subroutine calls ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("Establish_Data_Link")]
+    [InlineData("Clear_Exception_Conditions")]
+    [InlineData("UI_Check")]
+    [InlineData("Select_T1_Value")]
+    [InlineData("Check_I_Frame_Acknowledged")]
+    [InlineData("Check_I_Frames_Acknowledged")]
+    [InlineData("Check_Need_For_Response")]
+    [InlineData("Transmit_Enquiry")]
+    [InlineData("Invoke_Retransmission")]
+    [InlineData("N_r_Error_Recovery")]
+    [InlineData("Enquiry_Response_F_0")]
+    [InlineData("Enquiry_Response_F_1")]
+    public void Known_Subroutine_Verbs_Are_Stubbed_NoOp_By_Default(string verb)
+    {
+        var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
+        var act = () => d.Execute(verb, ctx, s);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Custom_Subroutine_Registry_Receives_The_Invocation()
+    {
+        var registry = new DefaultSubroutineRegistry();
+        var called = new List<string>();
+        registry.Register("Establish_Data_Link", _ => called.Add("Establish_Data_Link"));
+
+        var time = new FakeTimeProvider();
+        var scheduler = new SystemTimerScheduler(time);
+        var dispatcher = new ActionDispatcher(
+            onTimerExpiry: _ => { },
+            sendSFrame: _ => { },
+            subroutines: registry);
+        var ctx = new Ax25SessionContext { Local = new Callsign("M0LTE", 0), Remote = new Callsign("G7XYZ", 7) };
+
+        dispatcher.Execute("Establish_Data_Link", ctx, scheduler);
+
+        called.Should().ContainSingle().Which.Should().Be("Establish_Data_Link");
+    }
+
+    [Fact]
+    public void Subroutine_Registry_Has_Access_To_TransitionContext()
+    {
+        var registry = new DefaultSubroutineRegistry();
+        TransitionContext? captured = null;
+        registry.Register("Select_T1_Value", tx => captured = tx);
+
+        var time = new FakeTimeProvider();
+        var scheduler = new SystemTimerScheduler(time);
+        var dispatcher = new ActionDispatcher(
+            onTimerExpiry: _ => { },
+            sendSFrame: _ => { },
+            subroutines: registry);
+        var ctx = new Ax25SessionContext { Local = new Callsign("M0LTE", 0), Remote = new Callsign("G7XYZ", 7) };
+        var tx = new TransitionContext(ctx, scheduler, new DlConnectRequest());
+
+        dispatcher.Execute("Select_T1_Value", tx);
+
+        captured.Should().NotBeNull();
+        captured!.Trigger.Should().BeOfType<DlConnectRequest>();
+    }
+
+    [Fact]
+    public void Subroutine_Registry_Throws_On_Unknown_Name()
+    {
+        var registry = new DefaultSubroutineRegistry();
+        var time = new FakeTimeProvider();
+        var scheduler = new SystemTimerScheduler(time);
+        var ctx = new Ax25SessionContext { Local = new Callsign("M0LTE", 0), Remote = new Callsign("G7XYZ", 7) };
+        var tx = new TransitionContext(ctx, scheduler, new DlConnectRequest());
+
+        var act = () => registry.Invoke("Doesnt_Exist", tx);
+
+        act.Should().Throw<InvalidOperationException>()
+           .WithMessage("*unknown SDL subroutine*Doesnt_Exist*");
+    }
 }
