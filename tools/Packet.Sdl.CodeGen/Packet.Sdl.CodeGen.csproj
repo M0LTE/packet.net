@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Packet.Sdl.IR\Packet.Sdl.IR.csproj" />
     <ProjectReference Include="..\Packet.Sdl.CodeGen.Csharp\Packet.Sdl.CodeGen.Csharp.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.Go\Packet.Sdl.CodeGen.Go.csproj" />
   </ItemGroup>
 
 </Project>

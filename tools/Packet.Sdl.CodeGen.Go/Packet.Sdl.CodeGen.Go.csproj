@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Packet.Sdl.CodeGen.Go</RootNamespace>
+    <Description>Go emitter backend for the SDL codegen IR. Hand-rolled string emission (no template engine); produces .g.go files that compile against the hand-written runtime types in go-spec/ax25sdl/types.go.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Packet.Sdl.IR\Packet.Sdl.IR.csproj" />
+  </ItemGroup>
+
+</Project>
