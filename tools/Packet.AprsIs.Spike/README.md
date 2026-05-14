@@ -10,27 +10,65 @@ The point isn't to be an APRS gateway — it's to drive a steady stream of
 real-world data through our AX.25 plumbing and surface edge cases that
 synthetic tests don't cover.
 
-## Run
+## Modes
+
+### `oneshot` — original short-window pipeline
 
 ```sh
-dotnet run --project tools/Packet.AprsIs.Spike -- --max-frames 1000
+dotnet run --project tools/Packet.AprsIs.Spike -- oneshot --max-frames 1000
 ```
 
-Outputs land in `artifacts/aprs-is-spike/<timestamp>/`:
+Connect, read up to N frames, run each through TNC2 parse →
+`Ax25Frame.Ui` reconstruct → encode-then-decode round-trip. Persist
+failures to `artifacts/aprs-is-spike/<ts>/failures.jsonl` and a
+`stats.md` summary.
 
-- `failures.jsonl` — one JSON line per parser/reconstruct/round-trip failure.
-- `stats.md` — final summary.
+### `collect` — long-running daemon, daily SQLite rotation
 
-### Args
+```sh
+dotnet run --project tools/Packet.AprsIs.Spike -- collect \
+  --out-dir /var/lib/packet-aprs-collector \
+  --filename-prefix aprs-is
+```
+
+Streams every TNC2 line into per-day SQLite files
+(`<prefix>-YYYY-MM-DD.sqlite`). Reconnects on TCP drop with exponential
+backoff; graceful shutdown on SIGTERM/SIGINT. Inserts batched in
+transactions (commit every 100 lines or 500 ms) to handle firehose
+volume — a 30 s smoke caught ~90 lines/sec (~22 MB/min, ~1.3 GB/day at
+filter `t/poimqstuc`).
+
+Schema (mirrors the MQTT collector):
+
+```sql
+CREATE TABLE lines (
+  id           INTEGER PRIMARY KEY,
+  ts_utc_us    INTEGER NOT NULL,
+  source       TEXT,           -- TNC2 parse result
+  destination  TEXT,
+  digi_path    TEXT,           -- comma-joined VIA list with * markers
+  digi_count   INTEGER,
+  info_len     INTEGER,
+  info         BLOB,
+  raw_line     TEXT NOT NULL   -- full TNC2 line as received
+);
+```
+
+An `AFTER INSERT` trigger keeps `run_meta.line_count` + `ended_at_us`
+exact. The collector doesn't parse the AX.25 envelope — that's offline
+against the corpus by design, so parser changes can be re-run.
+
+### Common args
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--server <host:port>` | `rotate.aprs2.net:14580` | APRS-IS server |
 | `--callsign <CALL>` | `N0CALL` | login callsign (read-only via passcode -1) |
 | `--filter <filter>` | `t/poimqstuc` | server-side filter (all APRS message types) |
-| `--max-frames <N>` | `1000` | stop after N frames (0 = unlimited) |
-| `--out-dir <dir>` | `artifacts/aprs-is-spike/<ts>/` | artifact directory |
-| `--quiet` | off | suppress per-frame stdout |
+| `--out-dir <dir>` | (mode-dependent) | artifact / data directory |
+| `--filename-prefix <prefix>` | `aprs-is` | (collect) per-day SQLite file prefix |
+| `--max-frames <N>` | `1000` | (oneshot) stop after N frames (0 = unlimited) |
+| `--quiet` | off | (oneshot) suppress per-frame stdout |
 
 ## Known finding: APRS letter SSIDs
 
