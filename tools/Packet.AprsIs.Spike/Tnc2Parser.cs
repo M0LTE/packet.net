@@ -106,4 +106,57 @@ public static class Tnc2Parser
     /// </summary>
     public static bool IsQConstruct(string call) =>
         call.Length >= 3 && call[0] == 'q' && char.IsUpper(call[1]);
+
+    /// <summary>
+    /// Rewrite the source / destination / digipeater callsigns of a TNC2
+    /// line to AX.25-valid forms so direwolf will accept the frame. The
+    /// info-field payload is preserved verbatim. Q-construct
+    /// pseudo-digipeaters (<c>qAR</c> etc.) are kept unchanged.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>null</c> if the input doesn't parse as a TNC2 line at
+    /// all (no <c>&gt;</c> or no <c>:</c>). Returns the input unchanged
+    /// when every callsign is already AX.25-valid.
+    /// </remarks>
+    public static string? TryRewriteForAx25(string line)
+    {
+        if (!TryParse(line, out var parsed)) return null;
+
+        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Source,      out var srcA))  return null;
+        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Destination, out var destA)) return null;
+
+        string newSrc  = srcA .ToStrictCallsignOrCoerced().ToString();
+        string newDest = destA.ToStrictCallsignOrCoerced().ToString();
+
+        var sb = new StringBuilder(line.Length);
+        sb.Append(newSrc).Append('>').Append(newDest);
+
+        foreach (var d in parsed.Digipeaters)
+        {
+            sb.Append(',');
+            if (IsQConstruct(d.Callsign))
+            {
+                // Preserve q-constructs verbatim; they're not on-air hops
+                // and direwolf's q-construct stripper handles them anyway.
+                sb.Append(d.Callsign);
+            }
+            else if (Packet.Aprs.AprsCallsign.TryParse(d.Callsign, out var digiA))
+            {
+                sb.Append(digiA.ToStrictCallsignOrCoerced().ToString());
+            }
+            else
+            {
+                // Unparseable — leave as-is and let direwolf decide.
+                sb.Append(d.Callsign);
+            }
+            if (d.HasBeenRepeated) sb.Append('*');
+        }
+
+        sb.Append(':');
+        // Info bytes were captured Latin-1 from the original payload;
+        // round-trip back to text using the same encoding.
+        sb.Append(Encoding.Latin1.GetString(parsed.Info.Span));
+
+        return sb.ToString();
+    }
 }

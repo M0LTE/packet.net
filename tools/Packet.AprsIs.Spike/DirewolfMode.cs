@@ -48,7 +48,13 @@ namespace Packet.AprsIs.Spike;
 /// </remarks>
 public static class DirewolfMode
 {
-    static readonly Regex QConstructStripper = new(",qA.*:", RegexOptions.Compiled);
+    // FIXED 2026-05-14: the previous regex `,qA.*:` was greedy across
+    // `:` characters in payload text, over-stripping when the comment
+    // contained URLs like `http://`. That over-strip caused direwolf
+    // to interpret garbage as compressed positions, producing wildly
+    // wrong coordinates that we mis-attributed to direwolf bugs.
+    // The current pattern stops at the FIRST `:` after the q-construct.
+    static readonly Regex QConstructStripper = new(@",q[A-Z][A-Z]?(,[^:]+)?:", RegexOptions.Compiled);
     // Strip every CSI sequence — direwolf emits more than just SGR (m/K).
     // It also emits cursor-erase (J), which my first pass missed and left
     // a stray "[0J" line that threw line-index parsing off by one.

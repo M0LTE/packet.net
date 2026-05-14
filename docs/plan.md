@@ -824,6 +824,73 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — aprs: q-strip regex fix + envelope-rewrite mode + correction of earlier "direwolf bug" claims
+
+Three intertwined pieces in one PR.
+
+**1. Q-strip regex bug (our bug, not direwolf's).** The original
+`DirewolfMode.SanitiseForDirewolf` regex `,qA.*:` matched greedily
+across `:` characters. On frames whose payload contained a URL like
+`http://`, it over-stripped from the q-construct to the LAST `:` in
+the line, mangling input to direwolf. The "direwolf bug" cases I
+wrote up earlier (Ajaccio → Indian Ocean, Tromsø → Antarctica) were
+all caused by this — direwolf was being fed mangled input and
+heroically/incorrectly interpreting the trailing bytes as compressed
+positions. Verified by feeding the same frame manually to
+`/usr/bin/decode_aprs` — direwolf decodes it correctly.
+
+Fixed regex: `,q[A-Z][A-Z]?(,[^:]+)?:` — stops at the first `:` after
+the q-construct. Re-decoded the 2.66M-row corpus.
+
+**Findings.md updated with an explicit correction** at the top.
+
+**2. Envelope-rewrite mode (`direwolf_rewrite`).** For corpus rows
+direwolf rejected with "Bad source address" (letter SSIDs etc.):
+
+- Parse TNC2 envelope
+- Rewrite source / destination / digipeater callsigns to AX.25-valid
+  forms via new `AprsCallsign.ToStrictCallsignOrCoerced()` — preserves
+  alphanumerics, lowercase → uppercase, letter SSID → `-1`,
+  >6-char base truncated to 6
+- Info-field payload preserved verbatim
+- Pipe rewritten frame through `decode_aprs`
+- Store results in new `direwolf_decoded_rewrite` table
+
+This gives us a legitimate A/B test on the **payload decoder** for the
+~31% of corpus that direwolf otherwise rejects at the AX.25 callsign-
+parse stage. Smoke run on 44.8k previously-rejected frames: 36k (80%)
+decoded successfully after rewrite, every one matching ours.
+
+**3. Differential mode** now `COALESCE`s lat/lon from both
+`direwolf_decoded` AND `direwolf_decoded_rewrite`, reclaims ~15
+percentage points of A/B coverage. Tolerance bumped from 1e-4° to
+5e-4° — APRS uncompressed has ~18m resolution; the tighter tolerance
+was flagging precision drift, not real disagreements.
+
+Updated differential over 500k corpus rows:
+
+| Bucket | % |
+|---|---:|
+| `BothOkMatch` | **82.0%** |
+| `OnlyUs` (rewrite not yet run on this slice) | 16.7% |
+| `BothOkMismatch` | **0.6%** (was 1.8% before fix) |
+| `BothFailed` | 0.5% |
+| `OnlyDirewolf` | 0.3% |
+
+Remaining 0.6% mismatch cases are mostly concatenated-frame edge cases
+(two TNC2 frames merged into one APRS-IS line) and a small cluster of
+compressed `L`-overlay frames where direwolf still produces what looks
+like genuinely wrong coordinates — worth further investigation in a
+follow-up before any upstream report.
+
+**Refactor**: extracted `DirewolfPipeline` static helper from
+`DirewolfMode` so both modes share the decode_aprs subprocess +
+output-parsing code.
+
+`AprsCallsign` gains `ToStrictCallsignOrCoerced(byte fallbackSsid=1)`
+with 6 new unit tests covering each transformation rule. 911 tests
+green.
+
 ### 2026-05-14 — aprs: permissive `AprsCallsign` type (monitor layer)
 
 New `AprsCallsign` value type in `Packet.Aprs` for monitor-layer

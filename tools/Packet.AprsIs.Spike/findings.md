@@ -1,5 +1,77 @@
 # APRS-IS corpus — early findings
 
+## 2026-05-14 (much later) — IMPORTANT CORRECTION: the "direwolf bugs" were our q-strip regex
+
+**Earlier "direwolf bug" claims (BothOkMismatch examples like Ajaccio/Indian Ocean,
+Tromsø/Antarctica) were wrong.** Investigation:
+
+The original q-construct stripper regex in `DirewolfMode.SanitiseForDirewolf`
+was `,qA.*:` — greedy `.*` matched across `:` characters. On frames whose
+payload contained a URL like `http://`, the regex would over-strip from
+the q-construct all the way to the LAST `:` in the line (the `:` in
+`http:`). This left direwolf with a mangled input like
+`SRC>DEST://tknet.radioamateur.tk` — direwolf then made a heroic but
+nonsensical attempt to interpret the trailing characters as a
+compressed position, producing wildly wrong coordinates.
+
+**Direct evidence**: feeding the same Ajaccio frame manually to
+`/usr/bin/decode_aprs` (without the over-strip) produces the correct
+`N 41 57.2700, E 008 41.9600`. The bug was entirely in our pipeline.
+
+The regex is now `,q[A-Z][A-Z]?(,[^:]+)?:` — stops at the first `:` after
+the q-construct. Re-decoded the 2.66M-row corpus with the fixed regex.
+
+Updated differential numbers (500k rows, with envelope-rewrite for the
+direwolf-rejected AX.25-invalid frames AND the regex fix AND a more
+generous 5e-4° tolerance to absorb APRS format-resolution noise):
+
+| Bucket | % |
+|---|---:|
+| `BothOkMatch` | **82.0%** |
+| `OnlyUs` (direwolf rejects AX.25 envelope; rewrite not yet run on slice) | 16.7% |
+| `BothOkMismatch` | **0.6%** (was 1.8% before fix) |
+| `BothFailed` | 0.5% |
+| `OnlyDirewolf` | 0.3% |
+
+The remaining 0.6% mismatch cases are real but small. Spot-checks show:
+- Several are **concatenated frames** in a single APRS-IS line (gateway
+  bug where two TNC2 frames got merged) — we decode the first position,
+  direwolf grabs different bytes
+- A cluster of compressed `L` overlay cases where direwolf produces
+  coordinates around (60, -120) or (0, 50) consistently — possibly a
+  real direwolf bug worth investigating further
+
+## 2026-05-14 — Envelope-rewrite mode for direwolf-rejected AX.25-invalid frames
+
+New spike mode `direwolf_rewrite` reads corpus rows where direwolf
+rejected the frame with "Bad source address" (letter SSIDs like D-Star
+`-D`, `-B`; lowercase bases; >6-char bases) and:
+
+1. Parses the TNC2 envelope
+2. Rewrites source / destination / digipeater callsigns to AX.25-valid
+   forms via `AprsCallsign.ToStrictCallsignOrCoerced()` — preserves
+   what's recognisable, replaces letter SSIDs with `-1`, uppercases
+   lowercase letters, truncates >6-char bases
+3. Q-constructs are preserved verbatim
+4. Info-field payload is preserved verbatim
+5. Pipes the rewritten frame through `decode_aprs` again
+6. Stores results in a new `direwolf_decoded_rewrite` table
+
+Why this matters: the info-field payload is unchanged, so the rewrite
+gives us a legitimate A/B test of the **payload** decoder. If direwolf
+still produces wrong coordinates after the envelope is fixed, the bug
+can't be blamed on envelope rejection masking the issue.
+
+Smoke run on 44.8k previously-rejected frames: 36k (80%) decoded
+successfully after rewrite — and direwolf's decode matched ours on
+every one. 5k frames were too malformed to even parse as TNC2;
+direwolf still rejected ~400 after rewrite (different errors, e.g.
+invalid timestamp).
+
+The differential analysis now uses both `direwolf_decoded` AND
+`direwolf_decoded_rewrite` (via COALESCE) — reclaims ~15 percentage
+points of A/B coverage compared to the original-only baseline.
+
 ## 2026-05-14 (later) — Extended decoder to `@` / `/` timestamped variants
 
 Position decoder now handles all four position DTIs (`!`, `=`, `@`, `/`).
