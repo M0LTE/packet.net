@@ -78,6 +78,7 @@ public sealed class TransitionContext
         XidReceived f        => f.Frame,
         TestReceived f       => f.Frame,
         IOrSCommandReceived f => f.Frame,
+        AllOtherCommands f    => f.Frame,
         _ => null,
     };
 }

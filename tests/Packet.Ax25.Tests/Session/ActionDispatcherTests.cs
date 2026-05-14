@@ -116,8 +116,28 @@ public class ActionDispatcherTests
         var (d, ctx, s, time, expiries, _, _, _, _, _, _) = NewRig();
         d.Execute("start_T1", ctx, s);
 
-        time.Advance(d.T1Duration);
+        // start_T1 reads ctx.T1V (default 6s) — not dispatcher.T1Duration.
+        time.Advance(ctx.T1V);
 
+        expiries.Should().ContainSingle().Which.Should().Be("T1");
+    }
+
+    [Fact]
+    public void Start_T1_Uses_Per_Session_T1V_Not_Dispatcher_Default()
+    {
+        var (d, ctx, s, time, expiries, _, _, _, _, _, _) = NewRig();
+        // Set a custom T1V via the SDL verb chain that figc4.1 t03 fires.
+        ctx.Srt = TimeSpan.FromMilliseconds(1500);
+        d.Execute("T1V := 2 * SRT", ctx, s);
+
+        d.Execute("start_T1", ctx, s);
+
+        ctx.T1V.Should().Be(TimeSpan.FromMilliseconds(3000));
+        s.IsRunning("T1").Should().BeTrue();
+        // Advance just shy of expiry — should still be running.
+        time.Advance(TimeSpan.FromMilliseconds(2999));
+        expiries.Should().BeEmpty();
+        time.Advance(TimeSpan.FromMilliseconds(1));
         expiries.Should().ContainSingle().Which.Should().Be("T1");
     }
 
