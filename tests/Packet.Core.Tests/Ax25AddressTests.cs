@@ -63,6 +63,34 @@ public class Ax25AddressTests
     }
 
     [Fact]
+    public void Read_Accepts_All_Space_Address_Slot()
+    {
+        // Per AX.25 v2.2 §6.1.1 "operation with destination addresses other
+        // than actual amateur call signs is a subject for further study" —
+        // some implementations (BPQ's own ID beacon `>IS`, PD4R-12's QRV
+        // broadcast) emit UI frames with an all-space dest or source slot.
+        // The receive path accepts this as Callsign with Base="".
+        Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
+        for (int i = 0; i < 6; i++) buf[i] = 0x40;   // ' ' << 1
+        buf[6] = 0x60;   // C=0, R=11, SSID=0, E=0
+
+        var addr = Ax25Address.Read(buf);
+        addr.Callsign.Base.Should().Be("");
+        addr.Callsign.Ssid.Should().Be((byte)0);
+    }
+
+    [Fact]
+    public void Empty_Callsign_RoundTrips_Through_Wire_Form()
+    {
+        var input = new Ax25Address(new Callsign("", 12), CrhBit: false, ExtensionBit: true);
+        Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
+        input.Write(buf);
+        // All 6 callsign bytes should be the space-shifted padding byte.
+        for (int i = 0; i < 6; i++) buf[i].Should().Be((byte)(' ' << 1));
+        Ax25Address.Read(buf).Should().Be(input);
+    }
+
+    [Fact]
     public void Read_Rejects_Short_Span()
     {
         var buf = new byte[6];

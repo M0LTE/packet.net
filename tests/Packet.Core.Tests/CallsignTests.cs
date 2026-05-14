@@ -51,9 +51,25 @@ public class CallsignTests
     }
 
     [Fact]
-    public void Constructor_Rejects_Empty_Base()
+    public void Constructor_Accepts_Empty_Base()
     {
-        ((Action)(() => new Callsign("", 0))).Should().Throw<ArgumentException>();
+        // AX.25 v2.2 §3.12.2 doesn't specify a minimum callsign length, and
+        // §6.1.1 acknowledges non-callsign destination content exists in
+        // practice. Some implementations emit UI frames (beacons, station
+        // identification) with an all-space address slot, which decodes to
+        // an empty Base. Permitted on the wire-parse path.
+        var c = new Callsign("", 0);
+        c.Base.Should().Be("");
+        c.Ssid.Should().Be((byte)0);
+        c.ToString().Should().Be("");
+    }
+
+    [Fact]
+    public void TryParse_Still_Rejects_Empty_Text()
+    {
+        // Parse / TryParse remain strict — they're for user-typed text input
+        // where empty is a typo, not a legitimate wire value.
+        Callsign.TryParse("", out _).Should().BeFalse();
     }
 
     [Fact]

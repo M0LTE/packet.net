@@ -440,10 +440,13 @@ public static class BpqDifferentialMode
         int? Ns,
         int? Nr)
     {
-        // 09:42:59R SRC[-SSID]>DEST[-SSID][,VIA1[-SSID]][,VIA2...] Port=N <TAG flags...>[: info]
+        // 09:42:59R [SRC][-SSID]>[DEST][-SSID][,VIA1[-SSID]][,VIA2...] Port=N <TAG flags...>[: info]
+        // Source and destination may each be empty — BPQ emits e.g. ">IS" for
+        // its own ID beacon (empty source) and "PD4R-12>,TEST" for that
+        // station's QRV broadcast (empty destination).
         static readonly Regex Re = new(
             @"^(?<ts>\d{2}:\d{2}:\d{2}[A-Z]?)\s+" +
-            @"(?<src>[A-Za-z0-9\-]+)\s*>\s*(?<dst>[A-Za-z0-9\-]+)" +
+            @"(?<src>[A-Za-z0-9\-]*)>(?<dst>[A-Za-z0-9\-]*)" +
             @"(?:,(?<via>[A-Za-z0-9\-,*]+))?" +
             @"\s+Port=(?<port>\d+)\s+" +
             @"<(?<tag>[A-Z]+)(?<flags>[^>]*)>",
