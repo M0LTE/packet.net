@@ -362,6 +362,34 @@ Self-contained `dotnet publish` matrix for linux-x64/arm64/arm (v7), win-x64, os
 
 `Packet.Node.Extensions/IApplicationModule.cs` — REST routes, MCP tools, frontend bundle, AX.25 session handler. Loaded from `/var/lib/packetnet/plugins/*.dll` in isolated `AssemblyLoadContext`. DAPPS validates the API design. `Packet.NetRom` ships as a separate package. SharpFuzz harnesses + 72 h soak vs LinBPQ.
 
+### 5.10 Phase 10 — Hardware ecosystem & adaptive RF ⬜ (post-v1)
+
+The differentiator no other TNC stack does well: treat the radio + modem as first-class telemetry sources, and use their signals to drive AX.25's parameter knobs in real time. Unlocks a class of "you can see your link degrading and recover before it dies" UX that doesn't exist today.
+
+**Workstreams:**
+
+- **Tait 8100 / 8200 CCDI integration** — serial control channel to the radio surfaces SNR, signal-quality, MAS/SQ status, busy detect, channel programming. Three existing PoC repos by Tom (will be rewritten/folded into Packet.NET, not vendored):
+  - [`M0LTE/tait-ccdi`](https://github.com/M0LTE/tait-ccdi) — protocol layer.
+  - [`M0LTE/TaitMaster`](https://github.com/M0LTE/TaitMaster) — management UI.
+  - [`M0LTE/taitctrl`](https://github.com/M0LTE/taitctrl) — CLI control.
+  - Spec reference: [CCDI manual](https://wiki.oarc.uk/_media/radios:tm8100-protocol-manual.pdf) (PDF).
+  - Target `Packet.Radio.Tait` library with `IRadioControl` abstraction so other radios can slot in (Yaesu CAT, ICOM CI-V, …).
+- **Frequency-agile operation** — if the radio is CAT-controllable, schedule QSY across a frequency plan. Use cases: APRS digi tail on calling channel + drop to working channel for connected-mode sessions; per-link QSY when SNR drops below threshold; automatic channel hunting in poor band conditions.
+- **NinoTNC mode agility / negotiation** — currently the operator picks a NinoTNC mode (0–15) at config. Goal: query NinoTNC capabilities at startup, negotiate the optimal mode for current channel quality (1200 → 4800 → 9600 based on SNR), renegotiate on degradation. Requires SETHW probe + mode-change handshake (open question: does NinoTNC firmware support runtime mode change?).
+- **NinoTNC firmware upgrades** — port [`ninocarrillo/flashtnc`](https://github.com/ninocarrillo/flashtnc) flow into `packetnet ctl flash-tnc` so non-technical users can update firmware from the web UI. Bootloader protocol reverse-engineering needed.
+- **Channel-quality scoring** — fuse radio telemetry (SNR, RSSI, busy %) with AX.25 telemetry (RC, REJ/SREJ rate, RTT) into a per-link "quality index". Surface in UI; feed back into adaptive parameter tuning.
+- **Adaptive AX.25 parameters** — T1, RC, k, mod-8 vs mod-128 chosen dynamically from the quality score. Currently §C.4 leaves these fixed. Care needed — interop with non-adaptive peers must remain spec-compliant.
+
+**Hardware test harness** (incoming): 2× NinoTNC + 2× Tait radio on USB, cross-wired audio. Will be available for autonomous capability exploration once delivered. Initial autonomous spike: probe both radios via CCDI, dump capabilities, characterise SNR-vs-distance behaviour across the air-cross-coupling, baseline NinoTNC mode-change behaviour.
+
+**Exit criteria** (high-level):
+
+- `IRadioControl` abstraction with at least Tait CCDI implementation.
+- Per-link quality index visible in web UI + persisted to time-series.
+- At least one adaptive parameter (T1 or k) wired to quality feedback under a `--adaptive` flag.
+- NinoTNC mode-change demonstrated end-to-end (manual trigger, no auto-negotiation needed for exit).
+- `packetnet ctl flash-tnc` working from CLI; web UI integration optional.
+
 ---
 
 ## 6. SDL transcription discipline
@@ -639,6 +667,9 @@ Tracked here so they don't get lost. Once resolved, move the resolution into the
 | OQ-006 | yEd / GraphML SDL workflow — Tom tried Mermaid and reported the rendering looks too unlike the original SDL to be useful for visual comparison. Mermaid output is shipped anyway (cheap, catches transcription bugs the YAML diff might miss) but does NOT solve the input-side problem. yEd spike (one figure, agreed shape mapping, parse the .graphml back to our YAML) still on the table whenever Tom has big-screen time. | Open | Tom |
 | ~~OQ-007~~ | ~~Stryker mutation score for `Packet.Kiss` is dragged below 70 % by `KissTcpClient`…~~ | ✅ Resolved 2026-05-12 — excluded via `stryker-config.json`; score 67.07→73.33. Fake-socket harness left for whenever Phase 6/7 wants tighter coverage. |
 | OQ-008 | Publish `/spec-sdl/` as a community-canonical AX.25 v2.2 state-machine artifact, separate from this repo? The YAML is language-agnostic by design — a Rust/Python/Go/TS codegen against the same files would produce the same transitions, and our C# codegen becomes the reference implementation rather than the source of truth. Three things would need to firm up before "authoritative" is defensible: (a) the guard mini-DSL needs a real grammar (today `GuardEvaluator` parses by ad-hoc string splitting — fine for one consumer, not for many); (b) action verbs need a stable catalog with documented semantics (today they're free-form strings like `"RNR response"`, `"start_T1"`); (c) the schema + events catalog need semver. Realistic move: finish the 27 pages, stabilise the schema, then split `/spec-sdl/` + schema + events into a sibling repo (likely under `packethacking/`). What makes this credibly authoritative rather than just *another* transcription is the encode-then-verify discipline + collaboration with the spec author — both already in place. Revisit at the end of Phase 2. | Open | Tom |
+| OQ-009 | NinoTNC mode-change handshake — does the firmware support runtime mode switching without a write-to-flash cycle? `SETHW(mode + 16)` is the "don't write to flash" form; is the actual mode change immediate, or does it require power-cycle? Affects feasibility of Phase 10's mode-agility workstream. Probe once hardware is on the bench. | Open | Phase 10 / hardware-arrival |
+| OQ-010 | NinoTNC bootloader / firmware-update protocol — `flashtnc` is the canonical tool; what's the wire protocol? Best to read [`ninocarrillo/flashtnc`](https://github.com/ninocarrillo/flashtnc) source rather than reinvent. Affects feasibility + risk of `packetnet ctl flash-tnc`. | Open | Phase 10 |
+| OQ-011 | Radio-control abstraction shape — what's the right `IRadioControl` API? Tait CCDI gives us SNR / RSSI / busy / channel / TX-keying. Yaesu CAT and ICOM CI-V have different feature sets. Common subset is probably {frequency-set, frequency-get, RSSI-get, busy-get, PTT-set} — anything radio-specific (Tait's SNR is unusually rich) goes behind a feature-probe. Decide before locking the Tait implementation. | Open | Phase 10 |
 
 ---
 
@@ -664,6 +695,35 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-14 — Roadmap: Phase 10 (Hardware ecosystem & adaptive RF) added
+
+New Phase 10 entry in §5 captures the post-v1 differentiator: treating
+the radio + modem as first-class telemetry sources, and using their
+signals to drive AX.25's parameter knobs in real time. Workstreams:
+
+- **Tait 8100/8200 CCDI integration** — three existing Tom PoC repos
+  (`tait-ccdi`, `TaitMaster`, `taitctrl`) will be rewritten and folded
+  in. Target `Packet.Radio.Tait` library with `IRadioControl`
+  abstraction so Yaesu CAT / ICOM CI-V can slot in later.
+- **Frequency-agile operation** — CAT-driven QSY based on link policy.
+- **NinoTNC mode agility / negotiation** — query capabilities, pick
+  optimal mode for current SNR, renegotiate on degradation.
+- **NinoTNC firmware upgrades** — port `flashtnc` flow into
+  `packetnet ctl flash-tnc`.
+- **Channel-quality scoring** — fuse radio + AX.25 telemetry.
+- **Adaptive AX.25 parameters** — T1, RC, k, mod-8 vs mod-128 chosen
+  from quality score under an opt-in flag.
+
+Hardware test rig (2× NinoTNC + 2× Tait, cross-wired audio) is being
+prepared for autonomous capability exploration.
+
+Three new open questions added to §15:
+
+- **OQ-009** NinoTNC runtime mode-change support (probe needed).
+- **OQ-010** NinoTNC bootloader protocol (read flashtnc source).
+- **OQ-011** `IRadioControl` abstraction shape (common subset vs
+  per-radio feature probes).
 
 ### 2026-05-14 — NinoTNC serial driver + ACKMODE + adaptive parameter scaffolding
 
