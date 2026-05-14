@@ -6,6 +6,65 @@ raw stats.md / failures.jsonl land in `artifacts/aprs-is-analysis/<ts>/`
 
 Re-run with `dotnet run --project tools/Packet.AprsIs.Spike -- analyse`.
 
+## 2026-05-14 — Direwolf reference pipeline (276k lines, ~1 h capture)
+
+First end-to-end pass of the corpus through direwolf's `decode_aprs`
+utility, persisted into a sibling `direwolf_decoded` table keyed by
+`line_id`. Lines are sanitised on the way in by stripping the APRS-IS
+q-construct path (`,qA.*:` → `:`) — the exact transformation the
+direwolf man page recommends.
+
+**Throughput**: ~23,400 lines/sec on a single `decode_aprs` subprocess
+with 1000-line batches. The 276k-line corpus processed in 12.4 s. Fast
+enough to re-run after every collector accumulation.
+
+**Headline**: 276,243 lines decoded by direwolf.
+
+| Metric | Count | % |
+|---|--:|--:|
+| With position | 147,019 | 53.2 % |
+| With parse error | 113,587 | 41.1 % |
+| Other (status, telemetry, messages, ...) | 15,637 | 5.7 % |
+
+### Differential vs Packet.NET's reconstruct pipeline
+
+Our `Callsign.TryParse` rejects ~22 % of source callsigns. Direwolf's
+full APRS payload validator rejects ~41 %. The disagreement set is the
+useful corpus.
+
+**Direwolf accepts, we reject (~26 % of direwolf-accept sample):**
+Almost entirely **lowercase callsigns** — `dl9mfl-6`, `iw0uwf-4`,
+`vk4zu-13`, `kh6s-4`, `py5td-13`. Direwolf logs a "Source Address has
+lower case letters" warning but parses on. Our strict `Callsign` type
+refuses. Confirms the case for a separate permissive `AprsCallsign`
+type in the eventual `Packet.Aprs` library.
+
+**We accept, direwolf rejects (~46 % of direwolf-reject sample):**
+Valid AX.25 envelopes carrying malformed APRS payloads. Examples:
+
+- `F4JHN-13>APSFWX:)Temp-JHN!4344.50NT00122.50WWSOUS` — direwolf:
+  *"Unknown APRS Data Type Indicator '-'"*. The `)` is the Item DTI;
+  direwolf's deeper validator catches an inconsistency further in.
+- `DM4XI-13>APRS:@140951z4921.32N/01204.07E_c197s004…` — direwolf:
+  *"Unknown APRS Data Type Indicator '2'"* (an APRSdroid bug).
+- `SH6FHC-5>APDR16:=5801.78N/01248.40E<112/002/A=000…` — direwolf:
+  *"Invalid character in compressed longitude — must be in range '!' to '{'."*
+- `PJUWX-0` `PE2ETE-11` — DTI ' ' (space) — likely missing payload.
+
+### Top error buckets across the corpus
+
+| Error first-line | Count |
+|---|--:|
+| Failed to create packet from text. Bad source address | 58,609 |
+| Invalid character in compressed longitude. Must be in range of '!' to '{' | 4,453 |
+| Unknown APRS Data Type Indicator "H" (KJ4ERJ APRSIS32) | 3,521 |
+| Invalid symbol table id for compressed position | 2,871 |
+| Unknown APRS Data Type Indicator "2" (APRSdroid) | 1,849 |
+
+The corpus is now a real **differential testing baseline**: for any
+future `Packet.Aprs` decoder, every frame has a direwolf interpretation
+in the same SQLite file. Diff outputs frame-by-frame → bug candidates.
+
 ## 2026-05-14 — payload-type breakdown (181k lines, ~30 min capture)
 
 First run with the payload-type classifier wired in (Tier 0 unblocker).
