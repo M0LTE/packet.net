@@ -232,7 +232,7 @@ public class DataLink_AwaitingConnection22_GeneratedTests
         t.Actions.Count.Should().Be(11);
         t.Actions[0].Verb.Should().Be("SRT := Initial Default");
         t.Actions[0].Kind.Should().Be(ActionKind.Processing);
-        t.Actions[1].Verb.Should().Be("T1V := 2*SRT");
+        t.Actions[1].Verb.Should().Be("T1V := 2 * SRT");
         t.Actions[1].Kind.Should().Be(ActionKind.Processing);
         t.Actions[2].Verb.Should().Be("start_T3");
         t.Actions[2].Kind.Should().Be(ActionKind.Processing);
