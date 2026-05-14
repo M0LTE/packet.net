@@ -824,6 +824,21 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl(awaiting_v22_connection): normalise `T1V := 2*SRT` → `T1V := 2 * SRT`
+
+Surgical fix in `DataLink_AwaitingV22Connection.graphml` (node n51): one
+processing box had `T1V <- 2*SRT` (no spaces) while another box in the
+same figure had `T1V <- 2 * SRT` (with spaces). Normalised both to the
+spaced form, regenerated YAML + `.g.cs` + `.g.mmd` + conformance tests.
+537 tests still pass.
+
+First small step in the dispatcher-wiring arc: surfacing transcription
+inconsistencies before wiring the real dispatcher. Bigger architectural
+piece next — `spec-sdl/actions.yaml` alias table so codegen normalises
+figure-verbatim verbs (`Establish Data Link`) to canonical dispatcher
+verbs (`Establish_Data_Link`). YAMLs stay verbatim; dispatcher only sees
+canonical. Resolves the verb-vocabulary half of OQ-008.
+
 ### 2026-05-14 — SP-001b: corpus errors mapped to APRS12c (direwolf is spec-correct)
 
 Walked every direwolf error class surfaced in the corpus against the
