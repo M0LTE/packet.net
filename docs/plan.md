@@ -824,6 +824,34 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: fuzz / property tests for the frame parser
+
+`tests/Packet.Ax25.Properties/Ax25ParserFuzzProperties.cs` — six new
+FsCheck properties focused on the parser's trust-boundary behaviour:
+
+- `TryParse_Never_Throws` — across 2 000 random byte arrays, the
+  parser only ever returns `true`/`false`; no exceptions escape.
+- `Parsed_Frame_Round_Trips_Through_ToBytes` — anything accepted on
+  the way in must serialise back to bytes that parse to the same
+  thing.
+- `Address_Read_Only_Throws_ArgumentException` — the address parser's
+  only legal failure mode for malformed input is `ArgumentException`
+  (caller-fault convention); other types would indicate a real bug.
+- `RequiredBytes_Is_Exact` — the parser's reported byte-budget
+  matches what `WriteTo` actually consumes.
+- `I_Frame_Encode_Then_Decode_Roundtrips` — covers connected-mode
+  I-frames with arbitrary N(s)/N(r)/P-F/PID/info (the existing
+  property only exercised UI).
+- `Empty_Callsign_Address_Round_Trips` — regression for PR #85's
+  empty-callsign tolerance (BPQ's `>IS` beacon shape).
+
+Sits at the parser's trust boundary: TNCs deliver arbitrary RF
+garbage, and a parser exception there would be a DoS against the
+whole link layer. "Return false" is the only acceptable failure
+mode and this suite proves it across random-input space.
+
+10 existing + 6 new = 16 properties; full suite still green.
+
 ### 2026-05-14 — bpq: corpus mining findings (first slice)
 
 New [`docs/bpq-corpus-findings-2026-05-14.md`](bpq-corpus-findings-2026-05-14.md)
