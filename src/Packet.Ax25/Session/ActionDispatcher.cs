@@ -52,6 +52,7 @@ public sealed class ActionDispatcher : IActionDispatcher
     private readonly Action<DataLinkSignal> sendUpward;
     private readonly Action<LinkMultiplexerSignal> sendLinkMux;
     private readonly Action<InternalSignal> sendInternal;
+    private readonly ISubroutineRegistry subroutines;
 
     /// <summary>Default acknowledgement timer (T1).</summary>
     public TimeSpan T1Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
@@ -108,6 +109,14 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// internal I-frame queue (<c>push_*</c> verbs). Defaults to a
     /// no-op sink.
     /// </param>
+    /// <param name="subroutines">
+    /// Registry for SDL subroutine action chains
+    /// (<c>Establish_Data_Link</c>, <c>UI_Check</c>,
+    /// <c>Select_T1_Value</c>, …). Defaults to a fresh
+    /// <see cref="DefaultSubroutineRegistry"/> with no-op stubs for
+    /// every known subroutine — sufficient for testing transition flow
+    /// without figc4.7's real bodies wired.
+    /// </param>
     public ActionDispatcher(
         Action<string> onTimerExpiry,
         Action<SupervisoryFrameSpec> sendSFrame,
@@ -115,7 +124,8 @@ public sealed class ActionDispatcher : IActionDispatcher
         Action<UiFrameSpec>? sendUiFrame = null,
         Action<DataLinkSignal>? sendUpward = null,
         Action<LinkMultiplexerSignal>? sendLinkMux = null,
-        Action<InternalSignal>? sendInternal = null)
+        Action<InternalSignal>? sendInternal = null,
+        ISubroutineRegistry? subroutines = null)
     {
         this.onTimerExpiry = onTimerExpiry ?? throw new ArgumentNullException(nameof(onTimerExpiry));
         this.sendSFrame    = sendSFrame    ?? throw new ArgumentNullException(nameof(sendSFrame));
@@ -124,6 +134,7 @@ public sealed class ActionDispatcher : IActionDispatcher
         this.sendUpward    = sendUpward    ?? (_ => { });
         this.sendLinkMux   = sendLinkMux   ?? (_ => { });
         this.sendInternal  = sendInternal  ?? (_ => { });
+        this.subroutines   = subroutines   ?? new DefaultSubroutineRegistry();
     }
 
     /// <inheritdoc/>
@@ -369,6 +380,26 @@ public sealed class ActionDispatcher : IActionDispatcher
             // these to lock in mod-8 vs mod-128 once the peer accepts.
             case "set_version_2_0":                ctx.IsExtended = false; break;
             case "set_version_2_2":                ctx.IsExtended = true;  break;
+
+            // ─── Subroutine calls ──────────────────────────────────────
+            //
+            // Each routes through the registry. DefaultSubroutineRegistry
+            // pre-populates with no-op stubs for every known name — the
+            // figc4.7 transcription will eventually replace those with
+            // real action chains. Tests can register custom impls to
+            // observe / mock subroutine invocations.
+            case "Establish_Data_Link":            subroutines.Invoke("Establish_Data_Link", tx); break;
+            case "Clear_Exception_Conditions":     subroutines.Invoke("Clear_Exception_Conditions", tx); break;
+            case "UI_Check":                       subroutines.Invoke("UI_Check", tx); break;
+            case "Select_T1_Value":                subroutines.Invoke("Select_T1_Value", tx); break;
+            case "Check_I_Frame_Acknowledged":     subroutines.Invoke("Check_I_Frame_Acknowledged", tx); break;
+            case "Check_I_Frames_Acknowledged":    subroutines.Invoke("Check_I_Frames_Acknowledged", tx); break;
+            case "Check_Need_For_Response":        subroutines.Invoke("Check_Need_For_Response", tx); break;
+            case "Transmit_Enquiry":               subroutines.Invoke("Transmit_Enquiry", tx); break;
+            case "Invoke_Retransmission":          subroutines.Invoke("Invoke_Retransmission", tx); break;
+            case "N_r_Error_Recovery":             subroutines.Invoke("N_r_Error_Recovery", tx); break;
+            case "Enquiry_Response_F_0":           subroutines.Invoke("Enquiry_Response_F_0", tx); break;
+            case "Enquiry_Response_F_1":           subroutines.Invoke("Enquiry_Response_F_1", tx); break;
 
             // ─── Sequence-variable assignments (pure context) ──────────
             //
