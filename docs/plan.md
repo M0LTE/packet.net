@@ -824,6 +824,28 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — policy: spec-compliant by default; pragmatism is a named flag
+
+New CLAUDE.md hard rule codifying the strictness philosophy. Future
+contributors (human or AI agent) are now expected to:
+
+1. Never silently widen a parser to accept new garbage.
+2. Add a named flag to `Ax25ParseOptions` / `AprsParseOptions` when
+   accepting something the strict spec rejects.
+3. Update `docs/strict-vs-pragmatic-audit.md` in the same PR.
+4. Decide which presets (`Strict` / `Lenient` / `Bpq` / `Xrouter`
+   / `Direwolf` / `AprsIs`) the flag belongs to.
+5. Write a paired test: `Strict` rejects, the relevant preset
+   accepts. Strict-rejects-without-lenient-accepts means we
+   couldn't justify why the leniency exists.
+
+Also explicitly: **other implementations are not reference truth.**
+BPQ / Xrouter / direwolf are interop targets we want to talk to,
+not specs we follow. Their quirks are flag-gated behaviour for us.
+
+The outbound construction path stays strict — Packet.NET never
+produces non-spec frames, even when it accepts inbound non-spec ones.
+
 ### 2026-05-14 — wire: `AprsParseOptions` threaded through Status / Telemetry / Mic-E decoders
 
 Second retrofit. The three APRS decoders that the audit flagged
