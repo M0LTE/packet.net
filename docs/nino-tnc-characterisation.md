@@ -78,15 +78,23 @@ Two real findings, distinct from "mode is flaky":
    Both point at "warm up the modem before the first measured frame"
    as the right discipline for tests and the session layer.
 
-2. **TXDELAY=100 ms + mode 12 catastrophically breaks A's receiver
-   under sustained B→A traffic.** First few frames succeed (0–4
-   accepted, frame 0 dropped per the first-frame artefact); from
-   frame 5 onwards *every single frame is lost*. The failure-to-
-   failure gap is 1 for 94 consecutive frames. A's RX appears to
-   lock up under repeated long-preamble 300 AFSK exposure. This is
-   modem firmware / DSP behaviour, not a software-fixable bug — and
-   it's the wrong direction (more preamble than the spec default).
-   Stay at TXDELAY ≤ 50 on mode 12 and the issue does not appear.
+2. **TXDELAY=100 ms + mode 12 once produced a catastrophic B→A
+   failure** (4/100 succeeded; frames 5–99 all lost in a contiguous
+   run). This pattern is **not reproducible on demand** — two follow-
+   up probes (one at N=50 across modes 12/13/14, one re-running the
+   original probe verbatim) saw mode 12 at TXDELAY=1000 ms come back
+   to 49/50 / 50/50 with only the first-frame artefact. The original
+   break may be: a thermal / electrical transient; a specific
+   accumulated state in the modem firmware that this probe sequence
+   doesn't reliably trigger; or an interaction with some other
+   process on the host that one run hit. **Mode 13 (AFSKPLL IL2P)
+   and mode 14 (AFSKPLL IL2P+CRC) at the same TXDELAY=1000 ms are
+   100/100 clean** — neither shares mode 12's vulnerability, even
+   though they share the 300 baud air time. Whatever the original
+   pathology was, it appears specific to mode 12's AFSK-without-PLL
+   demod path. **The conservative rule remains: keep TXDELAY ≤ 50
+   on mode 12** — at 50 ms the link is reliable, at 100 ms it's
+   either reliable or catastrophic with no apparent middle.
 
 Payload size has **no effect** on mode-12 failure rate. The earlier
 small-sample "flaky" finding is fully explained by the first-frame
@@ -94,7 +102,15 @@ artefact above.
 
 See `artifacts/nino-tnc-mode12/<timestamp>/report.md` for raw data;
 re-run with `dotnet run --project tools/Packet.NinoTnc.Spike --
-mode12-probe COM6 COM8`.
+mode12-probe COM6 COM8`. Cross-mode comparison at 300 baud
+(`slow-mode-probe`) lives under
+`artifacts/nino-tnc-slow-modes/<timestamp>/report.md`:
+
+| Mode | Demod / framing | TXDELAY=500 ms | TXDELAY=1000 ms |
+|---:|---|---|---|
+| 12 | AFSK / AX.25 | 49/50 A→B (first only), 50/50 B→A | 49/50 A→B (first only), 50/50 B→A |
+| 13 | AFSKPLL / IL2P | 49/50 A→B (idx 9), 50/50 B→A | 50/50 both |
+| 14 | AFSKPLL / IL2P+CRC | 50/50 A→B, 49/50 B→A (first only) | 50/50 both |
 
 ### Per-mode TXDELAY floor
 

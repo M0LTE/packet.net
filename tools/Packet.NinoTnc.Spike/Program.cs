@@ -50,6 +50,12 @@ if (args.Length > 0 && args[0] == "mode12-probe")
         args.Length > 1 ? args[1] : "COM6",
         args.Length > 2 ? args[2] : "COM8");
 }
+if (args.Length > 0 && args[0] == "slow-mode-probe")
+{
+    return await Packet.NinoTnc.Spike.SlowModeProbe.Run(
+        args.Length > 1 ? args[1] : "COM6",
+        args.Length > 2 ? args[2] : "COM8");
+}
 
 Console.WriteLine($"NinoTNC spike — A={portA}, B={portB}, baud={BaudRate}, mode={Mode} (+16 non-persist)");
 
