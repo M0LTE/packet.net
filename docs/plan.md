@@ -824,6 +824,61 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — bpq: connected-mode A/B differential against BPQ's monitor render
+
+New `bpq_differential` spike mode (under `tools/Packet.AprsIs.Spike` —
+re-using the spike harness, despite the name). Pairs every `kiss` MQTT
+message in the BPQ corpus with its sibling
+`ax25/trace/bpqformat` message, decodes the KISS bytes through
+`Ax25Frame.TryParse` + `Ax25FrameClassifier.Classify`, parses BPQ's
+monitor text, and compares at four increasing depths:
+
+1. Source / destination callsign+SSID and digipeater path
+2. Frame-type tag (mapping our classifier → BPQ short tags: SABM→`C`,
+   DISC→`D`, otherwise verbatim)
+3. Command / response and P/F bits
+4. N(s) / N(r) for I and S frames
+
+**Result on the 4,530-frame snapshot** (gb7rdg-2026-05-14.sqlite):
+
+| Bucket | % |
+|---|---:|
+| `Match` | **99.07%** |
+| `BlankCallsignField` | 0.93% |
+| `UnpairedSkew` | 0.07% |
+
+The corpus contained: 958 I-frames (with N(s)/N(r) checked), 2,141 RR,
+80 REJ, 251 SABM (BPQ writes `<C>`), 76 DISC (`<D>`), 80 UA, 6 DM,
+382 XID, 502 UI, plus ad-hoc frames — across 47 distinct peer pairs.
+**Zero real disagreements** at any comparison level (frame-type bit
+patterns, address C-bits, P/F bit, sequence numbers).
+
+The 0.93% `BlankCallsignField` rows are BPQ's own ID beacon
+(`>IS ... <UI C>`, 18 frames, empty source) and PD4R-12's status
+broadcast (`PD4R-12>,TEST ... <UI C>:...`, 24 frames, empty dest with
+TEST as digipeater). On the wire these are valid AX.25 frames with
+all-space callsign slots; our strict `Callsign` type rejects them.
+Flagged as a separate bucket rather than counted as parse failures —
+it's a real-world edge case BPQ accepts but we don't, worth a
+discussion before deciding whether to soften the parser.
+
+**Framing notes** for future spike work: the BPQ MQTT plugin uses two
+distinct envelopes depending on direction:
+
+- **sent**: standard KISS (`C0 cmd ... C0`), cmd=`0x00` Data or
+  `0x0C` ACKMODE (with 2-byte sequence-tag prefix before the AX.25
+  body).
+- **rcvd**: BPQ-internal envelope (`00 00 00 00 00 LL HH [ax25...]`,
+  7-byte prefix where bytes 5-6 are little-endian total length, no FEND
+  wrapping, no escapes). This is **not standard KISS** — first attempt
+  to KissDecoder-decode it gave 43% spurious failures.
+
+The `BpqDifferentialMode.TryExtractAx25` helper detects which envelope
+each row uses by inspecting the leading byte.
+
+`Packet.Kiss` added to the spike's project references so we can re-use
+`KissDecoder` and `KissAckMode.TryParseDataFrame` directly.
+
 ### 2026-05-14 — aprs: DirewolfPipeline frame-alignment fix (residual `BothOkMismatch` was our bug too)
 
 **Cascading bug, third correction.** After the q-strip fix (above), the

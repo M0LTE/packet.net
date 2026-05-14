@@ -40,6 +40,7 @@ return opts.Mode switch
     "direwolf"         => await DirewolfMode.RunAsync(opts),
     "direwolf_rewrite" => await DirewolfRewriteMode.RunAsync(opts),
     "differential"     => await DifferentialMode.RunAsync(opts),
+    "bpq_differential" => await BpqDifferentialMode.RunAsync(opts),
     _                  => Fail($"unknown mode: {opts.Mode}"),
 };
 
