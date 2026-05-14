@@ -824,6 +824,39 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: end-to-end integration tests for figc4.3 + figc4.4 (subset)
+
+Two more E2E test files driving real `ActionDispatcher` against real
+generated transition tables.
+
+`DataLinkAwaitingReleaseEndToEndTests` — 7 figc4.3 transitions:
+- t01 DL_DISCONNECT_request → Expedited DM
+- t02 T1 expiry RC=N2 → DL_ERROR(G) + DL_DISCONNECT_indication + → Disconnected
+- t04 UA F=1 → DL_DISCONNECT_confirm + stop_T1 + → Disconnected
+- t07 DL_UNIT_DATA_request → UI command (still works while waiting)
+- t09/t10/t11 control_field_error / info_not_permitted / length_error → DL_ERROR(L/M/N) via Theory
+
+`DataLinkConnectedEndToEndTests` — 6 figc4.4 transitions (the subset
+that doesn't need I-frame queue session-loop machinery):
+- t01 DL_DISCONNECT_request → discard queue + RC:=0 + DISC (P=1) +
+  stop_T3 + start_T1 + → AwaitingRelease
+- DL_FLOW_OFF (own_receiver_busy branch) → set_own_receiver_busy +
+  RNR_response (with default N(R) = ctx.VR) + clear_acknowledge_pending
+- DL_FLOW_ON (busy + T1 not running) → clear_busy + RR_command +
+  stop_T3 + start_T1
+- DL_DATA_request → push_on_I_frame_queue + internal signal raised
+- control_field_error v2.0 branch → DL_ERROR(L) + discard queue +
+  Establish_Data_Link subroutine + → AwaitingConnection
+- LM_SEIZE_confirm + ack_pending → Enquiry_Response_F_0 subroutine +
+  LM_release_request
+
+**Cumulative E2E coverage: 32 transitions across figc4.1/4.2/4.3/4.4/4.6.**
+The only major gap is figc4.4's I-frame paths (t02–t17, t19–t20, t55+,
+t60+) which need session-loop machinery for the
+<c>I_frame_pops_off_queue</c> event mechanism to be testable.
+
+681 tests green (was 668).
+
 ### 2026-05-14 — ax25: end-to-end integration tests for figc4.2 + figc4.6
 
 Two new test files exercising the **real** dispatcher against the
