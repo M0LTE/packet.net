@@ -665,6 +665,35 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — interop: LinBPQ runtime state moved to named volume
+
+The self-hosted runner exposed a Docker-on-host papercut that masked
+itself on GitHub-hosted runners: `docker/compose.interop.yml` mounted
+`./linbpq:/data` read-write into the LinBPQ container, which runs as
+root. Each interop run wrote PIDs, logs, MH lists, HTML templates,
+etc. into the worktree owned by root — and the next
+`actions/checkout` on the same runner died with `EACCES: permission
+denied, unlink` trying to clean the workspace.
+
+Fix: split the `/data` mount into two layered mounts:
+
+- Named volume `linbpq-data:/data` — writable, populated from the
+  image's `/data` contents on first use, torn down by
+  `docker compose down -v` (already in the workflow). Lives in
+  Docker's storage, not the host worktree.
+- `./linbpq/bpq32.cfg:/data/bpq32.cfg:ro` — canonical config layered
+  on top read-only. Source-controlled and unchanged at runtime.
+
+Net effect: no writes ever touch the host worktree, so root-ownership
+can't leak across CI runs. Local-dev behaviour is identical for the
+intent (LinBPQ sees the same config + image defaults); the
+side-effect is that local-dev no longer leaves runtime state visible
+in the worktree (an improvement).
+
+This sidesteps but doesn't fix the upstream root-cause: `m0lte/linbpq`
+runs as root. Filed as an upstream issue — a `USER` directive +
+chown'd `/data` in the Dockerfile would obviate the workaround.
+
 ### 2026-05-14 — CI: move all workflows to self-hosted runner
 
 GitHub-hosted Actions budget reset wasn't due for 18 days. Tom added a
