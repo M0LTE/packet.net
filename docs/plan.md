@@ -824,6 +824,30 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: UI-frame emission wired (`UI_command`)
+
+Closes the final signal_lower verb that the existing transcribed pages
+reference. `UI_command` is drawn in every state's
+`DL_UNIT_DATA_request` column (figc4.1/4.2/4.3/4.4/4.6, 5 occurrences
+total). Same shape across all of them — single signal_lower action,
+no preceding processing chain.
+
+New `UiFrameSpec(IsCommand, PfBit, Info, Pid)` record. Dispatcher
+constructor gains an optional `sendUiFrame` callback.
+
+`BuildUiFrame(isCommand, tx)` helper extracts `Info` and `Pid` from the
+triggering `DlUnitDataRequest` event (throws if the trigger isn't a
+DL-UNIT-DATA request); `PfBit` reads `tx.Pending.PfBit` with default
+false.
+
+After this PR, **every signal_lower verb the existing transcribed
+pages reference is wired** except `I_command` (figc4.4 only — needs
+new session-loop machinery to actively pop from `ctx.IFrameQueue` and
+post `I_frame_pops_off_queue` events).
+
+Tests: 4 new (payload + PID extraction, default PID, F := 1 consumption,
+non-DL-UNIT-DATA trigger error). 591 tests green.
+
 ### 2026-05-14 — ax25: U-frame emission wired (UA / DM / SABM / SABME / DISC / Expedited variants)
 
 Parallel of the S-frame work (#57). All eight U-frame verbs the
