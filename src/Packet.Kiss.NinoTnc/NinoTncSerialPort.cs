@@ -13,7 +13,7 @@ namespace Packet.Kiss.NinoTnc;
 /// transmit-completion echoes are correlated through
 /// <see cref="SendFrameWithAckAsync"/>.
 /// </summary>
-public sealed class NinoTncSerialPort : IAsyncDisposable, IDisposable
+public sealed class NinoTncSerialPort : INinoTncModem, IAsyncDisposable, IDisposable
 {
     /// <summary>The NinoTNC's documented USB-serial baud rate.</summary>
     public const int DefaultBaudRate = 57600;
