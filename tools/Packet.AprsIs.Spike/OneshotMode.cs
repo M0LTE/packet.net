@@ -68,7 +68,7 @@ public static class OneshotMode
 
             stats.FramesParsed++;
 
-            if (!TryReconstruct(parsed, out var frame, out string? reconstructError))
+            if (!FrameReconstruct.TryReconstruct(parsed, out var frame, out string? reconstructError))
             {
                 stats.ReconstructFailures++;
                 stats.TallyReconstructError(reconstructError ?? "unknown");
@@ -84,7 +84,7 @@ public static class OneshotMode
                     $"TryParse rejected {bytes.Length}-byte encoding", parsed);
                 continue;
             }
-            if (!StructurallyEqual(frame, decoded!))
+            if (!FrameReconstruct.StructurallyEqual(frame, decoded!))
             {
                 stats.RoundTripFailures++;
                 await LogFailureAsync(failuresFile, "roundtrip_mismatch", line,
@@ -147,65 +147,6 @@ public static class OneshotMode
         return sb.ToString();
     }
 
-    static bool TryReconstruct(Tnc2Parser.Tnc2Line parsed, out Ax25Frame frame, out string? error)
-    {
-        frame = null!;
-        error = null;
-
-        if (!Callsign.TryParse(parsed.Source, out var src))
-        {
-            error = $"invalid source callsign: '{parsed.Source}'";
-            return false;
-        }
-        if (!Callsign.TryParse(parsed.Destination, out var dst))
-        {
-            error = $"invalid destination callsign: '{parsed.Destination}'";
-            return false;
-        }
-
-        var digiCalls = new List<Callsign>();
-        foreach (var entry in parsed.Digipeaters)
-        {
-            if (Tnc2Parser.IsQConstruct(entry.Callsign)) break;
-            if (!Callsign.TryParse(entry.Callsign, out var digi))
-            {
-                error = $"invalid digipeater callsign: '{entry.Callsign}'";
-                return false;
-            }
-            digiCalls.Add(digi);
-            if (digiCalls.Count >= 8) break;
-        }
-
-        try
-        {
-            frame = Ax25Frame.Ui(
-                destination: dst,
-                source: src,
-                info: parsed.Info.Span,
-                digipeaters: digiCalls);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = $"{ex.GetType().Name}: {ex.Message}";
-            return false;
-        }
-    }
-
-    static bool StructurallyEqual(Ax25Frame built, Ax25Frame decoded)
-    {
-        if (built.Destination.Callsign != decoded.Destination.Callsign) return false;
-        if (built.Source.Callsign != decoded.Source.Callsign) return false;
-        if (built.Digipeaters.Count != decoded.Digipeaters.Count) return false;
-        for (int i = 0; i < built.Digipeaters.Count; i++)
-        {
-            if (built.Digipeaters[i].Callsign != decoded.Digipeaters[i].Callsign) return false;
-        }
-        if (built.Control != decoded.Control) return false;
-        if (built.Pid != decoded.Pid) return false;
-        if (!built.Info.Span.SequenceEqual(decoded.Info.Span)) return false;
-        return true;
-    }
 }
 
 sealed class Stats

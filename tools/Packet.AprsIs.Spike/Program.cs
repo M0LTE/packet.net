@@ -36,6 +36,7 @@ return opts.Mode switch
 {
     "oneshot" => await OneshotMode.RunAsync(opts),
     "collect" => await CollectMode.RunAsync(opts),
+    "analyse" => await AnalyseMode.RunAsync(opts),
     _         => Fail($"unknown mode: {opts.Mode}"),
 };
 
@@ -52,11 +53,17 @@ static Options ParseArgs(string[] args)
         Callsign = "N0CALL",
         Filter = "t/poimqstuc",
         MaxFrames = 1000,
-        OutDir = mode == "collect"
-            ? Path.Combine("data", "aprs-is")
-            : Path.Combine("artifacts", "aprs-is-spike", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
+        OutDir = mode switch
+        {
+            "collect" => Path.Combine("data", "aprs-is"),
+            "analyse" => Path.Combine("artifacts", "aprs-is-analysis", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
+            _         => Path.Combine("artifacts", "aprs-is-spike", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
+        },
         FilenamePrefix = "aprs-is",
         Quiet = false,
+        DataDir = "/home/tf/aprs-is-data",
+        Db = "",
+        Limit = 0,
     };
 
     for (int i = 1; i < args.Length; i++)
@@ -89,6 +96,15 @@ static Options ParseArgs(string[] args)
             case "--quiet":
                 opts.Quiet = true;
                 break;
+            case "--db":
+                opts.Db = next() ?? throw new ArgumentException("--db requires path");
+                break;
+            case "--data-dir":
+                opts.DataDir = next() ?? throw new ArgumentException("--data-dir requires path");
+                break;
+            case "--limit":
+                opts.Limit = int.Parse(next() ?? throw new ArgumentException("--limit requires value"));
+                break;
             default:
                 throw new ArgumentException($"unknown arg: {a}");
         }
@@ -109,5 +125,9 @@ namespace Packet.AprsIs.Spike
         public string OutDir { get; set; } = "";
         public string FilenamePrefix { get; set; } = "";
         public bool Quiet { get; set; }
+        // analyse mode:
+        public string Db { get; set; } = "";
+        public string DataDir { get; set; } = "";
+        public int Limit { get; set; }
     }
 }
