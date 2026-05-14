@@ -98,6 +98,11 @@ public static class AnalyseMode
                 continue;
             }
 
+            // Bucket by APRS payload type — works regardless of whether the
+            // AX.25 envelope reconstructs, so we get a complete view of what
+            // the corpus contains.
+            c.PayloadType(AprsPayloadType.Classify(parsed.Info.Span));
+
             if (!FrameReconstruct.TryReconstruct(parsed, out var frame, out string? recErr))
             {
                 c.ReconstructFailures++;
@@ -168,12 +173,21 @@ sealed class AnalyseCounters
     // top-N offender callsigns per failure bucket
     public Dictionary<string, Dictionary<string, int>> OffendersByBucket { get; } = new(StringComparer.Ordinal);
 
+    // APRS payload-type histogram (independent of reconstruct success)
+    public Dictionary<string, int> PayloadTypes { get; } = new(StringComparer.Ordinal);
+
     public int TotalFailures => Tnc2ParseFailures + ReconstructFailures + RoundTripFailures;
 
     public void ReconstructBucket(string bucket)
     {
         ReconstructBuckets.TryGetValue(bucket, out int n);
         ReconstructBuckets[bucket] = n + 1;
+    }
+
+    public void PayloadType(string label)
+    {
+        PayloadTypes.TryGetValue(label, out int n);
+        PayloadTypes[label] = n + 1;
     }
 
     public void TallyOffender(string bucket, string source, string destination, IReadOnlyList<Tnc2Parser.DigipeaterEntry> digis)
@@ -250,6 +264,23 @@ sealed class AnalyseCounters
             foreach (var kv in inner.OrderByDescending(x => x.Value).Take(20))
             {
                 sb.AppendLine($"| `{kv.Key}` | {kv.Value} |");
+            }
+            sb.AppendLine();
+        }
+
+        if (PayloadTypes.Count > 0)
+        {
+            int classifiedTotal = PayloadTypes.Values.Sum();
+            double tpct(int x) => classifiedTotal == 0 ? 0 : 100.0 * x / classifiedTotal;
+            sb.AppendLine("## APRS payload-type breakdown");
+            sb.AppendLine();
+            sb.AppendLine("Classified by the first information-field byte (APRS101 §5 DTI). Counts every line whose TNC2 envelope parsed, regardless of whether the AX.25 envelope reconstructed.");
+            sb.AppendLine();
+            sb.AppendLine("| Type | Count | % of classified |");
+            sb.AppendLine("|---|--:|--:|");
+            foreach (var kv in PayloadTypes.OrderByDescending(x => x.Value))
+            {
+                sb.AppendLine($"| `{kv.Key}` | {kv.Value} | {tpct(kv.Value):F2}% |");
             }
             sb.AppendLine();
         }
