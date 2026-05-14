@@ -824,6 +824,66 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — kiss: AX.25 ↔ KISS bridge
+
+Sixth and final mechanical piece of the interop arc. New
+`KissAx25Bridge` static helper in `Packet.Kiss` wires `Ax25Adapter` to
+any `IKissModem` implementation.
+
+**Outbound**: `KissAx25Bridge.CreateOutbound(modem, ...)` builds an
+`Ax25Adapter` whose `sendBytes` callback fans out to
+`IKissModem.SendFrameAsync`. The modem handles KISS framing
+(0xC0 flags, byte escapes, command byte) internally. Fire-and-forget
+on the async send — synchronous frame sinks can't easily await.
+
+**Inbound**: `KissAx25Bridge.RouteInboundToAdapter(evt, adapter)`
+translates a typed `KissInboundEvent` into an
+`Ax25Adapter.OnReceivedAx25Frame` call. Handles both
+`Ax25FrameReceivedEvent` (regular RX) and `AckModeDataReceivedEvent`
+(ACKMODE-wrapped, payload re-parsed); ignores `UnknownInboundEvent`
+and modem-specific events. Caller subscribes the modem driver's
+`InboundEvent` event to the route function.
+
+Two halves are split because KISS driver APIs vary on the inbound
+surface (`event EventHandler<KissInboundEvent>`, `IAsyncEnumerable`,
+or pull-based `ReceiveAsync`). The bridge offers a uniform routing
+function rather than imposing a subscription model.
+
+`Ax25Adapter` gains a sister method `OnReceivedAx25Frame(Ax25Frame)`
+alongside `OnReceivedAx25Bytes` — when the KISS driver has already
+parsed bytes to an `Ax25Frame`, we skip a redundant parse.
+
+5 new tests: outbound DL_UNIT_DATA_request through bridge to fake
+modem; inbound `Ax25FrameReceivedEvent` routing; ACKMODE event
+routing with payload re-parse; `UnknownInboundEvent` not routed;
+end-to-end loopback via two `LoopbackModem` pair (DL_CONNECT_request
+→ SABM via bridge → other side's Connected). 823 tests green.
+
+### 2026-05-14 — ax25: interop arc closed (3-of-3 mechanical pieces done)
+
+After this, all six items I called out as gaps for end-to-end interop
+are addressed except the transcription-gated one. Status:
+
+| # | Component | Status |
+|---|---|---|
+| 1 | Wire codec (frame specs → bytes) | ✅ #69 |
+| 2 | Incoming demux (bytes → events) | ✅ #70 |
+| 3 | Transport adapter | ✅ #71 |
+| 4 | figc4.7 subroutine bodies | **transcription-gated** |
+| 5 | Frame-aware predicate bindings | ✅ #73 |
+| 6 | KISS framing glue | ✅ this PR |
+
+Once figc4.7 is transcribed, a real LinBPQ interop run becomes:
+1. Build an `Ax25SessionContext` for the local/remote pair
+2. `KissAx25Bridge.CreateOutbound(linbpqModem, ctx, …)` — get an adapter
+3. Subscribe `modem.InboundEvent += (s,e) => KissAx25Bridge.RouteInboundToAdapter(e, adapter)`
+4. `adapter.Session.PostEvent(new DlConnectRequest())`
+5. Watch SABM go out, UA come back, session land in Connected.
+
+That's the next milestone. PR-by-PR work shifts back to APRS-IS corpus
+analysis or whatever's next on the spike backlog until you have time
+to redraw figc4.7 (and figc4.5 Timer Recovery).
+
 ### 2026-05-14 — ax25: frame-aware guard predicates
 
 Fifth piece of the interop arc. Predicates like `P_eq_1`, `command`,

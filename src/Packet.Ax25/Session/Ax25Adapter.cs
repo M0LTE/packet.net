@@ -126,8 +126,20 @@ public sealed class Ax25Adapter
         {
             return false;
         }
-        Session.PostEvent(Ax25FrameClassifier.Classify(frame));
+        OnReceivedAx25Frame(frame);
         return true;
+    }
+
+    /// <summary>
+    /// Feed an already-parsed inbound <see cref="Ax25Frame"/> to the
+    /// session. Use this when the bytes have already been parsed
+    /// upstream (e.g. by a KISS driver's <c>Ax25FrameReceivedEvent</c>)
+    /// to avoid the redundant <see cref="Ax25Frame.TryParse"/> call.
+    /// </summary>
+    public void OnReceivedAx25Frame(Ax25Frame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        Session.PostEvent(Ax25FrameClassifier.Classify(frame));
     }
 
     private void SendS (SupervisoryFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
