@@ -20,7 +20,7 @@ namespace Packet.Ax25;
 /// internals yet — Phase 1 focuses on UI.
 /// </para>
 /// </remarks>
-public sealed class Ax25Frame
+public sealed partial class Ax25Frame
 {
     /// <summary>Control byte for a UI frame with the P bit cleared.</summary>
     public const byte ControlUi = 0x03;

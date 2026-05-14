@@ -824,6 +824,42 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: wire codec — frame specs → bytes
+
+First piece of the interop arc. Closes one of the four gaps that block
+a real end-to-end interop test (the others: incoming-frame demux,
+transport wiring, figc4.7 subroutines).
+
+**New `Ax25Frame` factories**: `Sabm`, `Sabme`, `Disc`, `Ua`, `Dm`,
+`Frmr`, `Xid`, `Test`, `Rr`, `Rnr`, `Rej`, `Srej`, `I`. Each composes
+the right control byte per §4.3.2/§4.3.3 and reuses the address/E-bit/
+digipeater plumbing the `Ui` factory already had. Made `Ax25Frame` a
+partial class so factories live in `Ax25Frame.Factories.cs`.
+
+**`FrameSpecExtensions.ToAx25Frame(spec, context)`** on each of the
+four spec record types — `SupervisoryFrameSpec` / `UFrameSpec` /
+`UiFrameSpec` / `IFrameSpec`. Pulls addressing from
+`Ax25SessionContext.Local`/`Remote`/`Digipeaters` and dispatches to
+the matching factory. Spec records stay address-agnostic.
+
+End-to-end flow now works for outgoing frames:
+
+```
+dispatcher.sendUFrame(UFrameSpec(Sabm, cmd, P=1))
+  → spec.ToAx25Frame(context)
+  → Ax25Frame.Sabm(remote, local, pollBit=true, digis)
+  → frame.ToBytesWithFcs()  →  17 bytes ready for KISS / AXUDP
+```
+
+Tests: 46 new — full byte-level control-byte assertions for every
+factory (theory-driven across N(R)/P/F combinations) + round-trip
+through `TryParse` + spec-extension dispatch + digipeater pass-through.
+
+Still missing for interop:
+1. Incoming bytes → `Ax25Frame` → classified event (demux)
+2. Wiring `sendSFrame`/`sendUFrame`/etc. to a real transport (`Ax25Adapter`)
+3. figc4.7 subroutine bodies (transcription-gated)
+
 ### 2026-05-14 — ax25: AllOtherCommands carries Frame; start_T1 uses ctx.T1V
 
 Two follow-up cleanups to close the small loose ends from the
