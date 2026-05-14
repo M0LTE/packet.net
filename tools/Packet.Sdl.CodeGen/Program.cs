@@ -162,20 +162,32 @@ internal static class Program
             if (goDir is not null)
             {
                 var go = GoEmitter.EmitStatePage(resolved);
-                var goPath = Path.Combine(goDir, go.FileName);
-                WriteIfChanged(goPath, go.Content);
-                writtenGo.Add(Path.GetFullPath(goPath));
+                WriteIfChanged(Path.Combine(goDir, go.FileName), go.Content);
+                writtenGo.Add(Path.GetFullPath(Path.Combine(goDir, go.FileName)));
+
+                // Tests: mirror C# .g.Tests.cs — one Go test file per
+                // state-machine page, asserting every transition's
+                // shape against the YAML. Subroutine pages don't get
+                // tests today (same scope as the C# emitter).
+                var goTests = GoEmitter.EmitStatePageTests(resolved);
+                WriteIfChanged(Path.Combine(goDir, goTests.FileName), goTests.Content);
+                writtenGo.Add(Path.GetFullPath(Path.Combine(goDir, goTests.FileName)));
             }
 
             if (tsDir is not null)
             {
                 var ts = TsEmitter.EmitStatePage(resolved);
-                var tsPath = Path.Combine(tsDir, ts.FileName);
-                WriteIfChanged(tsPath, ts.Content);
-                writtenTs.Add(Path.GetFullPath(tsPath));
+                WriteIfChanged(Path.Combine(tsDir, ts.FileName), ts.Content);
+                writtenTs.Add(Path.GetFullPath(Path.Combine(tsDir, ts.FileName)));
+
+                // Tests: vitest-driven, same per-transition coverage
+                // as the C# / Go test emitters.
+                var tsTests = TsEmitter.EmitStatePageTests(resolved);
+                WriteIfChanged(Path.Combine(tsDir, tsTests.FileName), tsTests.Content);
+                writtenTs.Add(Path.GetFullPath(Path.Combine(tsDir, tsTests.FileName)));
             }
 
-            Console.WriteLine($"  ok  {page.SourcePath}  →  {emission.ClassName}.{{g.cs,g.Tests.cs,g.mmd}}{(goDir is not null ? " + .g.go" : "")}{(tsDir is not null ? " + .g.ts" : "")}");
+            Console.WriteLine($"  ok  {page.SourcePath}  →  {emission.ClassName}.{{g.cs,g.Tests.cs,g.mmd}}{(goDir is not null ? " + .g{,_test}.go" : "")}{(tsDir is not null ? " + .g{,.test}.ts" : "")}");
         }
 
         // Subroutine pages: one .g.cs per page (no tests / mermaid).
@@ -235,14 +247,17 @@ internal static class Program
         }
         if (goDir is not null)
         {
-            CleanStaleFiles(goDir, "*.g.go", writtenGo);
+            CleanStaleFiles(goDir, "*.g.go",      writtenGo);
+            CleanStaleFiles(goDir, "*.g_test.go", writtenGo);
             RunGofmt(goDir);
         }
         if (tsDir is not null)
         {
-            // index.ts is generated too; the CleanStaleFiles pass scopes
-            // by *.g.ts so it leaves index.ts (and types.ts) alone.
-            CleanStaleFiles(tsDir, "*.g.ts", writtenTs);
+            // index.ts and types.ts are intentionally outside both
+            // patterns (the cleanup is scoped) so they survive across
+            // codegen runs.
+            CleanStaleFiles(tsDir, "*.g.ts",      writtenTs);
+            CleanStaleFiles(tsDir, "*.g.test.ts", writtenTs);
         }
 
         var extras = (goDir is not null ? " (+ Go)" : "") + (tsDir is not null ? " (+ TS)" : "");
