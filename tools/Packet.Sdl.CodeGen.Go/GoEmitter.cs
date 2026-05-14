@@ -62,6 +62,98 @@ public static class GoEmitter
         return new Emission(fileName, sb.ToString());
     }
 
+    /// <summary>
+    /// Emit a Go test file asserting every transition's shape against
+    /// the YAML transcription. Mirrors the C# <c>tests.scriban-cs</c>
+    /// template: one test per transition checking id/on/next/guard plus
+    /// every action's verb + kind. Catches emitter regressions the
+    /// hand-written smoke tests would miss (e.g. a guard silently
+    /// dropped, or an action routed through the wrong kind).
+    /// </summary>
+    public static Emission EmitStatePageTests(ResolvedPage page)
+    {
+        var varName = Pascal(page.Machine) + page.State;
+        var stem = Path.GetFileNameWithoutExtension(page.SourcePath)
+            .Replace(".sdl", string.Empty, StringComparison.Ordinal);
+        var fileName = stem + ".g_test.go";
+
+        var sb = new StringBuilder();
+        EmitHeader(sb, page.SourcePath);
+        sb.Append("package ax25sdl\n\n");
+        sb.Append("import \"testing\"\n\n");
+
+        // Page-level: source figure + transition count.
+        sb.Append("func Test").Append(varName).Append("_SourceFigure(t *testing.T) {\n");
+        sb.Append("\tif got := ").Append(varName).Append(".Source.Figure; got != ")
+          .Append(GoStringLiteral(page.SourceFigure)).Append(" {\n");
+        sb.Append("\t\tt.Errorf(\"Source.Figure = %q, want ").Append(page.SourceFigure).Append("\", got)\n");
+        sb.Append("\t}\n");
+        sb.Append("}\n\n");
+
+        sb.Append("func Test").Append(varName).Append("_TransitionsArePresent(t *testing.T) {\n");
+        sb.Append("\tif got := len(").Append(varName).Append(".Transitions); got != ")
+          .Append(page.Transitions.Count.ToString(CultureInfo.InvariantCulture)).Append(" {\n");
+        sb.Append("\t\tt.Errorf(\"len(Transitions) = %d, want ")
+          .Append(page.Transitions.Count.ToString(CultureInfo.InvariantCulture)).Append("\", got)\n");
+        sb.Append("\t}\n");
+        sb.Append("}\n\n");
+
+        // One test per transition. Transition IDs from the YAML are
+        // already valid Go identifier suffixes (letter-prefixed alnum
+        // / underscore — the schema enforces it).
+        foreach (var t in page.Transitions)
+        {
+            sb.Append("func Test").Append(varName).Append('_').Append(t.Id).Append("(t *testing.T) {\n");
+            sb.Append("\tvar tx *TransitionSpec\n");
+            sb.Append("\tfor i := range ").Append(varName).Append(".Transitions {\n");
+            sb.Append("\t\tif ").Append(varName).Append(".Transitions[i].ID == ")
+              .Append(GoStringLiteral(t.Id)).Append(" {\n");
+            sb.Append("\t\t\ttx = &").Append(varName).Append(".Transitions[i]\n");
+            sb.Append("\t\t\tbreak\n");
+            sb.Append("\t\t}\n");
+            sb.Append("\t}\n");
+            sb.Append("\tif tx == nil {\n");
+            sb.Append("\t\tt.Fatalf(\"transition ").Append(t.Id).Append(" not found\")\n");
+            sb.Append("\t}\n");
+
+            sb.Append("\tif tx.On != ").Append(GoStringLiteral(t.On)).Append(" {\n");
+            sb.Append("\t\tt.Errorf(\"On = %q, want ").Append(t.On).Append("\", tx.On)\n");
+            sb.Append("\t}\n");
+            sb.Append("\tif tx.Next != ").Append(GoStringLiteral(t.Next)).Append(" {\n");
+            sb.Append("\t\tt.Errorf(\"Next = %q, want ").Append(t.Next).Append("\", tx.Next)\n");
+            sb.Append("\t}\n");
+            if (!string.IsNullOrEmpty(t.Guard))
+            {
+                sb.Append("\tif tx.Guard != ").Append(GoStringLiteral(t.Guard!)).Append(" {\n");
+                sb.Append("\t\tt.Errorf(\"Guard = %q, want %q\", tx.Guard, ").Append(GoStringLiteral(t.Guard!)).Append(")\n");
+                sb.Append("\t}\n");
+            }
+            sb.Append("\tif got := len(tx.Actions); got != ")
+              .Append(t.Actions.Count.ToString(CultureInfo.InvariantCulture)).Append(" {\n");
+            sb.Append("\t\tt.Fatalf(\"len(Actions) = %d, want ")
+              .Append(t.Actions.Count.ToString(CultureInfo.InvariantCulture)).Append("\", got)\n");
+            sb.Append("\t}\n");
+            for (int i = 0; i < t.Actions.Count; i++)
+            {
+                var a = t.Actions[i];
+                var idx = i.ToString(CultureInfo.InvariantCulture);
+                sb.Append("\tif tx.Actions[").Append(idx).Append("].Verb != ")
+                  .Append(GoStringLiteral(a.Verb)).Append(" {\n");
+                sb.Append("\t\tt.Errorf(\"Actions[").Append(idx).Append("].Verb = %q, want %q\", tx.Actions[")
+                  .Append(idx).Append("].Verb, ").Append(GoStringLiteral(a.Verb)).Append(")\n");
+                sb.Append("\t}\n");
+                sb.Append("\tif tx.Actions[").Append(idx).Append("].Kind != ")
+                  .Append(GoKindLiteral(a.Kind)).Append(" {\n");
+                sb.Append("\t\tt.Errorf(\"Actions[").Append(idx).Append("].Kind = %v, want ")
+                  .Append(GoKindLiteral(a.Kind)).Append("\", tx.Actions[").Append(idx).Append("].Kind)\n");
+                sb.Append("\t}\n");
+            }
+            sb.Append("}\n\n");
+        }
+
+        return new Emission(fileName, sb.ToString());
+    }
+
     public static Emission EmitSubroutinePage(ResolvedSubroutinesPage page)
     {
         var fileStem = Path.GetFileNameWithoutExtension(page.SourcePath)

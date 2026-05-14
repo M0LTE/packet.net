@@ -60,6 +60,71 @@ public static class TsEmitter
         return new Emission(fileName, sb.ToString());
     }
 
+    /// <summary>
+    /// Emit a TypeScript test file asserting every transition's shape
+    /// against the YAML transcription. Mirrors the C#
+    /// <c>tests.scriban-cs</c> template: one <c>it</c> per transition
+    /// checking id/on/next/guard plus every action's verb + kind. Run
+    /// by vitest in CI.
+    /// </summary>
+    public static Emission EmitStatePageTests(ResolvedPage page)
+    {
+        var varName = Pascal(page.Machine) + page.State;
+        var stem = Path.GetFileNameWithoutExtension(page.SourcePath)
+            .Replace(".sdl", string.Empty, StringComparison.Ordinal);
+        var fileName = stem + ".g.test.ts";
+
+        var sb = new StringBuilder();
+        EmitHeader(sb, page.SourcePath);
+        sb.Append("import { describe, it, expect } from \"vitest\";\n");
+        sb.Append("import { ").Append(varName).Append(" } from \"./").Append(stem).Append(".g.js\";\n\n");
+
+        sb.Append("describe(\"").Append(varName).Append("\", () => {\n");
+
+        // Page-level: source figure + transition count.
+        sb.Append("  it(\"source figure\", () => {\n");
+        sb.Append("    expect(").Append(varName).Append(".source.figure).toBe(")
+          .Append(TsStringLiteral(page.SourceFigure)).Append(");\n");
+        sb.Append("  });\n\n");
+
+        sb.Append("  it(\"transitions are present\", () => {\n");
+        sb.Append("    expect(").Append(varName).Append(".transitions).toHaveLength(")
+          .Append(page.Transitions.Count.ToString(CultureInfo.InvariantCulture)).Append(");\n");
+        sb.Append("  });\n\n");
+
+        // One it() per transition.
+        foreach (var t in page.Transitions)
+        {
+            sb.Append("  it(").Append(TsStringLiteral(t.Id)).Append(", () => {\n");
+            sb.Append("    const t = ").Append(varName).Append(".transitions.find((x) => x.id === ")
+              .Append(TsStringLiteral(t.Id)).Append(");\n");
+            sb.Append("    expect(t, \"transition ").Append(t.Id).Append(" not found\").toBeDefined();\n");
+            sb.Append("    if (!t) return;\n");  // narrow for the type checker
+            sb.Append("    expect(t.on).toBe(").Append(TsStringLiteral(t.On)).Append(");\n");
+            sb.Append("    expect(t.next).toBe(").Append(TsStringLiteral(t.Next)).Append(");\n");
+            if (!string.IsNullOrEmpty(t.Guard))
+            {
+                sb.Append("    expect(t.guard).toBe(").Append(TsStringLiteral(t.Guard!)).Append(");\n");
+            }
+            sb.Append("    expect(t.actions).toHaveLength(")
+              .Append(t.Actions.Count.ToString(CultureInfo.InvariantCulture)).Append(");\n");
+            for (int i = 0; i < t.Actions.Count; i++)
+            {
+                var a = t.Actions[i];
+                var idx = i.ToString(CultureInfo.InvariantCulture);
+                sb.Append("    expect(t.actions[").Append(idx).Append("].verb).toBe(")
+                  .Append(TsStringLiteral(a.Verb)).Append(");\n");
+                sb.Append("    expect(t.actions[").Append(idx).Append("].kind).toBe(")
+                  .Append(TsKindLiteral(a.Kind)).Append(");\n");
+            }
+            sb.Append("  });\n\n");
+        }
+
+        sb.Append("});\n");
+
+        return new Emission(fileName, sb.ToString());
+    }
+
     public static Emission EmitSubroutinePage(ResolvedSubroutinesPage page)
     {
         var fileStem = Path.GetFileNameWithoutExtension(page.SourcePath)

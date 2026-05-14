@@ -824,6 +824,51 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl: generated per-transition tests in Go + TS
+
+Brought Go and TS up to test-coverage parity with C#. Previously only
+the C# emitter generated `.g.Tests.cs` files (one xUnit test per
+transition checking id/on/next/guard/action verbs+kinds against the
+YAML); Go and TS had only hand-written smoke tests asserting that
+pages weren't empty.
+
+**New emitter methods:**
+
+- `GoEmitter.EmitStatePageTests(ResolvedPage)` →
+  `<stem>.g_test.go`. Stdlib `testing` package, no extra deps. Test
+  names like `TestDataLinkConnected_t06_i_received_p_eq_1`.
+- `TsEmitter.EmitStatePageTests(ResolvedPage)` →
+  `<stem>.g.test.ts`. vitest `describe`/`it`/`expect`. One
+  `describe` block per page.
+
+**Orchestrator** writes both alongside the page's data file, and the
+stale-file cleanup pass scopes a second pattern (`*.g_test.go` /
+`*.g.test.ts`) to keep generated test files tidy. Naming choices:
+
+- Go uses `<stem>.g_test.go` — the `_test.go` suffix is what `go test`
+  picks up; the `.g` token in the middle marks it generated.
+- TS uses `<stem>.g.test.ts` — vitest matches `**/*.test.{ts,js}` so
+  the `.g` token can sit comfortably in front.
+
+**Scope.** State-machine pages only — same as the C# emitter. The
+hand-written `sdl_test.go` / `sdl.test.ts` smoke tests stay for
+cross-cutting checks (subroutine count, ActionKind union coverage).
+Adding generated subroutine-page tests is a separate decision; we'd
+want them once a runtime starts walking subroutines on those
+backends.
+
+**Results.**
+
+- Go: 165 generated tests + 3 hand-written = 168 tests in
+  `go-spec/ax25sdl`, all passing.
+- TS: 165 generated tests + 8 hand-written = 173 tests in
+  `ts-spec/src/ax25sdl`, all passing.
+
+Both fail loudly if the emitter drops or mistypes any field — the
+test fixture is the YAML transcription, so a regression in the
+emitter shows up as a test failure rather than a silent data-shape
+change.
+
 ### 2026-05-14 — sdl: TypeScript emitter + ts-spec/ npm package (Tier 1c)
 
 Added a third backend on top of the IR refactor. The codegen IR now
