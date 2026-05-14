@@ -59,6 +59,13 @@ if (args.Length >= 1 && args[0] == "txtest-listen")
     var p = args.Length > 1 ? args[1] : "COM6";
     return await Packet.NinoTnc.Spike.TxTestListener.Run(p);
 }
+if (args.Length >= 1 && args[0] == "txtest-dual")
+{
+    var pA = args.Length > 1 ? args[1] : "COM6";
+    var pB = args.Length > 2 ? args[2] : "COM8";
+    byte mode = args.Length > 3 && byte.TryParse(args[3], out var m) ? m : (byte)6;
+    return await Packet.NinoTnc.Spike.TxTestDualListener.Run(pA, pB, mode);
+}
 if (args.Length > 0 && args[0] == "slow-mode-probe")
 {
     return await Packet.NinoTnc.Spike.SlowModeProbe.Run(

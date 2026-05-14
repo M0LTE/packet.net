@@ -932,6 +932,89 @@ Still missing for interop:
 2. Wiring `sendSFrame`/`sendUFrame`/etc. to a real transport (`Ax25Adapter`)
 3. figc4.7 subroutine bodies (transcription-gated)
 
+### 2026-05-14 — Packet.Kiss / Packet.Kiss.NinoTnc separation; over-air TX-Test event; mode-change-doesn't-reset-callsign
+
+Refactor + two empirical findings the experiment turned up.
+
+**Refactor.** The KISS code had accumulated NinoTNC specialism that
+properly belongs at the generic-KISS layer. Other KISS modems (Dire
+Wolf, QtSoundModem) shouldn't have to depend on a NinoTNC package to
+use the typed event surface or the adaptive transport. Moves:
+
+- `INinoTncModem` → `Packet.Kiss.IKissModem`.
+- `AckModeReceipt` → `Packet.Kiss`.
+- `NinoTncInboundEvent` → `Packet.Kiss.KissInboundEvent`; the generic
+  subtypes (`Ax25FrameReceivedEvent`, `AckModeDataReceivedEvent`,
+  `UnknownInboundEvent`) move with it.
+- `NinoTncFrameClassifier` split into `Packet.Kiss.KissFrameClassifier`
+  (generic) and a thin `Packet.Kiss.NinoTnc.NinoTncFrameClassifier`
+  overlay that upgrades the firmware-specific cases on top.
+- `AdaptiveNinoTncTransport` → `Packet.Kiss.AdaptiveKissTransport`.
+- `TxTestFrameReceivedEvent` renamed to
+  `NinoTncTxTestFrameReceivedEvent`, stays in NinoTNC.
+
+What stays in `Packet.Kiss.NinoTnc`: `NinoTncCatalog`, `NinoTncMode`,
+`NinoTncSetHardware`, `NinoTncTxTestFrame`, `NinoTncSerialPort`,
+`NinoTncPortDiscovery` — all genuinely firmware-shaped.
+
+`Packet.Kiss` gains a `ProjectReference` on `Packet.Ax25` because the
+typed `Ax25FrameReceivedEvent` embeds an `Ax25Frame`. The alternative
+(an untyped "KISS Data" event with consumer-side parsing) would be
+purer layering but worse ergonomics.
+
+Also: `Ax25Frame.TryParse` was previously throwing
+`ArgumentException` from `Callsign`'s constructor when the input
+bytes didn't shape up as a valid address. The classifier exposed
+this by feeding it arbitrary KISS payloads. Fixed — `TryParse` now
+returns `false` on invalid-address bytes per its contract.
+
+**New over-air TX-Test event.** With both modems running and a dual
+listener watching, pressing the TX-Test button on one modem put a
+real AX.25 UI frame on the air that the *other* modem decoded
+cleanly:
+
+```
+src=M0LTE  dst=CQBEEP-5  control=0x03
+INFO[53] = "{1 !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQR"
+```
+
+A second press incremented the digit and shifted the printable-ASCII
+window one byte forward:
+
+```
+INFO[53] = "{2 \"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRS"
+```
+
+That's a per-press sequence counter and a deterministic test
+pattern — useful for free as a zero-config link-up probe, missed-
+press detection, and (if anyone wants it) byte-level bit-error
+counting on the receive side. New types:
+`NinoTncAirTestFrame` (recognises the pattern shape),
+`NinoTncAirTestFrameReceivedEvent` (typed event from the classifier).
+
+Captured the actual on-air bytes for both presses; tests at
+`tests/Packet.Kiss.NinoTnc.Tests/NinoTncAirTestFrameTests.cs` lock
+the recogniser against the real values.
+
+**Mode-change does NOT reset the learned callsign.** Probed:
+SETHW mode 6 → press button → captured `src=M0LTE`. Then SETHW
+mode 7 → press button → still `src=M0LTE`. The firmware's
+callsign register is durable across mode changes (the firmware
+learns from the first AX.25 frame TX'd through it, and that
+learned value persists across SETHW). Documented in the README's
+TX-Test section.
+
+**IL2P+CRC corruption rarity** noted in the README:
+`UnknownInboundEvent` due to bit-flips will be very rare on modes
+2 / 4 / 5 / 7 / 8 / 9 / 10 / 11 / 14 (FEC + CRC fix or drop most
+of them upstream). The adaptive estimator's `Lost` signal — AX.25
+layer never-ACK — is the realistic loss indicator for those modes.
+
+**Test totals**: `Packet.Kiss.Tests` 69 (+14 — 8 transport tests
+moved up + 6 new generic classifier tests); `Packet.Kiss.NinoTnc.Tests`
+44 (existing classifier + new air-test recogniser tests); 7
+hardware-loop tests still green against the live pair.
+
 ### 2026-05-14 — ax25: AllOtherCommands carries Frame; start_T1 uses ctx.T1V
 
 Two follow-up cleanups to close the small loose ends from the

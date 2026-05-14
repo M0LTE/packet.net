@@ -28,7 +28,7 @@ public class NinoTncFrameClassifierTests
     }
 
     [Fact]
-    public void KISS_Data_Frame_With_FirmwareVr_Marker_Classifies_As_TxTestFrameReceivedEvent()
+    public void KISS_Data_Frame_With_FirmwareVr_Marker_Classifies_As_NinoTncTxTestFrameReceivedEvent()
     {
         // The TX-Test parser scans for the "=FirmwareVr:" marker anywhere in
         // the KISS Data payload; the prefix bytes are firmware-generated and
@@ -39,8 +39,8 @@ public class NinoTncFrameClassifierTests
 
         var evt = NinoTncFrameClassifier.Classify(raw);
 
-        evt.Should().BeOfType<TxTestFrameReceivedEvent>();
-        var typed = (TxTestFrameReceivedEvent)evt;
+        evt.Should().BeOfType<NinoTncTxTestFrameReceivedEvent>();
+        var typed = (NinoTncTxTestFrameReceivedEvent)evt;
         typed.Diagnostic.FirmwareVersion.Should().Be("3.44");
         typed.Diagnostic.RunningMode!.Value.Mode.Should().Be((byte)6); // 0x02 → mode 6
     }
@@ -59,7 +59,7 @@ public class NinoTncFrameClassifierTests
 
         var evt = NinoTncFrameClassifier.Classify(raw);
 
-        evt.Should().BeOfType<TxTestFrameReceivedEvent>();
+        evt.Should().BeOfType<NinoTncTxTestFrameReceivedEvent>();
     }
 
     [Fact]

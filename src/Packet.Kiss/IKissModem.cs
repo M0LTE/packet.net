@@ -1,15 +1,22 @@
-using Packet.Kiss;
-
-namespace Packet.Kiss.NinoTnc;
+namespace Packet.Kiss;
 
 /// <summary>
 /// The surface area an adaptive controller / session-layer caller needs
-/// from a NinoTNC. Pulled out as an interface mainly to let
-/// <see cref="AdaptiveNinoTncTransport"/> be unit-tested without opening a
-/// real serial port, and to give a seam for alternate modem backings
-/// (a fake hardware fixture in tests, a TCP-based modem proxy, etc.).
+/// from any KISS-speaking modem. Not NinoTNC-specific — works for any
+/// modem that implements standard KISS plus the G8BPQ ACKMODE extension
+/// (NinoTNC, QtSoundModem, Dire Wolf, etc.). The
+/// <see cref="AdaptiveKissTransport"/> depends only on this interface so
+/// alternate modems and fake-in-tests fixtures plug in cleanly.
 /// </summary>
-public interface INinoTncModem
+/// <remarks>
+/// Mode-switching (KISS SETHW, byte semantics) is intentionally not on
+/// this interface — it varies between modems. NinoTNC has a known mode
+/// table and `+16` non-persist offset; Dire Wolf does not respond to
+/// SETHW at all; QtSoundModem has its own scheme. Mode-aware helpers
+/// live in modem-specific packages
+/// (e.g. <c>Packet.Kiss.NinoTnc.NinoTncSerialPort.SetModeAsync</c>).
+/// </remarks>
+public interface IKissModem
 {
     /// <summary>Send a KISS Data frame, fire-and-forget at this layer.</summary>
     Task SendFrameAsync(ReadOnlyMemory<byte> ax25Bytes, CancellationToken cancellationToken = default);
@@ -34,9 +41,8 @@ public interface INinoTncModem
 
     /// <summary>
     /// KISS TXTAIL (0x04), units of 10 ms. Modern modems generally ignore
-    /// this; the KISS TNC spec recommends 0 and the NinoTNC follows that.
-    /// We surface a helper so the adaptive layer can drive it on
-    /// experimental setups that care.
+    /// this; the KISS TNC spec recommends 0. We expose a helper so the
+    /// adaptive layer can drive it on experimental setups that care.
     /// </summary>
     Task SetTxTailAsync(byte tenMsUnits, CancellationToken cancellationToken = default);
 }

@@ -1,57 +1,48 @@
-using Packet.Ax25;
 using Packet.Kiss;
 
 namespace Packet.Kiss.NinoTnc;
 
 /// <summary>
-/// Maps a raw <see cref="KissFrame"/> to its corresponding typed
-/// <see cref="NinoTncInboundEvent"/>. Pulled out as a static helper so
-/// tests can exercise the classification rules without spinning up a
-/// real serial port, and so other consumers of the typed model (e.g.
-/// log replay tools) can reuse the same dispatch.
+/// NinoTNC overlay over <see cref="KissFrameClassifier"/>. Runs the
+/// generic classification first and then upgrades the result when the
+/// frame matches a NinoTNC-firmware-specific shape — specifically the
+/// synthetic TX-Test diagnostic frame the firmware emits when the
+/// front-panel button is pressed.
 /// </summary>
 public static class NinoTncFrameClassifier
 {
     /// <summary>
-    /// Classify <paramref name="frame"/> into one of the
-    /// <see cref="NinoTncInboundEvent"/> subtypes. Never returns null —
-    /// frames the rules don't recognise become an
-    /// <see cref="UnknownInboundEvent"/>.
+    /// Classify <paramref name="frame"/> with NinoTNC firmware awareness.
+    /// Returns one of: <see cref="NinoTncTxTestFrameReceivedEvent"/>,
+    /// <see cref="Ax25FrameReceivedEvent"/>,
+    /// <see cref="AckModeDataReceivedEvent"/>, or
+    /// <see cref="UnknownInboundEvent"/>. Never null.
     /// </summary>
-    /// <remarks>
-    /// ACKMODE TX-completion echoes (KISS command 0x0C with exactly a
-    /// 2-byte payload) are *not* classified here. They are correlated
-    /// inside <see cref="NinoTncSerialPort"/> by their sequence tag and
-    /// surface via the return value of
-    /// <see cref="NinoTncSerialPort.SendFrameWithAckAsync"/>, not as a
-    /// typed event. Pass an echo through this method and it'll come back
-    /// as <see cref="UnknownInboundEvent"/>.
-    /// </remarks>
-    public static NinoTncInboundEvent Classify(KissFrame frame)
+    public static KissInboundEvent Classify(KissFrame frame)
     {
-        // ACKMODE-Data: command 0x0C with 2-byte seq tag + AX.25 payload.
-        if (KissAckMode.TryParseDataFrame(frame, out var tag, out var ax25Payload))
+        var generic = KissFrameClassifier.Classify(frame);
+
+        // 1) Synthetic host-side TX-Test diagnostic — the KISS Data frame
+        //    the firmware sends to its own host when its button is pressed.
+        //    The "=FirmwareVr:" ASCII marker is the authoritative signal.
+        if (generic is Ax25FrameReceivedEvent or UnknownInboundEvent &&
+            frame.Command == KissCommand.Data &&
+            NinoTncTxTestFrame.TryParse(frame, out var diag) && diag is not null)
         {
-            return new AckModeDataReceivedEvent(frame, tag, ax25Payload);
+            return new NinoTncTxTestFrameReceivedEvent(frame, diag);
         }
 
-        // KISS Data — could be an AX.25 frame, could be the NinoTNC's
-        // synthetic TX-Test diagnostic. The TX-Test parser keys on the
-        // "=FirmwareVr:" ASCII marker; if it matches, prefer that shape
-        // (the surrounding bytes look like a malformed AX.25 header but
-        // are firmware-generated and don't decode cleanly).
-        if (frame.Command == KissCommand.Data)
+        // 2) Over-air TX-Test UI frame — the AX.25 frame the *other*
+        //    NinoTNC's modulator put on the air when its button was
+        //    pressed. We receive this through our own modem as a normal
+        //    KISS Data frame; the generic classifier already gave us the
+        //    parsed Ax25Frame.
+        if (generic is Ax25FrameReceivedEvent ax25Evt &&
+            NinoTncAirTestFrame.TryRecognise(ax25Evt.Ax25, out var air) && air is not null)
         {
-            if (NinoTncTxTestFrame.TryParse(frame, out var diag) && diag is not null)
-            {
-                return new TxTestFrameReceivedEvent(frame, diag);
-            }
-            if (Ax25Frame.TryParse(frame.Payload, out var ax25))
-            {
-                return new Ax25FrameReceivedEvent(frame, ax25);
-            }
+            return new NinoTncAirTestFrameReceivedEvent(frame, air);
         }
 
-        return new UnknownInboundEvent(frame);
+        return generic;
     }
 }

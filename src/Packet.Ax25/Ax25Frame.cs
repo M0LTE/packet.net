@@ -269,34 +269,51 @@ public sealed partial class Ax25Frame
         }
 
         int offset = 0;
-        var destination = Ax25Address.Read(bytes[offset..]);
-        offset += Ax25Address.EncodedLength;
-
-        if (destination.ExtensionBit)
-        {
-            // E-bit set on destination — no source address present. Malformed.
-            return false;
-        }
-
-        var source = Ax25Address.Read(bytes[offset..]);
-        offset += Ax25Address.EncodedLength;
-
+        Ax25Address destination;
+        Ax25Address source;
         var digipeaters = new List<Ax25Address>();
-        var lastAddress = source;
-        while (!lastAddress.ExtensionBit)
+
+        // Ax25Address.Read throws ArgumentException when the bytes don't
+        // shape up as a valid address (non-A-Z/0-9 chars in the callsign,
+        // spaces interleaved with non-spaces, etc.). For TryParse's
+        // contract that has to translate to a "false" return, not a throw —
+        // arbitrary KISS payloads land here without a higher framing layer
+        // having vetted them.
+        try
         {
-            if (digipeaters.Count >= MaxDigipeaters)
-            {
-                // E-bit never reached in the allowed digipeater range. Malformed.
-                return false;
-            }
-            if (bytes.Length < offset + Ax25Address.EncodedLength)
-            {
-                return false;
-            }
-            lastAddress = Ax25Address.Read(bytes[offset..]);
+            destination = Ax25Address.Read(bytes[offset..]);
             offset += Ax25Address.EncodedLength;
-            digipeaters.Add(lastAddress);
+
+            if (destination.ExtensionBit)
+            {
+                // E-bit set on destination — no source address present. Malformed.
+                return false;
+            }
+
+            source = Ax25Address.Read(bytes[offset..]);
+            offset += Ax25Address.EncodedLength;
+
+            var lastAddress = source;
+            while (!lastAddress.ExtensionBit)
+            {
+                if (digipeaters.Count >= MaxDigipeaters)
+                {
+                    // E-bit never reached in the allowed digipeater range. Malformed.
+                    return false;
+                }
+                if (bytes.Length < offset + Ax25Address.EncodedLength)
+                {
+                    return false;
+                }
+                lastAddress = Ax25Address.Read(bytes[offset..]);
+                offset += Ax25Address.EncodedLength;
+                digipeaters.Add(lastAddress);
+            }
+        }
+        catch (ArgumentException)
+        {
+            // Bytes were not a valid AX.25 address chain.
+            return false;
         }
 
         if (bytes.Length < offset + 1)
