@@ -31,6 +31,13 @@ if (args.Length > 0 && args[0] == "test-shape")
 {
     return await TestShape.Run(args.Length > 1 ? args[1] : "COM6", args.Length > 2 ? args[2] : "COM8");
 }
+if (args.Length >= 2 && args[0] == "soak")
+{
+    string sub = args[1];
+    string pA = args.Length > 2 ? args[2] : "COM6";
+    string pB = args.Length > 3 ? args[3] : "COM8";
+    return await Packet.NinoTnc.Spike.Soak.Run(sub, pA, pB);
+}
 
 Console.WriteLine($"NinoTNC spike — A={portA}, B={portB}, baud={BaudRate}, mode={Mode} (+16 non-persist)");
 

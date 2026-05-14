@@ -5,8 +5,8 @@
 > If you are reading this for the first time: start with [Why Packet.NET?](#1-why-packetnet) and [Working agreements](#2-working-agreements). If you are looking for *what to build next*, jump to [Roadmap](#5-phased-roadmap). If you are an agent: read [Working agreements](#2-working-agreements) carefully — those are the operating instructions that take precedence over your defaults.
 
 **As of:** 2026-05-14
-**Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, and adaptive-parameter scaffolding. Next: more SDL pages, plus the Phase 3 soak campaign once we have data from the hardware pair.
-**Latest amendment:** [§17 entry 2026-05-14 NinoTNC serial driver + ACKMODE + adaptive parameter scaffolding](#17-amendment-log)
+**Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-05-14 Soak campaign + adaptive transport + hardware-loop test serialisation](#17-amendment-log)
 
 ---
 
@@ -664,6 +664,80 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-14 — Soak campaign + adaptive transport + hardware-loop test serialisation
+
+Continuation of the same overnight session as the driver work below.
+
+**Adaptive transport.** `Packet.Kiss.NinoTnc.AdaptiveNinoTncTransport` is
+the layer that actually *calls* `Observe(...)` / `Recommend(...)` on the
+adaptive estimator. It owns a `NinoTncSerialPort` (via the new
+`INinoTncModem` interface — pulled out for unit-testability), serialises
+sends through an internal `SemaphoreSlim`, applies only changed
+parameters to the TNC before each TX, sends in ACKMODE so we have a
+TX-completion signal, and feeds the outcome back into the estimator.
+Surface for AX.25-layer signals: `RecordLoss(peer, n)` and
+`RecordRetransmittedAck(peer, n)`.
+
+8 unit tests against a fake `INinoTncModem` cover happy-path,
+diff-skipping, AckModeTimedOut observation, concurrency serialisation,
+and the AX.25-layer recording surface. 1 hardware-loop test runs the
+estimator + transport against the real modems for 20 frames and asserts
+TXDELAY walks down from the initial 40.
+
+**Hardware-loop test serialisation.** xUnit was running the two
+hardware-loop classes in parallel; both grab the same COM6+COM8 pair,
+so the second-to-start hit `UnauthorizedAccessException`.
+`HardwareLoopCollection` (`[CollectionDefinition(...,
+DisableParallelization = true)]`) plus `[Collection(...)]` on both
+classes serialises them. All 6 hardware-loop tests now pass cleanly
+in ~12 s.
+
+**Soak campaign tool.** `tools/Packet.NinoTnc.Spike` grew a `soak`
+sub-command family: `mode-sweep`, `txdelay-sweep`, `payload-sweep`,
+`throughput`, `ackmode`, `bidirectional`, `idle`, `estimator-live`,
+plus `stress` / `per-mode-txdelay` / `binary-payload` and an `all` and
+`marathon` preset. Each writes a markdown section to
+`artifacts/nino-tnc-soak/<ts>/results.md`.
+
+**Measured findings** — see [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md)
+for the full table. Highlights from the first run:
+
+- Every mode 0–14 the catalog claims (including 19200 4FSK and 9600
+  GFSK) round-trips cleanly on the audio cross-wire.
+- Mode 6 TXDELAY floor on this hardware/audio path is **10 ms** (1
+  unit) — 10/10 success at TXDELAY=1. The spec default of 50 (500 ms)
+  is 50× over-conservative for this loopback. The
+  `TxDelayHillClimbEstimator` walked 50 → 24 across 40 live frames
+  (default conservative tuning).
+- ACKMODE concurrency is fine up to N=8 outstanding (1.8 s for the
+  full batch). The first ACK after a fresh `SetMode` + `Open` took 15
+  s on its own — recorded as a follow-up; likely firmware-initialisation
+  quirk.
+- Back-to-back KISS Data submission produces **almost zero
+  throughput** — the TNC silently queues/drops without ACK pacing.
+  The session-layer integration must default to ACKMODE-paced TX.
+- 2-minute idle watch: 0 spurious frames, 0 pump errors.
+
+These numbers reflect a benchtop audio cross-wire and will worsen
+significantly on real RF. The campaign now exists so we can re-run on
+a real link and watch the deltas.
+
+**Test totals** — `Packet.Kiss.Tests` 39, `Packet.Kiss.NinoTnc.Tests`
+37 (+8 for AdaptiveNinoTncTransport), `Packet.Interop.Tests` 6 hardware-
+loop tests.
+
+**What's still open**
+
+- "First ACKMODE after SetMode/Open is slow" quirk — investigate
+  whether it's a firmware initialisation cost or a driver settling
+  problem; possibly hide behind a one-frame priming send.
+- Throughput on real RF will need ACK-paced TX in the session layer.
+- USB VID/PID-based discovery (so the `PACKETNET_NINOTNC_PORTS`
+  env-var override can retire).
+- Adaptive estimator's `SuccessesPerStepDown` / `StepUnits` defaults
+  should be revisited after a real-RF soak (current tuning is
+  intentionally conservative).
 
 ### 2026-05-14 — NinoTNC serial driver + ACKMODE + adaptive parameter scaffolding
 
