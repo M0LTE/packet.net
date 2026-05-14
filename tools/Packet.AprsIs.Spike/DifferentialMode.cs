@@ -35,7 +35,12 @@ namespace Packet.AprsIs.Spike;
 /// </remarks>
 public static class DifferentialMode
 {
-    private const double LatLonToleranceDegrees = 1e-4; // ~11 m
+    // APRS uncompressed format has 0.01 minute (~18 m) resolution at
+    // best; the two decoders rounding slightly differently produces
+    // ~1e-4° diffs that aren't real disagreements. 5e-4° (~55 m) covers
+    // any plausible floating-point precision drift while still flagging
+    // meaningful bugs.
+    private const double LatLonToleranceDegrees = 5e-4;
     private const int MaxExamplesPerBucket = 5;
 
     public static async Task<int> RunAsync(Options opts)
@@ -58,9 +63,24 @@ public static class DifferentialMode
             await conn.OpenAsync();
 
             await using var cmd = conn.CreateCommand();
+            // LEFT JOIN with the envelope-rewrite table so for frames
+            // direwolf originally rejected (Bad source address) but did
+            // decode after rewrite, we use the rewrite-table lat/lon.
+            // COALESCE picks the primary direwolf decode when available,
+            // else the rewrite version. has_error_combined is 0 only if
+            // *some* direwolf run produced a position.
             cmd.CommandText = """
-                SELECT l.info, d.latitude, d.longitude, d.has_error, d.decoded_type
-                FROM lines l JOIN direwolf_decoded d ON d.line_id = l.id
+                SELECT l.info,
+                       COALESCE(d.latitude,  r.latitude)  AS lat,
+                       COALESCE(d.longitude, r.longitude) AS lon,
+                       (CASE WHEN d.has_error = 0 THEN 0
+                             WHEN r.has_error = 0 THEN 0
+                             ELSE 1 END)                  AS he,
+                       COALESCE(d.decoded_type, r.decoded_type) AS dtype,
+                       (r.line_id IS NOT NULL)            AS used_rewrite
+                FROM lines l
+                JOIN direwolf_decoded d           ON d.line_id = l.id
+                LEFT JOIN direwolf_decoded_rewrite r ON r.line_id = l.id
                 WHERE hex(substr(l.info, 1, 1)) IN
                     ('21',  -- '!' no-timestamp, no-msg
                      '3D',  -- '=' no-timestamp, msg-capable
@@ -76,6 +96,7 @@ public static class DifferentialMode
                 double? dwLon = rdr.IsDBNull(2) ? null : rdr.GetDouble(2);
                 long hasError = rdr.IsDBNull(3) ? 0 : rdr.GetInt64(3);
                 string decodedType = rdr.IsDBNull(4) ? "" : rdr.GetString(4);
+                _ = rdr.GetBoolean(5);  // used_rewrite — reserved for future per-bucket attribution
 
                 bool usOk = AprsPositionDecoder.TryDecode(info, out var ours);
                 // dwOk = direwolf produced a position. has_error can be set

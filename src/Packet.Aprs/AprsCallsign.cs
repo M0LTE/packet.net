@@ -122,6 +122,66 @@ public readonly record struct AprsCallsign
         return Packet.Core.Callsign.TryParse(ToString(), out strict);
     }
 
+    /// <summary>
+    /// Best-effort coercion to a strict <see cref="Packet.Core.Callsign"/>.
+    /// Always succeeds, applying transformations as needed:
+    /// </summary>
+    /// <list type="bullet">
+    ///   <item>Base uppercased; non-alphanumeric chars dropped.</item>
+    ///   <item>Base truncated to 6 chars if longer.</item>
+    ///   <item>SSID parsed numerically; if non-numeric or > 15, replaced
+    ///   with the supplied <paramref name="fallbackSsid"/> (default 1).</item>
+    ///   <item>If the resulting base is empty (e.g. all non-alphanumeric),
+    ///   falls back to <c>"X"</c>.</item>
+    /// </list>
+    /// <remarks>
+    /// Used by the corpus envelope-rewrite tool to coerce APRS-invalid
+    /// callsigns (D-Star <c>-D</c>, <c>-B</c>; lowercase; long bases)
+    /// into a form direwolf will accept so we can A/B test payload
+    /// decoding against direwolf's reference.
+    /// </remarks>
+    public Packet.Core.Callsign ToStrictCallsignOrCoerced(byte fallbackSsid = 1)
+    {
+        if (TryToStrictCallsign(out var ax25Valid))
+        {
+            return ax25Valid;
+        }
+
+        // Coerce base
+        string baseUpper = Base.ToUpperInvariant();
+        var sb = new System.Text.StringBuilder(6);
+        foreach (char c in baseUpper)
+        {
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            {
+                sb.Append(c);
+                if (sb.Length == 6) break;
+            }
+        }
+        if (sb.Length == 0) sb.Append('X');
+        string coercedBase = sb.ToString();
+
+        // Coerce SSID:
+        //   - empty (no SSID present): keep as 0
+        //   - parseable numeric in 0..15: use that
+        //   - everything else (letters, > 15): use fallback
+        byte ssid;
+        if (Ssid.Length == 0)
+        {
+            ssid = 0;
+        }
+        else if (byte.TryParse(Ssid, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var n) && n <= 15)
+        {
+            ssid = n;
+        }
+        else
+        {
+            ssid = fallbackSsid;
+        }
+        return new Packet.Core.Callsign(coercedBase, ssid);
+    }
+
     /// <inheritdoc/>
     public override string ToString()
         => string.IsNullOrEmpty(Ssid) ? Base : $"{Base}-{Ssid}";
