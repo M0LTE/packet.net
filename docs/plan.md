@@ -813,6 +813,51 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — SP-001b: APRS-IS analyse mode + first findings (22 % invalid sources)
+
+Added `analyse` mode to `Packet.AprsIs.Spike` — reads the captured
+SQLite corpus, replays every line through the
+`Tnc2Parser → FrameReconstruct → encode/decode round-trip` pipeline,
+and produces a structured failure report. `FrameReconstruct` factored
+out into a shared helper so the live (oneshot) and offline (analyse)
+paths use the same definition of "AX.25 reconstructable".
+
+**First proper analysis pass — 63,451 lines from ~12 minutes of capture:**
+
+- **77.60 % round-trip clean** (49,241 lines).
+- **22.40 % reconstruct failures** (14,210), **99.91 % of which are
+  invalid sources**. Round-trip mismatches = 0 — encode/decode pair is
+  solid; the gap is at the AX.25 ↔ APRS-convention boundary.
+
+Failure categories surfaced (see [findings.md](../tools/Packet.AprsIs.Spike/findings.md)
+for the full narrative):
+
+1. **Lowercase callsigns** (~700): `db0sda` × 600, `vk3mak-15`, etc.
+2. **Tactical aliases** (~480): `WINLINK` × 449 (RMS gateways), `ONELOVE`,
+   `NorthRyde`, …
+3. **Multi-char / non-numeric SSIDs** (~13,000 — the bulk): `M0IQF-N4`,
+   `BI4KVT-8G`, `BD8CMN-T`, etc. APRS lets through letter SSIDs (D-Star /
+   DMR convention), multi-digit SSIDs (Chinese / Russian software), and
+   combinations. AX.25 spec is 0–15 numeric only.
+4. **Long base callsigns**: `BD8AWU-18`, `BD8CMN-S`, etc. AX.25 is 1–6
+   chars; APRS lets through 7+.
+
+Destination / digipeater failures are rare (5 + 8 across 63 k lines).
+
+**Implication for the codebase**: `Callsign.TryParse` is correctly
+rejecting — AX.25 spec is unambiguous. But for the *monitor* layer
+(eventual web UI showing live APRS-IS), strict rejection means 22 % of
+real traffic disappears. The right shape is a separate `AprsCallsign`
+type (lives in SP-008's `Packet.Aprs`) plus a boundary mapper. Not
+this PR — captured as future design context.
+
+The corpus itself is now feedstock for SP-002 (direwolf A/B), SP-003
+(replay regression), SP-004 (fuzz seeds), SP-008 (full APRS lib).
+
+Re-running the analyser is cheap: `dotnet run -- analyse --data-dir
+/home/tf/aprs-is-data`. The collector keeps accumulating in the
+background — numbers will firm up as more days roll over.
+
 ### 2026-05-14 — SP-001b: APRS-IS collector mode + persistent VM runner
 
 Promoted the APRS-IS spike from one-shot pipeline to long-running
