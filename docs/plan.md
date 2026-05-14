@@ -824,6 +824,41 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — aprs: permissive `AprsCallsign` type (monitor layer)
+
+New `AprsCallsign` value type in `Packet.Aprs` for monitor-layer
+callsigns that the strict `Packet.Core.Callsign` rejects.
+
+The strict `Callsign` enforces the AX.25 spec: 1–6 uppercase
+alphanumeric base + 0–15 numeric SSID. That's correct for outbound
+frame construction. But ~31% of APRS-IS traffic carries source
+callsigns that don't match (D-Star port markers `-D` / `-B` / `-T`,
+D-Rats `-H`, APRSdroid lowercase, gateways with longer-than-6-char
+bases). Documented in `tools/Packet.AprsIs.Spike/findings.md` from
+the differential analysis.
+
+`AprsCallsign` accepts:
+- Base: 1–9 chars, A–Z / a–z / 0–9 (case preserved)
+- SSID: empty, or 1–3 chars of A–Z / a–z / 0–9 after a single dash
+
+API:
+- `AprsCallsign(string base, string ssid)` — constructor
+- `AprsCallsign.TryParse(string text, out AprsCallsign)` — text parse
+- `aprs.TryToStrictCallsign(out Callsign)` — best-effort conversion to
+  the AX.25-valid strict form; fails if base contains lowercase, SSID
+  isn't numeric 0–15, or base > 6 chars
+
+Tests cover: real corpus letter-SSID cases (K0MVH-D, ZS6ATZ-D, etc.),
+lowercase bases (aprsdroid), too-long bases, invalid chars, conversion
+to strict form for both compatible and incompatible inputs.
+
+905 tests green.
+
+Closes Tier 1(a) on the spike backlog. With both
+`AprsPositionDecoder` and `AprsCallsign` in place, the monitor layer
+can display ~96% of APRS-IS positions including the ones direwolf
+rejects at the AX.25 callsign-parse stage.
+
 ### 2026-05-14 — aprs: position decoder gains `@` / `/` timestamped variants
 
 `AprsPositionDecoder.TryDecode` now handles all four position DTIs.
