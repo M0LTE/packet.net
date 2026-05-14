@@ -55,6 +55,15 @@ public sealed class ActionDispatcher : IActionDispatcher
     private readonly Action<InternalSignal> sendInternal;
     private readonly ISubroutineRegistry subroutines;
 
+    /// <summary>
+    /// The subroutine registry this dispatcher consults when a
+    /// <c>kind: subroutine</c> action fires. Exposed so callers (e.g.
+    /// <see cref="Ax25Session"/>) can wire a <see cref="DefaultSubroutineRegistry"/>
+    /// with the guard evaluator it needs to walk
+    /// <see cref="SubroutineSpec"/> paths.
+    /// </summary>
+    public ISubroutineRegistry Subroutines => subroutines;
+
     /// <summary>Default acknowledgement timer (T1).</summary>
     public TimeSpan T1Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
 
