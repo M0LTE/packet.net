@@ -30,6 +30,7 @@ namespace Packet.Interop.Tests.Hardware;
 /// </para>
 /// </remarks>
 [Trait("Category", "HardwareLoop")]
+[Collection(HardwareLoopCollection.Name)]
 public class NinoTncSerialPortLoopback
 {
     private const byte LoopbackMode = 6;
