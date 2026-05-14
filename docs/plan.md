@@ -824,6 +824,365 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — policy: spec-compliant by default; pragmatism is a named flag
+
+New CLAUDE.md hard rule codifying the strictness philosophy. Future
+contributors (human or AI agent) are now expected to:
+
+1. Never silently widen a parser to accept new garbage.
+2. Add a named flag to `Ax25ParseOptions` / `AprsParseOptions` when
+   accepting something the strict spec rejects.
+3. Update `docs/strict-vs-pragmatic-audit.md` in the same PR.
+4. Decide which presets (`Strict` / `Lenient` / `Bpq` / `Xrouter`
+   / `Direwolf` / `AprsIs`) the flag belongs to.
+5. Write a paired test: `Strict` rejects, the relevant preset
+   accepts. Strict-rejects-without-lenient-accepts means we
+   couldn't justify why the leniency exists.
+
+Also explicitly: **other implementations are not reference truth.**
+BPQ / Xrouter / direwolf are interop targets we want to talk to,
+not specs we follow. Their quirks are flag-gated behaviour for us.
+
+The outbound construction path stays strict — Packet.NET never
+produces non-spec frames, even when it accepts inbound non-spec ones.
+
+### 2026-05-14 — wire: `AprsParseOptions` threaded through Status / Telemetry / Mic-E decoders
+
+Second retrofit. The three APRS decoders that the audit flagged
+gain `options` overloads; parameterless overloads route through
+`AprsParseOptions.Lenient` so existing callers see no change.
+
+Strict mode now actively enforces:
+
+- **Status**: each byte must be printable ASCII 32–126 except
+  `\|` (124) or `~` (126) per §16; trailing CR / LF / space
+  tolerated (they get trimmed). Lenient still UTF-8s through
+  non-ASCII.
+- **Telemetry**: each analog channel must be exactly 3 digits in
+  range 000–255 per §13. Lenient still accepts floats and
+  variable-width.
+- **Mic-E**: DTI must be `` ` `` (0x60) or `'` (0x27); the legacy
+  Rev. 0 beta `0x1C` / `0x1D` are rejected. Lenient still accepts
+  them.
+
+Position / Object / Item / Message decoders had no pragmatic
+choices per the audit — their signatures are unchanged.
+
+9 new tests pairing strict-rejects with lenient-accepts on the
+same inputs. Full suite (1,043+ tests) green.
+
+### 2026-05-14 — wire: `Ax25ParseOptions` threaded through `Ax25Address.Read` + `Ax25Frame.TryParse`
+
+First retrofit. Both methods gain an `options` overload; the
+parameterless overload routes through `Ax25ParseOptions.Lenient` so
+behaviour is unchanged for existing callers.
+
+Strict mode now actively enforces:
+
+- `Ax25Address.Read(span, Ax25ParseOptions.Strict)` throws on an
+  empty callsign slot (the BPQ-style all-space wire shape).
+- `Ax25Frame.TryParse(..., Ax25ParseOptions.Strict, ...)` returns
+  `false` for trailing bytes on supervisory frames (RR/RNR/REJ/SREJ)
+  and the no-info U-frames (SABM/SABME/DISC/UA/DM). Still accepts
+  trailing bytes on the §3.5-permitted FRMR/XID/TEST.
+
+8 new tests covering both strict-rejects and lenient-accepts paths
+on the same inputs, plus parameterless back-compat.
+
+Next: thread `AprsParseOptions` through the APRS decoder family.
+
+### 2026-05-14 — design: `Ax25ParseOptions` / `AprsParseOptions` records (no wiring yet)
+
+Adds the option-record types that the upcoming retrofit will thread
+through the parsers / decoders. No call-site changes yet; this PR is
+just the types + presets + tests.
+
+`Packet.Core.Ax25ParseOptions`:
+
+- `AllowEmptyCallsignBase` (default `true`) — for BPQ-style
+  blank-callsign-slot UI beacons
+- `AllowInfoOnSupervisoryFrames` (default `true`) — current TryParse
+  captures trailing bytes on S frames; §3.5 doesn't permit that
+
+`Packet.Aprs.AprsParseOptions`:
+
+- `AllowNonAsciiStatusText` (default `true`) — UTF-8 in status
+- `AllowNonIntegerTelemetry` (default `true`) — floats / variable-width
+- `AllowMicELegacyDtiBytes` (default `true`) — `0x1C` / `0x1D`
+
+Presets per-record:
+
+- **`Strict`** — all pragmatic flags off, pure spec
+- **`Lenient`** — kitchen-sink accept-everything (current behaviour);
+  used by parameterless decoder overloads to preserve back-compat
+- **`Bpq`** / **`Direwolf`** / **`Xrouter`** (AX.25 only) — peer-specific
+- **`Direwolf`** / **`AprsIs`** (APRS only) — source-specific
+
+Today `Bpq` / `Direwolf` / `AprsIs` are aliases of `Lenient` and
+`Xrouter` is an alias of `Strict` because we haven't yet
+differentiated. Tests cover the alias relationships so any future
+divergence is a deliberate update.
+
+Records use `init`-only properties so callers can derive variants via
+`with`-expressions.
+
+11 new tests; full suite green.
+
+### 2026-05-14 — interop: more UI-frame scenarios against net-sim
+
+`tests/Packet.Interop.Tests/Netsim/NetsimUiFrameScenarios.cs` — four
+new scenarios that exercise UI-frame paths through the net-sim
+AFSK1200 link sim. UI-frame paths are the half of the interop arc
+that isn't gated on the figc4.7 SDL redraw, so they're shippable
+now.
+
+Scenarios:
+
+- `UI_Frame_With_Digipeater_Path_Round_Trips` — verifies digi-path
+  E-bit migration to the last digi survives the wire.
+- `UI_Frame_With_NetRom_Pid_Preserves_Payload` — PID 0xCF (NET/ROM
+  L3) + 20-byte info, the typical shape the BPQ corpus has 139 of.
+- `UI_Frame_With_Aprs_Position_Survives_RF_Round_Trip` — full stack
+  end-to-end: encode AX.25 UI carrying an APRS position, push
+  through AFSK1200, decode AX.25 + `AprsPositionDecoder` on the
+  other side, assert lat/lon matches.
+- `Burst_Of_UI_Frames_All_Arrive` — 5 frames in quick succession;
+  all 5 arrive within budget. Catches dropped-frame regressions
+  introduced by KISS-TCP back-pressure changes.
+
+All [SkippableFact] — they skip cleanly when net-sim isn't up; the
+CI interop job runs them against the live stack. Builds clean
+locally without the stack.
+
+### 2026-05-14 — ax25: fuzz / property tests for the frame parser
+
+`tests/Packet.Ax25.Properties/Ax25ParserFuzzProperties.cs` — six new
+FsCheck properties focused on the parser's trust-boundary behaviour:
+
+- `TryParse_Never_Throws` — across 2 000 random byte arrays, the
+  parser only ever returns `true`/`false`; no exceptions escape.
+- `Parsed_Frame_Round_Trips_Through_ToBytes` — anything accepted on
+  the way in must serialise back to bytes that parse to the same
+  thing.
+- `Address_Read_Only_Throws_ArgumentException` — the address parser's
+  only legal failure mode for malformed input is `ArgumentException`
+  (caller-fault convention); other types would indicate a real bug.
+- `RequiredBytes_Is_Exact` — the parser's reported byte-budget
+  matches what `WriteTo` actually consumes.
+- `I_Frame_Encode_Then_Decode_Roundtrips` — covers connected-mode
+  I-frames with arbitrary N(s)/N(r)/P-F/PID/info (the existing
+  property only exercised UI).
+- `Empty_Callsign_Address_Round_Trips` — regression for PR #85's
+  empty-callsign tolerance (BPQ's `>IS` beacon shape).
+
+Sits at the parser's trust boundary: TNCs deliver arbitrary RF
+garbage, and a parser exception there would be a DoS against the
+whole link layer. "Return false" is the only acceptable failure
+mode and this suite proves it across random-input space.
+
+10 existing + 6 new = 16 properties; full suite still green.
+
+### 2026-05-14 — bpq: corpus mining findings (first slice)
+
+New [`docs/bpq-corpus-findings-2026-05-14.md`](bpq-corpus-findings-2026-05-14.md)
+analyses the ~36 h BPQ MQTT corpus we have so far. Headlines:
+
+- **Connected-mode shapes in the wild**: SABM/UA + I/RR + REJ +
+  DISC/UA, all mod-8, paclen=256, window=7. No SREJ, no SABME, no
+  segmentation observed.
+- **REJ behaviour**: all 80 REJ frames came from one lossy session;
+  the N(r) distribution is flat across mod-8 → random RF loss, not
+  a specific-N(s) pathology.
+- **XID parameters**: `Paclen=256 Window=7` universal across all 45
+  observed peer pairs; Compress flag varies.
+- **Retry counts are huge**: BPQ retried SABM 212 times over 9.6 h
+  on one pair before completing. Our session machine should not
+  assume a small bound.
+- **No PID 0x08 segmented frames** in this corpus — our segment path
+  needs synthetic coverage (no live data is going to exercise it).
+- **No ACKMODE TX-complete echoes** in MQTT — the plugin publishes
+  the data frame but not the echo. Can't measure host↔TNC timing
+  from MQTT alone.
+
+The next-collection targets section in the findings file lists what
+we still need to observe in the wild (high-throughput segmenting
+nodes, SREJ-capable peers, mod-128 sessions).
+
+### 2026-05-14 — aprs: Mic-E decoder (`` ` `` / `'` DTI)
+
+`AprsMicE` + `AprsMicEDecoder` per APRS101 §10. Mic-E is the only
+APRS format that splits data across the AX.25 destination-address
+field (6 bytes encoding 6 latitude digits + 3 message bits + N/S +
+longitude offset + W/E) and the information field (encoding longitude,
+speed, course, symbol, optional comment).
+
+Surface:
+
+- 6-byte destination decoding: each char `0-9` / `A-J` / `K` / `L`
+  / `P-Y` / `Z` maps to a latitude digit (or space for position
+  ambiguity) and a message-bit value with a Std-vs-Custom hint.
+- Info field bytes 1-6: `d+28` / `m+28` / `h+28` (longitude),
+  `SP+28` / `DC+28` / `SE+28` (speed + course).
+- The DC+28 byte has two encodings in the wild (printable
+  `V..z` and old `0x1c..0x7f` ranges differ by 4 in the
+  course-hundreds index); the §10 worked example shows the
+  unified decode rule — "subtract 28, divide by 10 for units, then
+  subtract 4 from the remainder if it's ≥ 4" — handles both.
+- 15 message types decoded (`StandardM0OffDuty`...`M6Priority`,
+  `CustomC0`...`C6`, `Emergency`, `Unknown` for mixed Std/Custom).
+
+Live-corpus result (2.1 M rows now, was 1.95 M; +165 k Mic-E
+frames):
+
+| Bucket | % |
+|---|---:|
+| `BothOkMatch` | **99.0%** |
+| `BothFailed` | 0.6% |
+| `OnlyDirewolf` | 0.3% |
+| `OnlyUs` | 0.1% |
+| `BothOkMismatch` | 1 row |
+
+10 new tests including the §10 worked example, three real-corpus
+samples, and the Emergency-code path. Full suite green.
+
+### 2026-05-14 — aprs: message decoder (`:` DTI)
+
+`AprsMessage` + `AprsMessageDecoder` per APRS101 §14.
+
+Format:
+```
+:NNNNNNNNN:body[{messageId}]
+```
+
+- 9-byte fixed-width addressee (right-space-padded; trimmed for callers)
+- `:` body separator
+- free-form body (decoded as UTF-8, trailing CR/LF stripped)
+- optional `{NNN…}` trailing message ID, 1–5 chars
+
+Same envelope covers person-to-person messages, bulletins
+(`BLNn` / `BLNxxx`), acks (`ackNNN`), rejects (`rejNNN`), and
+telemetry parameter definition messages from §13 (`PARM.…`,
+`UNIT.…`, `EQNS.…`, `BITS.…`). The decoder doesn't interpret the
+body — callers route by content (e.g. starts-with `ack` /
+`rej` / `PARM.` etc.).
+
+9.1% of the live corpus is `:` DTI (273k rows).
+
+14 new tests; full suite green.
+
+### 2026-05-14 — aprs: telemetry decoder (`T` DTI)
+
+`AprsTelemetry` + `AprsTelemetryDecoder` per APRS101 §13.
+
+Format:
+```
+T#xxx,aaa,aaa,aaa,aaa,aaa,bbbbbbbb[,comment]
+```
+
+- sequence number (3 chars; digits or `MIC`)
+- 5 analog values (spec: 000–255; real corpus: variable-width
+  integer or float — decoded permissively as `double`)
+- 8-bit digital field as ASCII 0/1
+- optional trailing comment
+
+Live corpus has 170k T-frames (~5.7%). Permissive parsing handles
+the four common shapes seen in the wild: zero-padded integers,
+variable-width integers, floats, and `MIC`-style sequences with the
+spec-optional leading comma omitted.
+
+13 new tests; full suite green.
+
+### 2026-05-14 — aprs: status report decoder (`>` DTI)
+
+`AprsStatus` + `AprsStatusDecoder` per APRS101 §16.
+
+Layout:
+- `>` DTI
+- Optional 7-byte DHM-zulu timestamp (`DDHHMMz`) — and *only* DHM-zulu
+  per §16. DHM-local (`/`) and HMS (`h`) are NOT valid status
+  timestamps even though they're allowed in position and object
+  reports.
+- Free-form text up to 62 chars (or 55 if a timestamp is present)
+
+We decode permissively: spec says ASCII-only, but the corpus has
+plenty of UTF-8 (Chinese-station beacons etc.); decode UTF-8 with the
+replacement character for invalid bytes, strip trailing CR/LF/space.
+
+7.3% of the corpus is `>` DTI — no direwolf differential A/B yet
+(direwolf's decode_aprs renders status but doesn't surface a "did it
+parse" signal we can compare against the way lat/lon serves for
+positions); will revisit if there's an obvious comparison surface.
+
+11 new tests; full suite green.
+
+### 2026-05-14 — aprs: item report decoder (`)` DTI)
+
+Companion to the object decoder. APRS101 §11 items are variable-length
+(3–9 char) names terminated by `!` (live) or `_` (killed), followed
+directly by uncompressed or compressed position bytes. No timestamp.
+
+Implementation:
+
+- `AprsItem` value type — `Name`, `IsAlive`, `Position`.
+- `AprsItemDecoder.TryDecode` — scans for the first `!` or `_` byte
+  in the name-length window [3, 9] (per spec these characters cannot
+  appear inside an item name), then hands the remaining bytes to
+  `AprsPositionDecoder.TryDecodePayload` (the no-DTI-stripping entry
+  point added for objects).
+- `DifferentialMode` extended: DTI `)` → item decoder, `;` → object,
+  else position.
+
+Live-corpus result (now 1.95 M rows, was 1.93 M):
+
+| Bucket | % |
+|---|---:|
+| `BothOkMatch` | **98.9%** |
+| `BothFailed` | 0.7% |
+| `OnlyDirewolf` | 0.3% |
+| `OnlyUs` | 0.1% |
+| `BothOkMismatch` | 1 row |
+
+11 new tests; full suite green.
+
+### 2026-05-14 — aprs: object report decoder (`;` DTI)
+
+New `AprsObject` + `AprsObjectDecoder` per APRS101 §11. Layout:
+
+```
+;NNNNNNNNN[*|_]DDHHMMzPOSITION_DATAcomment
+```
+
+- 9-byte fixed-width object name (trailing spaces preserved as a wire
+  identity)
+- `*` (live) or `_` (killed) indicator
+- 7-byte timestamp — accepts DDHHMMz (DHM zulu), DDHHMM/ (DHM local)
+  and HHMMSSh (HMS zulu) per spec
+- position bytes (uncompressed §8 or compressed §9), delegated to
+  `AprsPositionDecoder` via a new `TryDecodePayload` entry point that
+  doesn't treat a leading `/` as the timestamped-position DTI
+
+Also added `AprsPositionDecoder.TryDecodePayload` — same body as the
+DTI-stripping `TryDecode` but skips the DTI heuristic. The bug it
+fixes: a compressed-position object's symbol-table byte `/` was being
+mistaken for the `/`-DTI (timestamped-position-no-msg), causing
+~49 k object frames to reject. Useful generally for item / status
+decoders that have already parsed their own prefix.
+
+`DifferentialMode` extended to include `;` DTI; dispatches to the
+object decoder vs position decoder by DTI.
+
+**Result on the live corpus (1.93 M rows, was 1.62 M)**:
+
+| Bucket | % |
+|---|---:|
+| `BothOkMatch` | **99.0%** |
+| `BothFailed` | 0.6% |
+| `OnlyDirewolf` | 0.3% (was 49 k object-only; now 5.5 k edge cases) |
+| `OnlyUs` | 0.1% |
+| `BothOkMismatch` | 1 row (firmware-malformed timestamp, unchanged) |
+
+12 new tests; full suite (1,000+ tests) green.
+
 ### 2026-05-14 — nino-tnc: retract mode-12-specific demod-wedge interpretation
 
 Earlier characterisation framed the intermittent B→A wedge as a

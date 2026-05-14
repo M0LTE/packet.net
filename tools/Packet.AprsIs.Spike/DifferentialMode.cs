@@ -77,7 +77,8 @@ public static class DifferentialMode
                              WHEN r.has_error = 0 THEN 0
                              ELSE 1 END)                  AS he,
                        COALESCE(d.decoded_type, r.decoded_type) AS dtype,
-                       (r.line_id IS NOT NULL)            AS used_rewrite
+                       (r.line_id IS NOT NULL)            AS used_rewrite,
+                       l.destination                       AS dest
                 FROM lines l
                 JOIN direwolf_decoded d           ON d.line_id = l.id
                 LEFT JOIN direwolf_decoded_rewrite r ON r.line_id = l.id
@@ -85,7 +86,11 @@ public static class DifferentialMode
                     ('21',  -- '!' no-timestamp, no-msg
                      '3D',  -- '=' no-timestamp, msg-capable
                      '40',  -- '@' timestamped, msg-capable
-                     '2F')  -- '/' timestamped, no-msg
+                     '2F',  -- '/' timestamped, no-msg
+                     '3B',  -- ';' object report
+                     '29',  -- ')' item report
+                     '60',  -- '`' Mic-E current GPS
+                     '27')  -- '''Mic-E old GPS
             """;
 
             await using var rdr = await cmd.ExecuteReaderAsync();
@@ -97,8 +102,46 @@ public static class DifferentialMode
                 long hasError = rdr.IsDBNull(3) ? 0 : rdr.GetInt64(3);
                 string decodedType = rdr.IsDBNull(4) ? "" : rdr.GetString(4);
                 _ = rdr.GetBoolean(5);  // used_rewrite — reserved for future per-bucket attribution
+                string destination = rdr.IsDBNull(6) ? "" : rdr.GetString(6);
 
-                bool usOk = AprsPositionDecoder.TryDecode(info, out var ours);
+                // Dispatch by DTI. Mic-E (` / ') needs the AX.25 destination
+                // address as well; objects (;) and items ()) reuse position
+                // decoding; otherwise position-class DTIs (! = @ /).
+                bool usOk;
+                AprsPosition ours = default;
+                if (info.Length > 0 && info[0] == (byte)';')
+                {
+                    usOk = AprsObjectDecoder.TryDecode(info, out var obj);
+                    if (usOk) ours = obj.Position;
+                }
+                else if (info.Length > 0 && info[0] == (byte)')')
+                {
+                    usOk = AprsItemDecoder.TryDecode(info, out var itm);
+                    if (usOk) ours = itm.Position;
+                }
+                else if (info.Length > 0 && (info[0] == (byte)'`' || info[0] == (byte)'\''))
+                {
+                    // Mic-E encoding splits across dest address + info field.
+                    // Trim "-SSID" suffix and normalise to exactly 6 base chars.
+                    var destBase = destination;
+                    int dashIdx = destBase.IndexOf('-');
+                    if (dashIdx > 0) destBase = destBase[..dashIdx];
+                    if (destBase.Length > 6) destBase = destBase[..6];
+                    else if (destBase.Length < 6) destBase = destBase.PadRight(6);
+
+                    usOk = AprsMicEDecoder.TryDecode(destBase, info, out var mice);
+                    if (usOk)
+                    {
+                        // Wrap as AprsPosition for the existing comparison code.
+                        ours = new AprsPosition(mice.Latitude, mice.Longitude,
+                            mice.SymbolTable, mice.SymbolCode, mice.Comment,
+                            AprsPositionFormat.Uncompressed);
+                    }
+                }
+                else
+                {
+                    usOk = AprsPositionDecoder.TryDecode(info, out ours);
+                }
                 // dwOk = direwolf produced a position. has_error can be set
                 // for non-fatal warnings (e.g. lowercase callsign in the
                 // source, non-standard frequency in comment); we only use
