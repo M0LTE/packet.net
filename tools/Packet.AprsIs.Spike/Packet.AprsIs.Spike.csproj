@@ -11,6 +11,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Packet.Ax25\Packet.Ax25.csproj" />
     <ProjectReference Include="..\..\src\Packet.Core\Packet.Core.csproj" />
   </ItemGroup>

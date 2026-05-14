@@ -813,6 +813,47 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — SP-001b: APRS-IS collector mode + persistent VM runner
+
+Promoted the APRS-IS spike from one-shot pipeline to long-running
+collector — mirror of the MQTT collector pattern landed earlier today
+(#45). Same shape: SQLite per UTC day, `AFTER INSERT` trigger keeps
+`run_meta` exact, transactional batching (commit every 100 lines or
+500 ms) to handle firehose volume, exponential-backoff TCP reconnect,
+graceful SIGTERM.
+
+Refactored `Program.cs` into mode dispatch (`oneshot` | `collect`):
+existing experimental pipeline preserved as `OneshotMode`; the new
+`CollectMode` + `SqliteSink` handle sustained capture.
+
+Schema:
+
+```sql
+CREATE TABLE lines (
+  id, ts_utc_us, source, destination, digi_path, digi_count,
+  info_len, info BLOB, raw_line TEXT NOT NULL
+);
+CREATE TABLE run_meta (
+  run_id, started_at_us, ended_at_us, client_id, filter,
+  line_count, reconnect_count
+);
+```
+
+`raw_line` is canonical; denormalised top-level fields (source,
+destination, digi_path) populated on ingest so common queries don't
+re-parse. AX.25 reconstruction + round-trip remain offline against
+the corpus.
+
+**30 s smoke run** (filter `t/poimqstuc`): **2,674 lines persisted**
+— ~90 lines/sec firehose rate, ~22 MB/min, ~1.3 GB/day projected.
+Schema verified: `messages` count == `run_meta.line_count` via
+trigger.
+
+Persistent collector running in this dev VM under
+`/home/tf/aprs-is-data/` (wrapper at `run-collector.sh` respawns on
+crash; `status.sh` gives a quick snapshot). Alongside the MQTT
+collector. Both feed SP-003's eventual replay/regression corpus.
+
 ### 2026-05-14 — SP-001: LinBPQ MQTT feed collector (probe + collect)
 
 New `tools/Packet.Mqtt.Spike` with three modes:
