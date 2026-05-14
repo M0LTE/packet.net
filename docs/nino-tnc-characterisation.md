@@ -28,13 +28,13 @@ Last campaign: 2026-05-14 `soak marathon` run.
 ### Mode compatibility (1200 AFSK → 19200 4FSK)
 
 All seven candidate modes round-trip cleanly on the bench audio
-cross-wire, with one consistent caveat:
+cross-wire:
 
 | Mode | Name | bps | A↔B success | Mean RTT ms (A→B / B→A) | Notes |
 |---:|---|---:|---:|---|---|
 | 6 | 1200 AFSK AX.25 | 1200 | 5/5 both | 1225 / 664 | the historical packet-radio mode |
 | 7 | 1200 AFSK IL2P+CRC | 1200 | 5/5 both | 1411 / 1138 | IL2P-framed at AFSK rates |
-| 12 | 300 AFSK AX.25 | 300 | 5/5 + 4/5 | 2044 / 1698 | flaky — one timeout in five repro'd across runs |
+| 12 | 300 AFSK AX.25 | 300 | 99/100 + 100/100 | 2579 / 2600 | see [§Mode 12 deep dive](#mode-12-deep-dive--what-the-5-frame-sample-missed) |
 | 0 | 9600 GFSK AX.25 | 9600 | 5/5 both | 912 / 878 | legacy G3RUH-style 9600 |
 | 2 | 9600 GFSK IL2P+CRC | 9600 | 5/5 both | 509 / 374 | recommended modern 9600 |
 | 3 | 9600 4FSK | 9600 | 5/5 both | 935 / 746 | 4FSK at 9600 |
@@ -44,6 +44,57 @@ cross-wire, with one consistent caveat:
 (good 9600 baseline).** The audio cross-wire is high-bandwidth enough
 to support every mode; on a real FM-voice link the higher modes are
 out of reach.
+
+### Mode 12 deep dive — what the 5-frame sample missed
+
+The marathon's 5-frame mode-12 row read "4/5 A→B" and got flagged as
+flaky. With N=100 per direction, the truth is:
+
+| TXDELAY | A→B success | B→A success | Failure indexes |
+|---:|---:|---:|---|
+| 20 ms | 99/100 | 100/100 | A→B index 0 |
+| 50 ms | 99/100 | 100/100 | A→B index 0 |
+| 100 ms | 99/100 | **4/100** | A→B index 0 ; B→A 0, 5–99 |
+
+Payload-size sensitivity at TXDELAY=50, N=50 per row:
+
+| Payload bytes | A→B | B→A |
+|---:|---:|---:|
+| 5 | 49/50 | 50/50 |
+| 20 | 50/50 | 50/50 |
+| 50 | 50/50 | 50/50 |
+| 100 | 50/50 | 50/50 |
+| 200 | 50/50 | 50/50 |
+
+Two real findings, distinct from "mode is flaky":
+
+1. **First-frame-after-SetMode artefact.** In every A→B run across
+   every TXDELAY tried, the failure is the same: the very first frame
+   (index 0) is lost. Every other frame in the run is fine. The 700 ms
+   post-`SetMode` settle this probe uses is *not* enough to guarantee
+   the first frame is received on the partner. The
+   `tools/Packet.NinoTnc.Spike` `ack-warmup-probe` shows the same
+   first-frame fragility at mode 6 when there's a backed-up TX queue.
+   Both point at "warm up the modem before the first measured frame"
+   as the right discipline for tests and the session layer.
+
+2. **TXDELAY=100 ms + mode 12 catastrophically breaks A's receiver
+   under sustained B→A traffic.** First few frames succeed (0–4
+   accepted, frame 0 dropped per the first-frame artefact); from
+   frame 5 onwards *every single frame is lost*. The failure-to-
+   failure gap is 1 for 94 consecutive frames. A's RX appears to
+   lock up under repeated long-preamble 300 AFSK exposure. This is
+   modem firmware / DSP behaviour, not a software-fixable bug — and
+   it's the wrong direction (more preamble than the spec default).
+   Stay at TXDELAY ≤ 50 on mode 12 and the issue does not appear.
+
+Payload size has **no effect** on mode-12 failure rate. The earlier
+small-sample "flaky" finding is fully explained by the first-frame
+artefact above.
+
+See `artifacts/nino-tnc-mode12/<timestamp>/report.md` for raw data;
+re-run with `dotnet run --project tools/Packet.NinoTnc.Spike --
+mode12-probe COM6 COM8`.
 
 ### Per-mode TXDELAY floor
 
@@ -212,12 +263,18 @@ The driver is quiet when there's nothing to do.
 - **Single host, single setup.** Findings reflect the dev box's specific
   USB ports and one audio cable. Different USB controllers may produce
   different TXDELAY floors.
-- **No noise, no fading.** A real link will see retransmits where this
-  setup sees clean ACKs.
+- **No noise, no fading, no real radios.** The bench audio cross-wire
+  is artificially clean. **Adaptive TXDELAY tuning is essentially
+  unexercised here** — every mode hits the 10 ms floor and the
+  estimator has no failures to ratchet against. The estimator's value
+  shows up when there are real transmitters with hundreds of ms of
+  key-up delay, real receivers needing meaningful preamble for AGC
+  and sync, and conditions that drift over time. **The numbers in this
+  document are a benchtop floor, not a tuning target.**
 - **Firmware v3.44.** Future firmware may change TX behaviour.
-- **Mode 12 (300 AFSK AX.25) is borderline on this hardware.** Both
-  campaigns showed 4/5 success in one direction even at TXDELAY=50.
-  Either avoid this mode or treat it as low-confidence in tests.
+- **Avoid TXDELAY=100 on mode 12.** It breaks the receiver under
+  sustained traffic in one direction. See the deep-dive section
+  above. Other TXDELAY values (≤ 50) at mode 12 are fine.
 
 ## How to re-run
 
