@@ -449,6 +449,35 @@ bits / retry rates / error counts alone? If yes, gives `IRadioControl`'s
 quality signal a fallback path for users without CAT-capable radios.
 Investigate after SP-001 has produced enough real-world data to baseline.
 
+**SP-008 — Full APRS encoding/decoding library** (large scope; significant
+ecosystem value). The SDL transcription work covers AX.25's link layer; APRS
+is the application-layer protocol that rides on UI frames. A native
+`Packet.Aprs` library covering position/weather/mic-E/messages/status/
+telemetry/objects/items would slot in cleanly above the AX.25 stack and
+make Packet.NET a credible APRS gateway / parser, not just a bare TNC.
+
+Specs:
+- [APRS101.pdf](http://www.ui-view.net/files/APRS101.pdf) — the original
+  1998 specification.
+- [`how.aprs.works/aprs101-pdf-is-obsolete`](https://how.aprs.works/aprs101-pdf-is-obsolete/)
+  — community-maintained corrections, clarifications, and deprecations
+  layered on top of the 1998 spec. Both are needed to model real-world
+  APRS faithfully.
+
+Approach mirrors the AX.25 SDL pipeline where possible:
+- Trust-the-spec encode-then-verify discipline.
+- Property tests for round-trip (decode → encode → assert byte-equal) on
+  every payload type.
+- A real-world corpus (the SP-001b APRS-IS feed already exists; the
+  forthcoming SP-001 LinBPQ-MQTT feed will be richer) gives free fuzz
+  coverage.
+
+Likely sequenced after the LinBPQ-MQTT feed lands so the library can be
+validated against real traffic from day one. Open question: do we want
+to support APRS Messaging end-to-end (would need state for acks +
+retries) or strictly the parsing/encoding surface? Decide before
+starting.
+
 ### 5.Y Hardware-arrival probe playbook ⬜
 
 Concrete first-day actions for when the 2× NinoTNC + 2× Tait rig lands on
@@ -826,6 +855,10 @@ ordered by leverage-per-effort:
 - **SP-005** Multi-Packet.NET-instance interop via net-sim.
 - **SP-006** Spec-prose-to-stub-test extractor (post-Phase 2).
 - **SP-007** NinoTNC KISS-side SNR proxy (fallback for no-CAT radios).
+- **SP-008** Full APRS101 encoding/decoding library (large scope —
+  position, weather, mic-E, messages, telemetry, objects, items).
+  References APRS101.pdf + the community "APRS101 is obsolete"
+  corrections page.
 
 And §5.Y "Hardware-arrival probe playbook" — 6 concrete first-day
 actions to run autonomously when the 2× NinoTNC + 2× Tait rig lands.
