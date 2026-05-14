@@ -824,6 +824,28 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — aprs: telemetry decoder (`T` DTI)
+
+`AprsTelemetry` + `AprsTelemetryDecoder` per APRS101 §13.
+
+Format:
+```
+T#xxx,aaa,aaa,aaa,aaa,aaa,bbbbbbbb[,comment]
+```
+
+- sequence number (3 chars; digits or `MIC`)
+- 5 analog values (spec: 000–255; real corpus: variable-width
+  integer or float — decoded permissively as `double`)
+- 8-bit digital field as ASCII 0/1
+- optional trailing comment
+
+Live corpus has 170k T-frames (~5.7%). Permissive parsing handles
+the four common shapes seen in the wild: zero-padded integers,
+variable-width integers, floats, and `MIC`-style sequences with the
+spec-optional leading comma omitted.
+
+13 new tests; full suite green.
+
 ### 2026-05-14 — aprs: status report decoder (`>` DTI)
 
 `AprsStatus` + `AprsStatusDecoder` per APRS101 §16.
