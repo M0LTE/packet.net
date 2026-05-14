@@ -6,6 +6,49 @@ raw stats.md / failures.jsonl land in `artifacts/aprs-is-analysis/<ts>/`
 
 Re-run with `dotnet run --project tools/Packet.AprsIs.Spike -- analyse`.
 
+## 2026-05-14 — payload-type breakdown (181k lines, ~30 min capture)
+
+First run with the payload-type classifier wired in (Tier 0 unblocker).
+Bucketed by the first information-field byte per APRS101 §5 DTI.
+
+| Type | Count | % of classified | Group |
+|---|--:|--:|---|
+| `position_no_ts_no_msg` | 54,906 | 30.29 % | positions |
+| `position_ts_msg` | 27,222 | 15.02 % | positions |
+| `position_no_ts_msg` | 27,021 | 14.91 % | positions |
+| `position_ts_no_msg` | 2,858 | 1.58 % | positions |
+| `object` | 19,511 | 10.76 % | reports |
+| `message` | 14,988 | 8.27 % | messaging |
+| `status` | 13,834 | 7.63 % | reports |
+| `telemetry` | 10,367 | 5.72 % | telemetry |
+| `mic_e_current` | 7,877 | 4.35 % | mic-E |
+| `item` | 1,501 | 0.83 % | reports |
+| `mic_e_old` | 943 | 0.52 % | mic-E |
+| `user_defined` | 233 | 0.13 % | other |
+| `raw_gps_or_ultimeter` | 9 | 0.00 % | other |
+| `third_party` | 1 | 0.00 % | other |
+
+**Highlights:**
+
+- **Positions dominate**: 4 variants total **61.80 %** of all corpus traffic.
+  The decoder ordering is now clear — start with `position_no_ts_no_msg`
+  (the `!` DTI, simplest format), then `position_ts_*` (timestamp
+  variants), then mic-E (compressed binary).
+- **Messages are 8.27 %** — a real chunk. Implementing them needs the
+  ack/reject state machine (APRS messages have retry semantics on top of
+  AX.25 UI frames).
+- **Mic-E is ~4.9 %** combined — smaller than I'd guessed. Mic-E is
+  bigger on local RF than on the APRS-IS firehose (probably because
+  Mic-E is more popular for mobile, and APRS-IS is sourced from igates
+  globally).
+- **Zero `non_printable_*` or `empty`** rows means every TNC2 line we
+  captured had a printable-ASCII first byte of payload. Good signal —
+  the corpus is "well-formed APRS as APRS-IS sees it".
+
+Reconstruct success rate held steady at **78.05 %** (was 77.60 % at
+the smaller sample). The 22 % miss rate is structural (APRS-vs-AX.25
+callsign conventions), not statistical noise.
+
 ## 2026-05-14 — first 63k lines (~12 minutes of capture)
 
 | Metric | Count | % of total |

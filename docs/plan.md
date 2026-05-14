@@ -813,6 +813,43 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — SP-001b: APRS payload-type classifier — 62 % positions
+
+Tier 0 unblocker on the corpus. `AprsPayloadType.Classify` buckets each
+information field by its first byte (APRS101 §5 DTI), and the analyser
+now reports a payload-type histogram alongside the round-trip stats.
+
+Re-ran across the live corpus (now 181k lines, ~30 min of capture):
+
+| Group | % |
+|---|--:|
+| Positions (4 DTI variants: `! = / @`) | **61.80 %** |
+| Objects + items + status | 19.22 % |
+| Messages | 8.27 % |
+| Telemetry | 5.72 % |
+| Mic-E (current + old) | 4.87 % |
+| Other (user-defined, third-party, raw-GPS) | 0.13 % |
+
+**Implication for decoder priority:** positions dominate massively;
+implementing one uncompressed-position decoder (DTI `!`) unlocks
+~30 % of the corpus on its own, and the four position variants
+together cover ~62 %. Mic-E is smaller than expected (~5 %) — it's
+bigger on local RF than on the APRS-IS firehose because mic-E is
+mobile/in-car traffic and APRS-IS is sourced from internet-uplinked
+igates.
+
+**Implication for the corpus:** zero `non_printable_*` or `empty` rows
+— every captured line has a printable-ASCII first byte, confirming
+APRS-IS line-orientation. The corpus is well-formed APRS as the
+firehose sees it.
+
+Reconstruct success rate held at **78.05 %** (was 77.60 % at 63 k
+sample) — the 22 % miss is structural (APRS-vs-AX.25 callsign
+conventions), not statistical.
+
+Findings narrative continues in
+[`tools/Packet.AprsIs.Spike/findings.md`](../tools/Packet.AprsIs.Spike/findings.md).
+
 ### 2026-05-14 — SP-001b: APRS-IS analyse mode + first findings (22 % invalid sources)
 
 Added `analyse` mode to `Packet.AprsIs.Spike` — reads the captured
