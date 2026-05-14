@@ -824,6 +824,39 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: incoming frame demux — Ax25Frame → Ax25Event
+
+Second piece of the interop arc. New `Ax25FrameClassifier.Classify(frame)`
+takes a parsed `Ax25Frame` and returns the matching `Ax25Event`
+subtype:
+
+- I-frame (control bit 0 = 0) → `IFrameReceived(frame)`
+- S-frame (control bits 1–0 = 01) → `RrReceived` / `RnrReceived` / `RejReceived` / `SrejReceived` based on SS bits at positions 3–2
+- U-frame (control bits 1–0 = 11) → `SabmReceived` / `SabmeReceived` / `DiscReceived` / `UaReceived` / `DmReceived` / `FrmrReceived` / `XidReceived` / `TestReceived` / `UiReceived` based on the MMM+MM mask (P/F bit at 4 ignored for classification)
+- Unknown U-frame control byte → `ControlFieldError`
+
+Pure function; doesn't need session state. Mod-8 only (extended is
+TBD when `Ax25Frame` grows 2-byte control field support).
+
+Closes the inverse direction of the wire codec: bytes → frame (via
+existing `Ax25Frame.TryParse`) → classified event ready for
+`Ax25Session.PostEvent`.
+
+26 new tests across every U/S/I-frame type + unknown-control-byte
+error path + symmetry test (spec → frame → bytes → parse → classify
+round-trip). 782 tests green.
+
+Still missing for interop:
+1. ~~Wire codec~~ — done (#69)
+2. ~~Incoming demux~~ — done (this PR)
+3. Transport wiring (`Ax25Adapter` glue between session sinks and KISS/AXUDP)
+4. figc4.7 subroutine bodies (transcription-gated)
+5. Frame-aware bindings — `command` / `info_field_valid` / etc.
+   predicates in figc4.4 need to evaluate against
+   `TransitionContext.IncomingFrame`, not static booleans. Not
+   strictly blocking interop for connect/disconnect, but blocking the
+   I-frame receive paths.
+
 ### 2026-05-14 — ax25: wire codec — frame specs → bytes
 
 First piece of the interop arc. Closes one of the four gaps that block
