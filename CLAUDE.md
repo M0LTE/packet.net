@@ -81,6 +81,48 @@ triggers it. If you complete a phase exit criterion and don't update the
 status and add a log entry, you have not finished the task. See §18 of the
 plan for the full discipline.
 
+### Spec-compliant by default; pragmatism is a named flag
+
+Packet.NET's philosophy: **the libraries produce and accept exactly
+what AX.25 v2.2 / APRS101 / KISS-TNC-protocol describe by default.**
+Pragmatic accommodations for real-world peers (BPQ, Xrouter,
+direwolf, the wild APRS-IS feed, station firmwares) exist — but
+they're **named** flags on a `…ParseOptions` record, not silent
+defaults baked into the parser.
+
+When you encounter a frame the strict spec rejects:
+
+1. **Don't widen the parser silently.** Trace the spec section that
+   the wire data violates and confirm the violation is real
+   (sometimes the spec table contradicts the spec prose — see
+   `docs/strict-vs-pragmatic-audit.md` for examples — and the
+   "violation" is actually a spec interpretation, not pragmatism).
+2. **If it's genuine pragmatism**, add a named flag to
+   `Ax25ParseOptions` or `AprsParseOptions` (whichever layer it
+   belongs to). Default the flag to whatever preserves current
+   behaviour (lenient if we already accepted it; strict if it's
+   new acceptance).
+3. **Update the audit doc** (`docs/strict-vs-pragmatic-audit.md`)
+   with a row capturing: location, what we accept, what strict
+   spec says, the real-world driver, the flag name, the default.
+4. **Pick presets**: decide which of `Strict` / `Lenient` /
+   peer-specific (`Bpq`, `Xrouter`, `Direwolf`, `AprsIs`) presets
+   should set the flag on.
+5. **Write a paired test**: one assertion that `Strict` rejects
+   the wire input, one that the relevant preset (or `Lenient`)
+   accepts it. Strict-rejects-without-lenient-accepts is a code
+   smell — it means we couldn't justify why the leniency exists.
+
+**Don't take BPQ, Xrouter, direwolf or any other implementation as
+the spec.** They are interop targets, not reference truth. Their
+quirks are flag-gated behaviour for us; the spec is the canonical
+behaviour.
+
+The outbound construction path (frame factories, encoder
+construction-time `Callsign`) stays strict — we never produce
+frames that violate spec, even when we accept inbound frames that
+do.
+
 ## Common commands
 
 ```sh
