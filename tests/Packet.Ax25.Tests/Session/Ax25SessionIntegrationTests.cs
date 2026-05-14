@@ -214,4 +214,31 @@ public class Ax25SessionIntegrationTests
             ctx.RC.Should().Be(0, "not layer_3_initiated guard matched → tNo fired");
         }
     }
+
+    [Fact]
+    public void V_a_Assign_From_N_r_Reads_Incoming_Frame_Through_Orchestrator()
+    {
+        // End-to-end: an RR_received event carries an incoming frame whose
+        // N(R) is 5. The transition's `V(a) := N(r)` action should pull
+        // that 5 from the frame and stash it into ctx.VA.
+        var t = Tr(
+            id: "t01_va_from_nr",
+            from: "S1",
+            on: "RR_received",
+            next: "S1",
+            ("V(a) := N(r)", ActionKind.Processing));
+
+        var (session, ctx, _, _, _) = NewSession(SingleStateMap("S1", t), "S1");
+
+        // Build a mod-8 RR command with N(R)=5.
+        var bytes = new byte[15];
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        bytes[14] = (5 << 5) | 0x01;
+        Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
+
+        session.PostEvent(new RrReceived(frame!));
+
+        ctx.VA.Should().Be((byte)5);
+    }
 }

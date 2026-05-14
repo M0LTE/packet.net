@@ -249,4 +249,64 @@ public class ActionDispatcherTests
         act.Should().Throw<InvalidOperationException>()
            .WithMessage("*unknown SDL action*transmit_warp_drive*");
     }
+
+    // ─── Reads from incoming frame ─────────────────────────────────────
+
+    /// <summary>Build a mod-8 RR command frame with the supplied N(R) and P bit.</summary>
+    private static Ax25Frame BuildRrCommand(byte nr, bool pollBit = false)
+    {
+        var bytes = new byte[15];
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        // RR control (mod-8): bits 7..5 = N(R), bit 4 = P, bits 3..0 = 0001
+        bytes[14] = (byte)(((nr & 0x07) << 5) | (pollBit ? 0x10 : 0) | 0x01);
+        Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
+        return frame!;
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(5)]
+    [InlineData(7)]
+    public void VA_Assign_From_Nr_Reads_N_R_From_Incoming_Frame(byte nr)
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        var frame = BuildRrCommand(nr);
+        var tx = new TransitionContext(ctx, s, new RrReceived(frame));
+
+        d.Execute("V(a) := N(r)", tx);
+
+        ctx.VA.Should().Be(nr);
+    }
+
+    [Fact]
+    public void VA_Assign_From_Nr_Throws_When_Trigger_Has_No_Frame()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        // DlConnectRequest is an upper-layer primitive — no attached frame.
+        var tx = new TransitionContext(ctx, s, new DlConnectRequest());
+
+        var act = () => d.Execute("V(a) := N(r)", tx);
+
+        act.Should().Throw<InvalidOperationException>()
+           .WithMessage("*requires an incoming frame*DL_CONNECT_request*");
+    }
+
+    [Fact]
+    public void VA_Assign_From_Nr_Throws_For_Extended_Mode_Until_Wired()
+    {
+        var (d, ctx, s, _, _, _) = NewRig();
+        ctx.IsExtended = true;
+        var frame = BuildRrCommand(3);
+        var tx = new TransitionContext(ctx, s, new RrReceived(frame));
+
+        var act = () => d.Execute("V(a) := N(r)", tx);
+
+        // Mod-128 N(R) lives in a 2-byte control field that Ax25Frame doesn't
+        // model yet — fail loudly until that's wired rather than silently
+        // returning the wrong value.
+        act.Should().Throw<NotSupportedException>()
+           .WithMessage("*mod-128*not yet implemented*");
+    }
 }

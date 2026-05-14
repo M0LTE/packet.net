@@ -118,7 +118,8 @@ public sealed class Ax25Session
             return;
         }
 
-        dispatcher.Execute(match.Actions, Context, scheduler);
+        var tx = new TransitionContext(Context, scheduler, evt);
+        dispatcher.Execute(match.Actions, tx);
         CurrentState = match.Next;
     }
 }
