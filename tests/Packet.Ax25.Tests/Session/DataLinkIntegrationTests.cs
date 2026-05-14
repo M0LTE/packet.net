@@ -41,7 +41,7 @@ public class DataLinkIntegrationTests
     {
         public List<(string Verb, ActionKind Kind)> Recorded { get; } = new();
 
-        public void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext context, ITimerScheduler scheduler)
+        public void Execute(IEnumerable<ActionStep> actions, TransitionContext tx)
         {
             foreach (var step in actions)
             {

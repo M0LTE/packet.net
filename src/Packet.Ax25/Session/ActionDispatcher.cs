@@ -11,17 +11,23 @@ public interface IActionDispatcher
 {
     /// <summary>
     /// Execute the supplied <paramref name="actions"/> in order against the
-    /// session's state and scheduler.
+    /// supplied transition context. Every verb may read or mutate fields on
+    /// <see cref="TransitionContext.Session"/>, arm / cancel timers on
+    /// <see cref="TransitionContext.Scheduler"/>, read fields on
+    /// <see cref="TransitionContext.IncomingFrame"/>, or accumulate fields
+    /// onto <see cref="TransitionContext.Pending"/> for the next outgoing
+    /// frame in the chain.
     /// </summary>
-    void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext context, ITimerScheduler scheduler);
+    void Execute(IEnumerable<ActionStep> actions, TransitionContext tx);
 }
 
 /// <summary>
 /// Executes the action strings recorded in an SDL transition's
 /// <c>actions:</c> list. Each verb maps to one method on the dispatcher,
 /// which either mutates the <see cref="Ax25SessionContext"/>, arms /
-/// cancels a timer via the <see cref="ITimerScheduler"/>, or signals an
-/// outgoing supervisory frame via the configured sink callback.
+/// cancels a timer via the <see cref="ITimerScheduler"/>, reads fields
+/// from the triggering frame, or signals an outgoing supervisory frame
+/// via the configured sink callback.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -73,47 +79,73 @@ public sealed class ActionDispatcher : IActionDispatcher
         this.sendSFrame    = sendSFrame    ?? throw new ArgumentNullException(nameof(sendSFrame));
     }
 
-    /// <summary>
-    /// Execute every action in <paramref name="actions"/> against the
-    /// supplied session state and scheduler. Action <see cref="ActionStep.Kind"/>
-    /// is preserved on the spec for downstream tools (figure redraw, cross-language
-    /// codegen) but the dispatcher looks up handlers by <see cref="ActionStep.Verb"/>.
-    /// </summary>
-    public void Execute(IEnumerable<ActionStep> actions, Ax25SessionContext context, ITimerScheduler scheduler)
+    /// <inheritdoc/>
+    public void Execute(IEnumerable<ActionStep> actions, TransitionContext tx)
     {
         ArgumentNullException.ThrowIfNull(actions);
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(tx);
 
         foreach (var step in actions)
         {
-            Execute(step.Verb, context, scheduler);
+            Execute(step.Verb, tx);
         }
     }
 
     /// <summary>
     /// Execute every action verb in <paramref name="actions"/> against the
-    /// supplied session state and scheduler. Used by hand-rolled test
-    /// fixtures and ad-hoc consumers that don't need shape-class metadata.
+    /// supplied transition context. Used by hand-rolled test fixtures and
+    /// ad-hoc consumers that don't need shape-class metadata.
     /// </summary>
-    public void Execute(IEnumerable<string> actions, Ax25SessionContext ctx, ITimerScheduler scheduler)
+    public void Execute(IEnumerable<string> actions, TransitionContext tx)
     {
         ArgumentNullException.ThrowIfNull(actions);
-        ArgumentNullException.ThrowIfNull(ctx);
-        ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(tx);
 
         foreach (var action in actions)
         {
-            Execute(action, ctx, scheduler);
+            Execute(action, tx);
         }
+    }
+
+    /// <summary>
+    /// Test-ergonomics overload: execute a single verb with no triggering
+    /// frame. Constructs a <see cref="TransitionContext"/> with a sentinel
+    /// trigger that has no attached <see cref="Ax25Frame"/>; verbs that
+    /// require <see cref="TransitionContext.IncomingFrame"/> (e.g.
+    /// <c>V(a) := N(r)</c>) throw when invoked through this path.
+    /// </summary>
+    public void Execute(string action, Ax25SessionContext context, ITimerScheduler scheduler)
+        => Execute(action, new TransitionContext(context, scheduler, SyntheticTrigger.Instance));
+
+    /// <summary>
+    /// Test-ergonomics overload: execute multiple verbs with no triggering
+    /// frame. See <see cref="Execute(string, Ax25SessionContext, ITimerScheduler)"/>.
+    /// </summary>
+    public void Execute(IEnumerable<string> actions, Ax25SessionContext context, ITimerScheduler scheduler)
+        => Execute(actions, new TransitionContext(context, scheduler, SyntheticTrigger.Instance));
+
+    /// <summary>
+    /// Sentinel <see cref="Ax25Event"/> used by the test-ergonomics
+    /// overloads when no real trigger is supplied. Has no attached frame
+    /// and a deliberately distinctive name so any verb that ends up
+    /// dereferencing it can point a clear error back at the test.
+    /// </summary>
+    private sealed record SyntheticTrigger() : Ax25Event("__synthetic_trigger__")
+    {
+        public static SyntheticTrigger Instance { get; } = new();
     }
 
     /// <summary>
     /// Execute a single action verb. Throws on unknown actions so a typo
     /// in the SDL transcription doesn't get silently swallowed.
     /// </summary>
-    public void Execute(string action, Ax25SessionContext ctx, ITimerScheduler scheduler)
+    public void Execute(string action, TransitionContext tx)
     {
+        ArgumentNullException.ThrowIfNull(tx);
+
+        var ctx = tx.Session;
+        var scheduler = tx.Scheduler;
+
         switch (action)
         {
             // ─── Flag mutations ────────────────────────────────────────
@@ -147,16 +179,12 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "SREJ command":                   sendSFrame(new SupervisoryFrameSpec(SupervisoryFrameType.Srej, IsCommand: true));  break;
             case "SREJ response":                  sendSFrame(new SupervisoryFrameSpec(SupervisoryFrameType.Srej, IsCommand: false)); break;
 
-            // ─── Sequence-variable assignments ─────────────────────────
+            // ─── Sequence-variable assignments (pure context) ──────────
             //
             // Verb spellings here track the figure-canonical lowercase form
             // (`V(s)`, `V(r)`, `V(a)`) used in /spec-sdl/*.sdl.yaml. The
             // catalogue (`spec-sdl/actions.yaml`) reserves these as the
-            // canonical names; any future uppercase variants would be
-            // normalised to lowercase at codegen time.
-            //
-            // `V(s) := V(s) + 1` and the `V(r)` analogue wrap at the active
-            // modulus (8 for mod-8, 128 for mod-128) — see §4.2.2.
+            // canonical names.
             case "V(s) := 0":                      ctx.VS = 0; break;
             case "V(s) := V(s) + 1":               ctx.VS = ctx.IncrementSeq(ctx.VS); break;
             case "V(r) := 0":                      ctx.VR = 0; break;
@@ -166,10 +194,38 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "RC := 1":                        ctx.RC = 1; break;
             case "RC := RC + 1":                   ctx.RC++; break;
 
+            // ─── Sequence-variable assignments (reads from incoming frame) ─
+            //
+            // `V(a) := N(r)` advances the acknowledge state to the N(R) of
+            // the just-received frame. Only valid when the trigger is a
+            // frame-receipt event; throws otherwise.
+            case "V(a) := N(r)":                   ctx.VA = ExtractNr(tx); break;
+
             default:
                 throw new InvalidOperationException(
                     $"unknown SDL action: '{action}'. " +
                     "If this verb appears in a new transcription, add a case in ActionDispatcher.Execute.");
         }
+    }
+
+    /// <summary>
+    /// Read the N(R) field from the incoming frame's control byte. Assumes
+    /// mod-8 (1-byte control) for now; mod-128 needs the 2-byte extended
+    /// control form which Ax25Frame doesn't model yet.
+    /// </summary>
+    private static byte ExtractNr(TransitionContext tx)
+    {
+        if (tx.IncomingFrame is null)
+        {
+            throw new InvalidOperationException(
+                $"action `V(a) := N(r)` requires an incoming frame, but the trigger '{tx.Trigger.Name}' is not a frame-receipt event.");
+        }
+        if (tx.Session.IsExtended)
+        {
+            throw new NotSupportedException(
+                "extracting N(R) from an extended (mod-128) frame's 2-byte control field is not yet implemented; only mod-8 is wired today.");
+        }
+        // mod-8: bits 7..5 of the 1-byte control field carry N(R) per §4.2.2.
+        return (byte)((tx.IncomingFrame.Control >> 5) & 0x07);
     }
 }

@@ -824,6 +824,43 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — ax25: dispatcher TransitionContext refactor, `V(a) := N(r)` wired (reads from incoming frame)
+
+`IActionDispatcher.Execute` signature changed from
+`(IEnumerable<ActionStep>, Ax25SessionContext, ITimerScheduler)` to
+`(IEnumerable<ActionStep>, TransitionContext)`. The new `TransitionContext`
+bundles everything a verb might read or mutate during one transition:
+
+- `Session` — the same per-connection state as before
+- `Scheduler` — same
+- `Trigger` — the `Ax25Event` that fired the transition
+- `IncomingFrame` — the `Ax25Frame` attached to the trigger (null when
+  trigger is an upper-layer primitive, timer expiry, or internal event)
+- `Pending` — placeholder builder for outgoing-frame fields, reserved
+  for the write-side verbs (`N(r) := V(r)`, `F := P`, `p := 0`) in the
+  next PR
+
+`Ax25Session.PostEvent` builds the TransitionContext from the event;
+frame-receipt events feed `IncomingFrame` automatically. The dispatcher's
+test-ergonomics overloads `Execute(string, ctx, scheduler)` are kept,
+synthesising a sentinel trigger with no frame for verbs that don't need one.
+
+First new verb wired: `V(a) := N(r)`. Reads N(R) from the incoming frame's
+mod-8 control byte (`bits 7..5`) and stores into `ctx.VA`. Throws loudly
+when the trigger has no frame, or when the session is in mod-128 mode
+(extended N(R) lives in a 2-byte control field that `Ax25Frame` doesn't
+model yet — flag it explicitly rather than silently return the wrong value).
+
+Tests: 7 new (4 theory inputs covering N(R)=0/3/5/7, no-frame error,
+mod-128-not-supported error, end-to-end orchestrator test that pumps an
+RR_received event with N(R)=5 through `PostEvent` and asserts ctx.VA=5).
+555 tests green.
+
+Deferred to the next PR: write-side frame-field verbs (`N(r) := V(r)`,
+`N(s) := V(s)`, `N(r) := N(s)`, `F := 0`, `F := 1`, `F := P`, `p := 0`).
+Those populate `tx.Pending`, which the signal_lower verbs will consume
+once `SupervisoryFrameSpec` and friends grow N(R) + P/F fields.
+
 ### 2026-05-14 — ax25: dispatcher wires lowercase `V(s)/V(r)/V(a)` + `RC` assignments, plus first integration-test layer
 
 Dispatcher previously had `V(S) := V(S) + 1` / `V(R) := V(R) + 1`
