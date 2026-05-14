@@ -1,4 +1,5 @@
 using Packet.Sdl.CodeGen.Csharp;
+using Packet.Sdl.CodeGen.Go;
 using Packet.Sdl.IR;
 
 namespace Packet.Sdl.CodeGen;
@@ -20,6 +21,7 @@ internal static class Program
         string outDir = "src/Packet.Ax25.Sdl";
         string testsDir = "tests/Packet.Ax25.Conformance.Tests";
         string? mermaidDir = null;  // null = "alongside the source YAML"
+        string? goDir = null;       // null = don't emit Go
 
         for (int i = 0; i < args.Length - 1; i++)
         {
@@ -29,12 +31,21 @@ internal static class Program
                 case "--out":     outDir     = args[++i]; break;
                 case "--tests":   testsDir   = args[++i]; break;
                 case "--mermaid": mermaidDir = args[++i]; break;
+                case "--go":      goDir      = args[++i]; break;
             }
+        }
+
+        // Default: emit Go when the conventional package directory
+        // exists, so a normal `dotnet run --project tools/Packet.Sdl.CodeGen`
+        // keeps both backends in sync without an explicit flag.
+        if (goDir is null && Directory.Exists("go-spec/ax25sdl"))
+        {
+            goDir = "go-spec/ax25sdl";
         }
 
         try
         {
-            return Run(inDir, outDir, testsDir, mermaidDir);
+            return Run(inDir, outDir, testsDir, mermaidDir, goDir);
         }
         catch (Exception ex)
         {
@@ -43,7 +54,7 @@ internal static class Program
         }
     }
 
-    private static int Run(string inDir, string outDir, string testsDir, string? mermaidDir)
+    private static int Run(string inDir, string outDir, string testsDir, string? mermaidDir, string? goDir)
     {
         if (!Directory.Exists(inDir))
         {
@@ -110,6 +121,9 @@ internal static class Program
         var writtenCode    = new HashSet<string>(StringComparer.Ordinal);
         var writtenTests   = new HashSet<string>(StringComparer.Ordinal);
         var writtenMermaid = new HashSet<string>(StringComparer.Ordinal);
+        var writtenGo      = new HashSet<string>(StringComparer.Ordinal);
+
+        if (goDir is not null) Directory.CreateDirectory(goDir);
 
         foreach (var page in pages)
         {
@@ -136,7 +150,15 @@ internal static class Program
             writtenTests.Add(Path.GetFullPath(testsPath));
             writtenMermaid.Add(Path.GetFullPath(mermaidPath));
 
-            Console.WriteLine($"  ok  {page.SourcePath}  →  {emission.ClassName}.{{g.cs,g.Tests.cs,g.mmd}}");
+            if (goDir is not null)
+            {
+                var go = GoEmitter.EmitStatePage(resolved);
+                var goPath = Path.Combine(goDir, go.FileName);
+                WriteIfChanged(goPath, go.Content);
+                writtenGo.Add(Path.GetFullPath(goPath));
+            }
+
+            Console.WriteLine($"  ok  {page.SourcePath}  →  {emission.ClassName}.{{g.cs,g.Tests.cs,g.mmd}}{(goDir is not null ? " + .g.go" : "")}");
         }
 
         // Subroutine pages: one .g.cs per page (no tests / mermaid).
@@ -148,7 +170,16 @@ internal static class Program
             var emission = CsharpEmitter.EmitSubroutinePage(resolved, codePath);
             WriteIfChanged(codePath, emission.Code);
             writtenCode.Add(Path.GetFullPath(codePath));
-            Console.WriteLine($"  ok  {subPage.SourcePath}  →  {emission.ClassName}.g.cs  (subroutines)");
+
+            if (goDir is not null)
+            {
+                var go = GoEmitter.EmitSubroutinePage(resolved);
+                var goPath = Path.Combine(goDir, go.FileName);
+                WriteIfChanged(goPath, go.Content);
+                writtenGo.Add(Path.GetFullPath(goPath));
+            }
+
+            Console.WriteLine($"  ok  {subPage.SourcePath}  →  {emission.ClassName}.g.cs  (subroutines){(goDir is not null ? " + .g.go" : "")}");
         }
 
         // Tidy stale generated files (someone deleted a *.sdl.yaml).
@@ -165,9 +196,53 @@ internal static class Program
                 CleanStaleFiles(dir, "*.g.mmd", writtenMermaid);
             }
         }
+        if (goDir is not null)
+        {
+            CleanStaleFiles(goDir, "*.g.go", writtenGo);
+            RunGofmt(goDir);
+        }
 
-        Console.WriteLine($"generated {pages.Count} state machine page(s), {subroutinePages.Count} subroutine page(s)");
+        Console.WriteLine($"generated {pages.Count} state machine page(s), {subroutinePages.Count} subroutine page(s){(goDir is not null ? " (+ Go)" : "")}");
         return 0;
+    }
+
+    /// <summary>
+    /// Shell out to <c>gofmt -w</c> on the Go output directory. gofmt's
+    /// struct-field alignment rules are subtle (different alignment
+    /// "runs" form around multi-line literal fields) and it's much
+    /// simpler to delegate canonicalisation to gofmt itself than to
+    /// re-implement it in the emitter. If gofmt isn't on PATH we emit
+    /// a warning rather than fail — the codegen-idempotent CI check
+    /// runs gofmt separately, so a missing gofmt locally is visible
+    /// but non-blocking.
+    /// </summary>
+    private static void RunGofmt(string goDir)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "gofmt",
+                ArgumentList = { "-w", goDir },
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            });
+            if (p is null)
+            {
+                Console.Error.WriteLine("::warning::gofmt not found on PATH; emitted Go files may not be canonically formatted.");
+                return;
+            }
+            p.WaitForExit();
+            if (p.ExitCode != 0)
+            {
+                Console.Error.WriteLine($"::warning::gofmt exited {p.ExitCode}: {p.StandardError.ReadToEnd()}");
+            }
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            Console.Error.WriteLine("::warning::gofmt not found on PATH; emitted Go files may not be canonically formatted.");
+        }
     }
 
     private static void WriteIfChanged(string path, string contents)

@@ -132,11 +132,17 @@ dotnet build
 # Run the normal test suite (excludes hardware-loop and interop)
 dotnet test --filter "Category!=HardwareLoop&Category!=Interop"
 
-# Regenerate SDL state machines after editing a *.sdl.yaml
+# Regenerate SDL state machines after editing a *.sdl.yaml.
+# Emits C# under src/Packet.Ax25.Sdl + Go under go-spec/ax25sdl in
+# one pass. Requires `gofmt` on PATH if go-spec/ax25sdl/ exists
+# (install Go with `sudo apt-get install -y golang-go`).
 dotnet run --project tools/Packet.Sdl.CodeGen -- \
   --in spec-sdl \
   --out src/Packet.Ax25.Sdl \
   --tests tests/Packet.Ax25.Conformance.Tests
+
+# Verify the generated Go compiles + passes gofmt
+cd go-spec && go build ./... && go vet ./... && go test ./... && gofmt -l .
 
 # Bring up the interop stack (LinBPQ + Xrouter + net-sim)
 docker compose -f docker/compose.interop.yml up -d --wait
@@ -184,24 +190,33 @@ test dependencies from `tests/Directory.Build.props`.
 ## What lives where
 
 ```
-src/Packet.*           libraries (NuGet-publishable)
-src/Packet.Ax25.Sdl    GENERATED — do not hand-edit
-tests/Packet.*.Tests   one test project per library
-tests/.../Hardware/    hardware-loop-only tests
-spec-sdl/              YAML DSL — human-authored transcriptions
-spec-sdl/schema/       JSON Schema for the DSL
-spec-sdl/events.yaml   canonical event catalog
-tools/                 console tools (codegen + lint)
-docker/                interop compose stack + fixtures
-docs/                  plan, ADRs, primers
-.github/workflows/     CI
+src/Packet.*                     libraries (NuGet-publishable)
+src/Packet.Ax25.Sdl              GENERATED — do not hand-edit
+tests/Packet.*.Tests             one test project per library
+tests/.../Hardware/              hardware-loop-only tests
+spec-sdl/                        YAML DSL — human-authored transcriptions
+spec-sdl/schema/                 JSON Schema for the DSL
+spec-sdl/events.yaml             canonical event catalog
+tools/Packet.Sdl.IR/             language-neutral IR + validation
+tools/Packet.Sdl.CodeGen.Csharp/ C# emitter (Scriban + Roslyn)
+tools/Packet.Sdl.CodeGen.Go/     Go emitter (hand-rolled, gofmt-finalised)
+tools/Packet.Sdl.CodeGen/        thin orchestrator (driver)
+tools/Packet.Sdl.Lint/           standalone schema lint
+tools/Packet.*.Spike/            scratch experiments
+go-spec/                         Go module — GENERATED .g.go + hand-written types.go
+docker/                          interop compose stack + fixtures
+docs/                            plan, ADRs, primers
+.github/workflows/               CI
 ```
 
 ## Things to avoid
 
-- Don't hand-edit `src/Packet.Ax25.Sdl/*.g.cs` or
-  `tests/Packet.Ax25.Conformance.Tests/*.g.Tests.cs`. They are generated.
-  Edit the corresponding `*.sdl.yaml` and rerun the codegen.
+- Don't hand-edit `src/Packet.Ax25.Sdl/*.g.cs`,
+  `tests/Packet.Ax25.Conformance.Tests/*.g.Tests.cs`, or
+  `go-spec/ax25sdl/*.g.go`. They are generated. Edit the corresponding
+  `*.sdl.yaml` and rerun the codegen. (`go-spec/ax25sdl/types.go` IS
+  hand-written — keep it in sync with the C# types in
+  `src/Packet.Ax25.Sdl/`.)
 - Don't add `[Version=...]` on `<PackageReference>` items — CPM enforces a
   central version table.
 - Don't write `appsettings.Local.json` to git. It's `.gitignore`d for a

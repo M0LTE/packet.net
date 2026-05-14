@@ -65,13 +65,35 @@ jobs:
         # runner. We skip actions/setup-dotnet because it would try to
         # re-install per-job into a path the `gh` user can't write to.
 
+      - name: setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+        # Codegen emits Go alongside C# when go-spec/ax25sdl/ exists
+        # (it does), and uses gofmt to canonicalise the output. Without
+        # Go on PATH, emitted Go would drift from the committed copy and
+        # the no-drift assert below would fail.
+
       - name: run codegen
         run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --in spec-sdl --out src/Packet.Ax25.Sdl --tests tests/Packet.Ax25.Conformance.Tests
         continue-on-error: true # Phase 0: codegen exists but is still a stub
 
       - name: assert no drift
         run: |
-          if ! git diff --exit-code -- src/Packet.Ax25.Sdl tests/Packet.Ax25.Conformance.Tests spec-sdl/'**/*.g.mmd'; then
+          if ! git diff --exit-code -- src/Packet.Ax25.Sdl tests/Packet.Ax25.Conformance.Tests spec-sdl/'**/*.g.mmd' go-spec/ax25sdl; then
             echo "::error::SDL codegen produced uncommitted output. Run the codegen tool locally and commit the regenerated files."
+            exit 1
+          fi
+
+      - name: go-spec build + vet + test + gofmt
+        run: |
+          cd go-spec
+          go build ./...
+          go vet ./...
+          go test ./...
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::go-spec files are not gofmt-canonical:"
+            echo "$unformatted"
             exit 1
           fi

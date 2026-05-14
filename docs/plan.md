@@ -824,6 +824,58 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-14 — sdl: Go emitter + go-spec/ module (Tier 1b)
+
+Added a second backend on top of the IR refactor, proving the codegen
+pipeline is language-agnostic.
+
+**New projects:**
+
+- **`tools/Packet.Sdl.CodeGen.Go`** — Go emitter. Hand-rolled string
+  emission (no template engine — Go's strict gofmt rules make a
+  generator without templating simpler than the Scriban path).
+  Produces one `.g.go` per `*.sdl.yaml`. Public API:
+  `GoEmitter.EmitStatePage(ResolvedPage)` /
+  `EmitSubroutinePage(ResolvedSubroutinesPage)`.
+
+- **`go-spec/`** — new Go module (`github.com/m0lte/packet-net/go-spec`,
+  `go 1.22`). One package: `ax25sdl/`. Hand-written
+  `types.go` provides `StatePage`, `SubroutinesPage`, `TransitionSpec`,
+  `SubroutinePath`, `SubroutineSpec`, `ActionStep`, `LoopRange`,
+  `ImplementationReference`, `SdlSource`, and the `ActionKind` enum.
+  Empty-string / zero-int conventions used in place of pointer types
+  for nullable fields to keep generated initialisers readable.
+
+**Orchestrator changes** (`tools/Packet.Sdl.CodeGen/Program.cs`):
+
+- New `--go <dir>` flag; auto-detects to `go-spec/ax25sdl` when the
+  directory exists, so a normal `dotnet run --project
+  tools/Packet.Sdl.CodeGen` keeps both backends in sync.
+- After emitting, shells out to `gofmt -w <go-dir>` to canonicalise the
+  output. Falls back to a warning if gofmt isn't on PATH (the CI
+  drift assert catches non-canonical commits anyway).
+
+**CI** (`.github/workflows/ci.yml`):
+
+- `sdl-codegen-discipline` job now installs Go 1.22 via
+  `actions/setup-go@v5`, runs the codegen, and asserts no drift across
+  C# **and** Go output.
+- Added a `go build` + `go vet` + `go test` + `gofmt -l` check on
+  `go-spec/` in the same job.
+
+**Smoke tests** (`go-spec/ax25sdl/sdl_test.go`):
+
+- Every state-machine page has non-empty `Transitions`.
+- figc4.7 has the expected 13 subroutines.
+- `ActionKind.String()` round-trips for every constant.
+
+**What's not in scope.** This is **specification data**, not a runtime.
+The Go module exposes the SDL data structures; binding predicates and
+action verbs to behaviour (the Go equivalent of `GuardEvaluator` /
+`ActionDispatcher` / `DefaultSubroutineRegistry`) and wiring to frame
+I/O is intentionally deferred. The goal of Tier 1b is to prove the
+codegen IR survives a second backend cleanly — that's now done.
+
 ### 2026-05-14 — sdl: codegen split into IR + C# emitter (Tier 1b prep)
 
 Refactored `tools/Packet.Sdl.CodeGen` from a single 1300-line console
