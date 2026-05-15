@@ -1,6 +1,6 @@
 # Net-sim topology for Packet.NET KISS-TCP interop tests.
 #
-# Three simulated nodes, all on the same afsk1200 channel:
+# Four simulated nodes, all on the same afsk1200 channel:
 #
 #   a <-> b   the "our-sessions" pair on 8100 / 8101 — used by the
 #             NetsimConnectedModeScenarios / NetsimUiFrameScenarios
@@ -9,13 +9,18 @@
 #             LinbpqViaNetsimConnectedMode test where one end is our
 #             session and the other is LinBPQ dialling 8102 as a
 #             KISS-TCP client
+#   a <-> d   the "XRouter" pair on 8100 / 8103 — used by the
+#             XrouterViaNetsimConnectedMode test where one end is our
+#             session and the other is XRouter dialling 8103 as a
+#             KISS-TCP client
 #
-# Node a is the shared "ours" endpoint. b and c aren't directly linked,
-# but that's only a path-loss decision: in FM-capture mode all stations
-# in earshot hear every TX, so concurrent runs would see each other's
-# frames if they were linked. Filtering happens at the AX.25 address
-# layer (each test uses distinct callsigns so off-target frames are
-# dropped by the inbound pump or by BPQ).
+# Node a is the shared "ours" endpoint. b, c, d aren't directly linked
+# to each other, but that's only a path-loss decision: in FM-capture
+# mode all stations in earshot hear every TX, so concurrent runs would
+# see each other's frames if they were linked. Filtering happens at
+# the AX.25 address layer (each test uses distinct callsigns so
+# off-target frames are dropped by the inbound pump or by the foreign
+# stack on the other side).
 
 mixer_mode: fm_capture
 capture_db: 6.0
@@ -40,13 +45,22 @@ nodes:
         modem:
           mode: afsk1200
         kiss_port: 8102
+  - id: d
+    ports:
+      - id: vhf
+        modem:
+          mode: afsk1200
+        kiss_port: 8103
 
 # Modems on both ends of a link must match. afsk1200 on every port here.
 # loss_db is the path loss applied in the FM-capture mixer; 10 dB is well
-# above the modem threshold so frames decode reliably. b and c are NOT
-# linked — keeps the two test scenarios isolated.
+# above the modem threshold so frames decode reliably. The b<->c, b<->d
+# and c<->d pairs are NOT linked — each foreign-stack pair is isolated
+# to a from a-anchored two-node subnet.
 links:
   - { from: a.vhf, to: b.vhf, loss_db: 10 }
   - { from: b.vhf, to: a.vhf, loss_db: 10 }
   - { from: a.vhf, to: c.vhf, loss_db: 10 }
   - { from: c.vhf, to: a.vhf, loss_db: 10 }
+  - { from: a.vhf, to: d.vhf, loss_db: 10 }
+  - { from: d.vhf, to: a.vhf, loss_db: 10 }

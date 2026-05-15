@@ -599,6 +599,7 @@ CI filter convention: default jobs run with `--filter "Category!=HardwareLoop&Ca
 | 1 | UI frame KISS-TCP → LinBPQ | LinBPQ log contains exact AX.25 hex |
 | 1 | UI frame across back-to-back NinoTNCs | both ends decode identical bytes |
 | 2 | SABM/UA cycle (mod-8) vs LinBPQ over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`LinbpqViaNetsimConnectedMode`) |
+| 2 | SABM/UA cycle (mod-8) vs XRouter over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`XrouterViaNetsimConnectedMode`) |
 | 2 | 30 % scripted loss net-sim afsk1200, 10 kB transfer | completes; retries observed; no FRMR |
 | 3 | ACKMODE echo via LinBPQ | ack-bytes returned within 5 s |
 | 3 | ACKMODE via NinoTNC pair | ack-bytes correlate to RX on partner TNC |
@@ -825,6 +826,22 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-15 — interop: XRouter-via-netsim connected-mode test
+
+Second third-party stack on the netsim interop matrix. Our `Ax25Session` on net-sim port 8100 (node a) talks SABM/UA/DISC/UA to XRouter dialling node d on port 8103 from inside docker. Test mirrors `LinbpqViaNetsimConnectedMode` — handshake only, data-path deferred to a follow-up.
+
+Adds:
+
+- **Fourth net-sim node `d`** in `docker/netsim/network.yaml` (kiss_port 8103), linked to `a` only; b/c/d isolated from each other so concurrent foreign-stack tests don't see each other's frames.
+- **Second `INTERFACE` / `PORT` pair in `docker/xrouter/XROUTER.CFG`**: `INTERFACE=2 TYPE=TCP PROTOCOL=KISS IOADDR=172.30.0.12 INTNUM=8103` + `PORT=2 INTERFACENUM=2 CHANNEL=A …`. Pattern follows m0lte/test-net's working XRouter configs verbatim (split INTERFACE+PORT rather than LinBPQ's single-PORT shape — different syntax, same plain KISS-over-TCP underneath).
+- **`CTEXT … ***` welcome banner** kept in the config. Initially added thinking it was needed to enable connect-accept (as for LinBPQ), but later investigation showed XRouter's CTEXT is **alias-only** — it fires on connects to NODEALIAS (`PNXRT`) but NOT on connects to NODECALL (`PN0XRT`, what our test uses). NODECALL connects engage the node prompt silently, no banner I-frame. Kept for documentation of XRouter behaviour and to support a future alias-connect test; the comment in `XROUTER.CFG` was updated accordingly in a follow-up commit in this same PR.
+- **`docker/compose.interop.yml`**: `depends_on netsim healthy` from xrouter so the first KISS dial finds the listener.
+- **`tests/Packet.Interop.Tests/Xrouter/XrouterViaNetsimConnectedMode.cs`** — two facts: handshake (SABM/UA + DISC/UA) and I-frame round-trip (CONNECT, send `?\r` help command, await response indication, disconnect). `[Collection(NetsimCollection.Name)]` so concurrent netsim tests don't fight over port 8100.
+
+Verified locally: full SABM → UA → I (command) → I (response, 2 frames) → DISC → UA exchange in net-sim wire-log. 14/14 interop tests green together.
+
+One pre-flight gotcha noted: PORT=2 originally used `CHANNEL=B` (figuring B as "the second channel" for diversity), but test-net always uses `CHANNEL=A` on KISS-TCP ports and XRouter may silently reject other channels on a TCP/KISS interface. Switched to A.
 
 ### 2026-05-15 — interop: AGW protocol-fidelity smoke tests against LinBPQ
 
