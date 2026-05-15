@@ -361,12 +361,15 @@ jobs:
         if: steps.probe.outputs.have_python == 'true'
         run: |
           cd python-spec
-          # Use a venv to keep the install isolated from any system
-          # site-packages and to avoid needing root for pip.
-          python3 -m venv .ci-venv
-          .ci-venv/bin/pip install --upgrade --quiet pip pytest
-          .ci-venv/bin/pip install --quiet -e .
-          .ci-venv/bin/pytest -q
+          # The runner's system Python doesn't have python3-venv
+          # available (and the `gh` user can't sudo apt install
+          # non-interactively). PEP 668 marks Debian/Ubuntu's system
+          # Python as externally-managed; `--break-system-packages`
+          # is the documented escape hatch for ephemeral CI installs.
+          # Per-user (--user) keeps the install out of /usr/lib.
+          python3 -m pip install --upgrade --quiet --user --break-system-packages pip pytest
+          python3 -m pip install --quiet --user --break-system-packages -e .
+          python3 -m pytest -q
 
       - name: warn on missing Python
         if: steps.probe.outputs.have_python != 'true'
