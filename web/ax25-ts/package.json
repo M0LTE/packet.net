@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./tcp-transport": {
+      "types": "./dist/tcp-transport.d.ts",
+      "default": "./dist/tcp-transport.js"
     }
   },
   "files": [
@@ -20,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "ax25sdl": "file:../../ts-spec"
