@@ -826,6 +826,24 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — interop: AGW protocol-fidelity smoke tests against LinBPQ
+
+First exercise of `Packet.Agw` against a real AGW server. Three facts in `tests/Packet.Interop.Tests/Agw/LinbpqAgwFidelityTests.cs`:
+
+- Dial LinBPQ's AGW listener on `127.0.0.1:8000`, send `G` (port info), assert a non-empty port list comes back.
+- Register a callsign via `X` and confirm the ack frame arrives within the budget.
+- Dispose the client without hanging — regression-guards the background dispatch / keepalive loop shutdown ordering.
+
+This is **protocol-fidelity** (proves our AGW client wire-talks to a real third-party server), not **connected-mode interop** (which would require terminating a SABM at a remote peer — LinBPQ would route via its modem, not loop back through the same AGW listener). For connected-mode AGW interop we'd need either two LinBPQ instances in different docker namespaces with their AXIP/AXUDP linking them, or direwolf as the AGW server with a kissutil sidecar bridging to net-sim.
+
+Worth recording: **direwolf does NOT support KISS-TCP client mode** — its `KISSPORT` and `AGWPORT` are server-only (`src/kissnet.c` calls `bind()`/`listen()`/`accept()`, never `connect()`). The clean direwolf interop story is therefore not "direwolf attaches to our net-sim like LinBPQ does"; it's one of:
+
+1. **`kissutil` sidecar**: ships with direwolf, IS a KISS-TCP client. Bridges direwolf's KISSPORT listener to net-sim. Adds a hop but no kernel modules.
+2. **Reverse the dial direction in net-sim**: net-sim outbound-attaches to direwolf:8001. Matches the LinBPQ/XRouter outbound pattern; needs a net-sim feature we'd have to confirm.
+3. **socat shim** between the two KISS listeners.
+
+Same constraint applies to **samoyed** (Go port of direwolf — same kissnet design). Deferred to a follow-up PR once we've picked a bridge mechanism. The protocol-fidelity tests in this PR establish that the wire is right; the L2 interop scope can grow independently.
+
 ### 2026-05-15 — Packet.Agw: SV2AGW AGWPE client library
 
 First substantive code in `src/Packet.Agw/`. Pure client (dials INTO LinBPQ / direwolf / SoundModem / XRouter AGW listeners) — not the AGW server packet.net will need to expose later as an application interface. Those are protocol-symmetric but distinct code surfaces; this PR is the client only.
