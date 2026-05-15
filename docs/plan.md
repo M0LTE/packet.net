@@ -824,6 +824,68 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — interop: first third-party-style connected-mode test
+
+First test that drives an `Ax25Session` end-to-end through the
+figc4.1 connect handshake and figc4.6 disconnect handshake across a
+real transport — not in-memory recorders. Two sessions, one on each
+of net-sim's KISS-TCP ports (8100 / 8101), connected through the
+simulated AFSK1200 RF channel. Real KISS framing, real timing, real
+lossy(-ish) transport. Round-trip completes in ~4s including the
+RF-sim delay.
+
+**Tests/Packet.Interop.Tests/Netsim/NetsimConnectedModeScenarios.cs**
+— `[Trait("Category", "Interop")]`, runs in the interop CI workflow
+against the docker compose stack. The `[Trait]` already excludes from
+default `dotnet test` runs, so no `SkippableFact` gate is needed; if
+someone runs `Category=Interop` without the stack up, the hard fail
+is more honest than a silent skip.
+
+Self-interop (both sides are us) — not strictly third-party. The
+proper next step is attaching LinBPQ to net-sim's other port via a
+KISS PORT in `bpq32.cfg` and driving the connect across the RF sim
+to a real foreign implementation. The plumbing landed here unblocks
+that follow-up.
+
+### 2026-05-15 — codegen: predicate-completeness lint + `able_to_establish` binding
+
+The interop test (above) caught a real bug on its first run: figc4.1
+t14/t15 (SABM_received) gates on the `able_to_establish` predicate,
+but `Ax25SessionBindings.CreateDefault` shipped no binding for it.
+GuardEvaluator threw `GuardEvaluationException` at the receiver,
+which was silently swallowed by the test's background rx pump (a
+`Task.Run` whose fault nobody awaited).
+
+Three coordinated fixes:
+
+1. **`tools/Packet.Sdl.CodeGen/Program.cs`** — new codegen-time lint
+   `LintPredicateBindings`. Walks every decision in every loaded
+   *.sdl.yaml, tokenises predicates (re-using the same operator-
+   handling pattern as `Validation.CompileGuardLiterals`), and
+   diffs against names bound in
+   `src/Packet.Ax25/Session/Ax25SessionBindings.cs` (regex-extracted).
+   Missing bindings become codegen errors with the precise YAML
+   location and the predicate name. Same shape as the existing
+   unused-alias lint — permanent guard against this class of bug.
+
+2. **`src/Packet.Ax25/Session/Ax25SessionBindings.cs`** — added the
+   missing `able_to_establish` entry, defaulted to `true`. Marked as
+   a node-policy hook with a clear comment that production stations
+   should override (callsign allow-list, link budget, etc.). Matches
+   direwolf's "we are always willing to accept connections" default
+   (ax25_link.c:4337). The proper long-term shape is an
+   `IAx25SessionPolicy` interface injected into the session; the
+   override-the-dictionary mechanism is sufficient until then.
+
+3. **`tests/Packet.Interop.Tests/Netsim/NetsimConnectedModeScenarios.cs`**
+   — wait helpers now observe background pump tasks via
+   `task.IsFaulted` and rethrow with `GetBaseException()` on every
+   poll cycle. A pump-task throw now surfaces as an immediate test
+   failure with the real stack trace, not a budget timeout that
+   hides the cause. Same fix pattern should be applied to any future
+   integration test that uses a Task.Run pump.
+
+
 ### 2026-05-15 — codegen: four new emitters (Rust, C, JSON, Python)
 
 The IR refactor now powers **seven** language backends. Each emitter
