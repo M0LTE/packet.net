@@ -39,7 +39,11 @@ public class NetsimUiFrameScenarios
     [SkippableFact]
     public async Task UI_Frame_With_Digipeater_Path_Round_Trips()
     {
-        Skip.If(true, "TODO: net-sim doesn't appear to preserve digipeater path through AFSK1200 sim — need to confirm against the live container what arrives on the receive side, then update the assertion or the test setup. Skipped pending investigation.");
+        // Previously unconditionally skipped pending live-stack
+        // investigation. Un-skipped 2026-05-15 to let the interop
+        // workflow tell us whether the scenario actually fails — the
+        // SkipIfNetsimDown guard still prevents the test running when
+        // the docker stack isn't up (i.e. on a default `dotnet test`).
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
         await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
@@ -64,7 +68,6 @@ public class NetsimUiFrameScenarios
     [SkippableFact]
     public async Task UI_Frame_With_NetRom_Pid_Preserves_Payload()
     {
-        Skip.If(true, "TODO: same family as UI_Frame_With_Digipeater_Path_Round_Trips — was added in PR #94 without live-stack verification. Skipped pending investigation.");
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
         await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
@@ -96,7 +99,6 @@ public class NetsimUiFrameScenarios
         // position via our AX.25 layer, push through net-sim's
         // AFSK1200 sim, then decode on the receive side and verify
         // AprsPositionDecoder still extracts the same lat/lon.
-        Skip.If(true, "TODO: same family as UI_Frame_With_Digipeater_Path_Round_Trips — was added in PR #94 without live-stack verification. Skipped pending investigation.");
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
         await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
@@ -125,7 +127,6 @@ public class NetsimUiFrameScenarios
     [SkippableFact]
     public async Task Burst_Of_UI_Frames_All_Arrive()
     {
-        Skip.If(true, "TODO: same family as UI_Frame_With_Digipeater_Path_Round_Trips — was added in PR #94 without live-stack verification. Skipped pending investigation.");
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
