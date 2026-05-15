@@ -601,6 +601,7 @@ CI filter convention: default jobs run with `--filter "Category!=HardwareLoop&Ca
 | 2 | SABM/UA cycle (mod-8) vs LinBPQ over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`LinbpqViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs XRouter over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`XrouterViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs rax25 (Habets, Rust) over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`Rax25ViaNetsimConnectedMode`) — handshake only; REJ/SREJ + segmentation untested in rax25 |
+| 2 | ax25.ts (TypeScript, Node TCP) vs LinBPQ over net-sim AFSK1200 | `Ax25Stack` + `TcpKissTransport` reach Connected after UA, exchange I-frames (banner from BPQ + `P\r` ports-command round-trip), DISC/UA cleanly returns to Disconnected (`web/ax25-ts/tests/integration/linbpq-via-netsim.test.ts`) |
 | 2 | 30 % scripted loss net-sim afsk1200, 10 kB transfer | completes; retries observed; no FRMR |
 | 3 | ACKMODE echo via LinBPQ | ack-bytes returned within 5 s |
 | 3 | ACKMODE via NinoTNC pair | ack-bytes correlate to RX on partner TNC |
@@ -827,6 +828,48 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-15 — ax25.ts: TCP transport + first live interop against LinBPQ
+
+Stacks on the ax25.ts library entry below. Before this PR, the library had no real interop evidence — `tests/session.test.ts` proved the SDL session machine wires up against itself via paired `MockTransport` pipes, but a closed-loop test of the library against itself doesn't catch wire-level mismatches with third-party stacks that weren't built from the same SDL tables. This PR closes that gap.
+
+**New code**:
+
+- **`web/ax25-ts/src/tcp-transport.ts`** — `TcpKissTransport implements Ax25Transport`. Same three-method shape as `WebSerialKissTransport`. Wraps a `node:net` socket: `start` dials with a 5 s timeout, attaches a `data`-event handler that pushes bytes through a `KissDecoder` and surfaces decoded payloads via `onFrame`; `send` KISS-encodes and writes; `stop` half-closes via `end()` with a 200 ms grace before `destroy()`.
+- **`web/ax25-ts/src/node-types.d.ts`** — minimal ambient declarations for the surface of `node:net` + `node:events` we touch. Keeps the library off `@types/node` (which would muddy the browser-targeted main entry) at the price of stretching the shim when the Node surface grows. When/if a true Node-side surface lands (server, AGW listener…), flipping on `@types/node` properly will be cheaper than keeping this shim alive.
+- **Subpath export** in `web/ax25-ts/package.json`: `./tcp-transport` → `dist/tcp-transport.{js,d.ts}`. Main `index.ts` does NOT re-export `TcpKissTransport` — browser bundlers won't pull in `node:net` unless callers deep-import via `@packet-net/ax25-ts/tcp-transport`.
+
+**Tests**:
+
+- **Unit tests** (`tests/tcp-transport.test.ts`, 12 facts): MockSocket fake (paired `EventEmitter` shape, mirroring the C# `KissTcpClient` paired-pipe trick) exercises connect/connect-error/connect-timeout, send → KISS-encoded write, multi-chunk inbound reassembly, port-nibble filter, non-Data-command drop, and stop idempotency. No real socket dialled. All 64 unit tests (52 existing + 12 new) pass in <1 s.
+- **Integration test** (`tests/integration/linbpq-via-netsim.test.ts`, 2 facts): mirror of `tests/Packet.Interop.Tests/Linbpq/LinbpqViaNetsimConnectedMode.cs`. (1) Connect + Disconnect — `Ax25Stack` connects `PNTEST-1`→`PN0TST` via net-sim 8100; asserts session opens; disconnects cleanly. (2) I-frame round-trip — same setup, waits for BPQ's CTEXT banner I-frame, sends `P\r` (BPQ ports command), waits for non-empty response I-frame, then disconnects. Uses SSID 1 to dodge collision with the C# test (no-SSID `PNTEST`). 15 s / 15 s budgets per phase.
+- **Skip-guard**: top-level `await netsimReachable()` probes `127.0.0.1:8100` with a 200 ms budget; `describe.skipIf(!stackReachable)` no-ops the whole block when the stack isn't up. Lets the integration file live in the same vitest tree as the unit tests without breaking dev-machine `npm test` (which is also pointed away from `tests/integration/` by the `exclude` in `vitest.config.ts`, belt-and-braces).
+- **CI**: `interop.yml` gains a `ax25.ts integration tests` step after the C# `interop tests` step. Builds ts-spec, builds web/ax25-ts, runs `npm run test:integration` against the same already-up compose stack. `paths:` filter widened to include `web/ax25-ts/**` and `ts-spec/**` so a change in either retriggers the interop matrix.
+
+**Wire-log evidence** (`docker logs --since 60s pn-netsim | grep PNTEST-1`):
+
+```
+[a.vhf] PNTEST-1>PN0TST:(SABM cmd, p=1)
+[c.vhf] PN0TST>PNTEST-1:(UA res, f=1)
+[c.vhf] PN0TST>PNTEST-1:(I cmd, n(s)=0, n(r)=0, p=1, pid=0xf0)PN0TST Packet.NET interop test node <0x0d>
+[a.vhf] PNTEST-1>PN0TST:(RR res, n(r)=1, f=1)
+[a.vhf] PNTEST-1>PN0TST:(I cmd, n(s)=0, n(r)=1, p=0, pid=0xf0)P<0x0d>
+[c.vhf] PN0TST>PNTEST-1:(I cmd, n(s)=1, n(r)=1, p=0, pid=0xf0)PNTST:PN0TST} Ports<0x0d>  1 Telnet  …
+[c.vhf] PN0TST>PNTEST-1:(I cmd, n(s)=2, n(r)=1, p=1, pid=0xf0)    <0x0d>
+[a.vhf] PNTEST-1>PN0TST:(DISC cmd, p=1)
+[c.vhf] PN0TST>PNTEST-1:(UA res, f=1)
+```
+
+Clean handshake → banner → ack → command → multi-frame response → DISC/UA — no SREJ/REJ recovery on the happy path, V(s)/V(r) increment correctly across both directions. The library hit-the-wire behaviour matches BPQ's expectations.
+
+**What is NOT yet asserted**:
+
+- **XRouter** and **rax25** equivalents (the C# interop matrix has both; the ts library doesn't yet). Obvious follow-ups — the test is straightforward to clone for each peer, but each clone risks surfacing a peer-specific quirk so keeping the blast radius small (one peer at a time) is worth a separate PR.
+- **N2 exhaustion path** against a real peer (the unit suite covers this against MockTransport; against a real peer it'd need a way to drop frames, which net-sim's scripted-loss config can do but the test fixture doesn't wire up).
+- **Recovery paths** — REJ/SREJ retransmission, T1 timeout-driven recovery, FRMR. The library's SDL stubs these (`Select_T1_Value`, `Invoke_Retransmission`, etc.); the BPQ-vs-ts test stays on the happy path.
+- **Inbound connection acceptance** — the library `Ax25Stack` initiates only. Receiving a peer-initiated SABM and replying UA needs an `onConnectRequest` API which is out of v1 scope.
+
+**Findings worth noting**: nothing surprising surfaced. BPQ's banner happens to fit in one I-frame for the current CTEXT, the `P\r` response splits across two I-frames, and the library's k=1 single-outstanding-I-frame window cooperates with both. No timing-sensitive corner case appeared in the 4 + 5 runs of the two scenarios during development.
 
 ### 2026-05-15 — ax25.ts: browser-targeted TypeScript library, table-driven from the SDL
 
