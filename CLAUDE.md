@@ -217,6 +217,19 @@ docs/                            plan, ADRs, primers
 .github/workflows/               CI
 ```
 
+## Writing PRs, commit messages, and other prose
+
+Don't hard-wrap prose to a fixed column width (~72 chars). GitHub
+renders PR bodies and commit messages with its own line-wrap; pre-
+wrapping just creates awkward short lines on wide screens and breaks
+visually mid-sentence on narrow ones. Write paragraphs as single
+logical lines and let the renderer wrap. Same applies to amendment-
+log entries in `docs/plan.md`.
+
+(File-internal prose — comments in source code, markdown doc files
+intended to be read with `less` — can stay reasonably wrapped; the
+rule above is about output destined for a web renderer.)
+
 ## Things to avoid
 
 - Don't hand-edit `src/Packet.Ax25.Sdl/*.g.cs`,
