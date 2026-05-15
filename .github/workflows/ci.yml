@@ -198,6 +198,25 @@ jobs:
           npm run typecheck
           npm test
 
+      - name: ts-spec build (so file: deps in web/ax25-ts resolve)
+        # web/ax25-ts depends on ts-spec via `file:../../ts-spec`, which
+        # copies the files listed in ts-spec/package.json's `files`
+        # array — that's `dist/**`. tsc must run first or the copy is
+        # empty and the consumer's import fails to resolve.
+        run: |
+          cd ts-spec
+          npm run build
+
+      - name: web/ax25-ts build + test
+        # Browser-targeted library that consumes ts-spec's generated
+        # tables. Build before the test step so tsc-emit and vitest
+        # don't fight over the dist/ directory.
+        run: |
+          cd web/ax25-ts
+          npm ci
+          npm run build
+          npm test
+
   sdl-codegen-json:
     name: SDL codegen — JSON drift + schema validation
     runs-on: [self-hosted, Linux, X64]
