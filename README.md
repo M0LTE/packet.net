@@ -70,4 +70,4 @@ MIT — see `LICENSE`.
   rewrite.
 - John Wiseman G8BPQ for LinBPQ, decades of packet work, and the multi-drop
   KISS / ACKMODE extensions.
-- The Open Amateur Radio Community (OARC).
+- The Online Amateur Radio Community (OARC).
