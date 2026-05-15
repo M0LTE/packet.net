@@ -56,6 +56,9 @@
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.0.0" />
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.23" />
 
+    <!-- Fuzzing (SP-004 — AX.25 / KISS wire-format fuzzer) -->
+    <PackageVersion Include="SharpFuzz" Version="2.2.0" />
+
     <!-- Build housekeeping -->
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
