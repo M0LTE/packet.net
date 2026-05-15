@@ -909,6 +909,28 @@ Inspiration but not lift: dapps's AGW code (`src/dapps/dapps.client/Transport/Ag
 Tests: 16 facts in `Packet.Agw.Tests/`. Frame round-trips, NUL-trimmed callsigns, truncation handling, plus end-to-end client behaviour against an in-memory paired-pipe stub server (register/connect/read/write/server-disconnect/chunked-send all exercised without a real socket).
 
 Not in this PR: AGW server, UNPROTO (`M`/`V`) send/receive, monitor frames (`U`/`I`/`S`), heard-list (`H`), via-digipeater connects. Connected-mode `C`/`D`/`d` + registration `X` + port-info `G` is the working subset; the rest can land as needs surface.
+### 2026-05-15 — SP-004: SharpFuzz harness for Ax25Frame and KissDecoder
+
+`tools/Packet.Fuzz/` — first iteration of the AX.25 / KISS wire-format fuzzer promised in §5.X SP-004. SharpFuzz dependency (2.2.0) added to `Directory.Packages.props`; tool is a stand-alone net10.0 console app. Three modes: `--smoke` (in-process random + structured input generator, default N=1000 per parser), `ax25` / `kiss` (libfuzzer-dotnet harnesses via `Fuzzer.OutOfProcess.Run` — wired but not exercised in this PR; afl-fuzz is not a CI dependency), `--seed-corpus` (regenerates the on-disk seed files from `Ax25Frame.Factories`).
+
+Targets:
+
+- `Ax25Frame.TryParse(ReadOnlySpan<byte>, out _)` — direct.
+- `KissDecoder.Push(ReadOnlySpan<byte>)` — the task brief asked for `KissFrame.TryParse`, but `KissFrame` is a plain record struct with no static parser. KISS is a stateful SLIP framer, not a one-shot parser, so the equivalent harness drives bytes through a fresh `KissDecoder`.
+
+Smoke generator mixes seven input distributions: truncated buffers, around-minimum-length, typical paclen-sized, oversized, all-same-byte, SLIP-pathological (FEND/FESC bias to stress the KISS escape state machine), and structurally-AX25-shaped (random callsign / SSID / digipeater / control / PID / info). Plus seed-corpus replay and 32 single-bit / single-byte mutations of each seed.
+
+**Result: clean.** Both parsers returned `false` / dropped bytes on every malformed input across the smoke run; no unhandled exceptions surfaced. Extended runs at N=100000 across five different RNG seeds (~600k total inputs per parser) — also clean. Full output is captured in `tools/Packet.Fuzz/FINDINGS.md`.
+
+This is a coverage-extending rather than bug-finding result: the FsCheck `TryParse_Never_Throws` property (amendment 2026-05-14) already asserts the same invariant for `Ax25Frame.TryParse` over 2 000 random inputs; the SharpFuzz harness scales that to ~600k inputs and adds structurally-biased distributions FsCheck doesn't reach. `KissDecoder.Push` is by construction lenient (`KissDecoder.cs:38–41`: "receivers should be lenient with malformed escape sequences. Drop the byte and continue."), so a clean result is expected.
+
+What this leaves behind:
+
+- Reproducible harness — re-run after any parser change is <1 s for N=10000.
+- Seed corpus of six known-valid frames (SABM/UA/DISC/UI-APRS/I-frame/RR) under `tools/Packet.Fuzz/corpus/{ax25,kiss}/`, regeneratable from the factories via `--seed-corpus`.
+- AFL/libfuzzer integration ready — `dotnet run -- ax25` / `kiss` wraps `Fuzzer.OutOfProcess.Run`. Activating needs afl-fuzz + libfuzzer-dotnet on a host with persistent fuzzing budget. Deferred per the brief — local/manual use only until findings stabilise.
+
+CI is unchanged in this PR; the fuzzer is for manual use.
 
 ### 2026-05-15 — codegen: lint pack (subroutine, DL-ERROR, state-target, dispatcher orphan, catchall)
 
