@@ -1,7 +1,17 @@
 {
   "name": "ax25sdl",
-  "version": "0.0.0",
-  "description": "AX.25 v2.2 SDL specification as TypeScript data structures. Generated from spec-sdl/.",
+  "version": "0.1.0",
+  "description": "AX.25 v2.2 SDL specification as TypeScript data structures, generated from the canonical SDL figure transcriptions in M0LTE/packet.net.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/M0LTE/packet.net.git",
+    "directory": "ts-spec"
+  },
+  "homepage": "https://github.com/M0LTE/packet.net/tree/main/ts-spec",
+  "bugs": {
+    "url": "https://github.com/M0LTE/packet.net/issues"
+  },
   "type": "module",
   "main": "dist/ax25sdl/index.js",
   "types": "dist/ax25sdl/index.d.ts",
@@ -19,6 +29,15 @@
     "build": "tsc",
     "test": "vitest run"
   },
+  "keywords": [
+    "ax25",
+    "amateur-radio",
+    "ham-radio",
+    "packet-radio",
+    "sdl",
+    "state-machine",
+    "codegen"
+  ],
   "devDependencies": {
     "@types/node": "^22.7.0",
     "typescript": "^5.5.0",
