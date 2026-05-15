@@ -29,16 +29,22 @@ internal sealed class CodegenRunner : IDisposable
     public string SpecDir { get; }
     public string OutDir  { get; }
     public string TestsDir { get; }
+    public string JsonOutDir { get; }
+    public string RustOutDir { get; }
 
     public CodegenRunner()
     {
-        RootDir  = Directory.CreateTempSubdirectory("sdl-codegen-tests-").FullName;
-        SpecDir  = Path.Combine(RootDir, "spec-sdl");
-        OutDir   = Path.Combine(RootDir, "src", "Packet.Ax25.Sdl");
-        TestsDir = Path.Combine(RootDir, "tests", "Packet.Ax25.Conformance.Tests");
+        RootDir    = Directory.CreateTempSubdirectory("sdl-codegen-tests-").FullName;
+        SpecDir    = Path.Combine(RootDir, "spec-sdl");
+        OutDir     = Path.Combine(RootDir, "src", "Packet.Ax25.Sdl");
+        TestsDir   = Path.Combine(RootDir, "tests", "Packet.Ax25.Conformance.Tests");
+        JsonOutDir = Path.Combine(RootDir, "json-spec");
+        RustOutDir = Path.Combine(RootDir, "rust-spec", "src");
         Directory.CreateDirectory(SpecDir);
         Directory.CreateDirectory(OutDir);
         Directory.CreateDirectory(TestsDir);
+        Directory.CreateDirectory(JsonOutDir);
+        Directory.CreateDirectory(RustOutDir);
     }
 
     /// <summary>Drop a YAML page into the SpecDir at the given sub-path.</summary>
@@ -66,19 +72,7 @@ internal sealed class CodegenRunner : IDisposable
         // ReferenceOutputAssembly=false so the assembly isn't auto-copied;
         // we resolve it via the well-known relative path from this test
         // assembly's build output. Works in dotnet test and direct runs.
-        var testAsmDir = Path.GetDirectoryName(typeof(CodegenRunner).Assembly.Location)!;
-        // testAsmDir = .../tests/Packet.Sdl.CodeGen.Tests/bin/<Config>/<tfm>
-        // codegen dll: .../tools/Packet.Sdl.CodeGen/bin/<Config>/<tfm>/Packet.Sdl.CodeGen.dll
-        var config = new DirectoryInfo(testAsmDir).Parent!.Name; // Debug or Release
-        var tfm = new DirectoryInfo(testAsmDir).Name;
-        var repoRoot = FindRepoRoot(testAsmDir);
-        var dll = Path.Combine(repoRoot, "tools", "Packet.Sdl.CodeGen", "bin", config, tfm, "Packet.Sdl.CodeGen.dll");
-
-        if (!File.Exists(dll))
-        {
-            throw new FileNotFoundException(
-                $"codegen DLL not found at expected path: {dll}. Ensure the codegen project is built before running tests.");
-        }
+        var dll = LocateCodegenDll();
 
         // --csharp opts in to the C# backend (only) so the test
         // sandbox doesn't touch Go / TS spec directories. Per-test
@@ -99,16 +93,90 @@ internal sealed class CodegenRunner : IDisposable
         return new RunResult(proc.ExitCode, stdout, stderr);
     }
 
-    /// <summary>Read a generated file from the output directory.</summary>
+    /// <summary>
+    /// Run codegen with the JSON backend selected (and only the JSON
+    /// backend). Output lands in <see cref="JsonOutDir"/>.
+    /// </summary>
+    public RunResult RunJson()
+    {
+        var dll = LocateCodegenDll();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dll}\" --in \"{SpecDir}\" --json --json-out \"{JsonOutDir}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+        };
+        using var proc = Process.Start(psi)!;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+        return new RunResult(proc.ExitCode, stdout, stderr);
+    }
+
+    /// <summary>
+    /// Run codegen with the Rust backend selected (and only Rust).
+    /// Output lands in <see cref="RustOutDir"/>.
+    /// </summary>
+    public RunResult RunRust()
+    {
+        var dll = LocateCodegenDll();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dll}\" --in \"{SpecDir}\" --rust --rust-out \"{RustOutDir}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+        };
+        using var proc = Process.Start(psi)!;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+        return new RunResult(proc.ExitCode, stdout, stderr);
+    }
+
+    /// <summary>Read a generated file from the C# output directory.</summary>
     public string ReadGenerated(string relativePath)
     {
         var full = Path.Combine(OutDir, relativePath);
         return File.ReadAllText(full);
     }
 
-    /// <summary>Does the named file exist in the output directory?</summary>
+    /// <summary>Read a generated file from the JSON output directory.</summary>
+    public string ReadJson(string relativePath)
+    {
+        var full = Path.Combine(JsonOutDir, relativePath);
+        return File.ReadAllText(full);
+    }
+
+    /// <summary>Read a generated file from the Rust output directory.</summary>
+    public string ReadRust(string relativePath)
+        => File.ReadAllText(Path.Combine(RustOutDir, relativePath));
+
+    /// <summary>Does the named file exist in the C# output directory?</summary>
     public bool GeneratedExists(string relativePath)
         => File.Exists(Path.Combine(OutDir, relativePath));
+
+    /// <summary>Does the named file exist in the JSON output directory?</summary>
+    public bool JsonExists(string relativePath)
+        => File.Exists(Path.Combine(JsonOutDir, relativePath));
+
+    /// <summary>Does the named file exist in the Rust output directory?</summary>
+    public bool RustExists(string relativePath)
+        => File.Exists(Path.Combine(RustOutDir, relativePath));
+
+    private static string LocateCodegenDll()
+    {
+        var testAsmDir = Path.GetDirectoryName(typeof(CodegenRunner).Assembly.Location)!;
+        var config = new DirectoryInfo(testAsmDir).Parent!.Name;
+        var tfm = new DirectoryInfo(testAsmDir).Name;
+        var repoRoot = FindRepoRoot(testAsmDir);
+        var dll = Path.Combine(repoRoot, "tools", "Packet.Sdl.CodeGen", "bin", config, tfm, "Packet.Sdl.CodeGen.dll");
+        if (!File.Exists(dll))
+        {
+            throw new FileNotFoundException(
+                $"codegen DLL not found at expected path: {dll}. Ensure the codegen project is built before running tests.");
+        }
+        return dll;
+    }
 
     public void Dispose()
     {

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Packet.Sdl.CodeGen.Python</RootNamespace>
+    <Description>Python emitter backend for the SDL codegen IR. Hand-rolled string emission; produces .g.py files of frozen dataclasses that import the hand-written runtime types in python-spec/ax25sdl/types.py.</Description>
+    <!-- CA1834 (StringBuilder.Append(char) preference) is a perf nit on
+         single-char string appends; the emitter's hot path is bounded
+         to the size of spec-sdl so the savings are noise. Suppress to
+         keep the emitter source readable rather than peppering it with
+         double-quote-to-apostrophe escapes. -->
+    <NoWarn>$(NoWarn);CA1834</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Packet.Sdl.IR\Packet.Sdl.IR.csproj" />
+  </ItemGroup>
+
+</Project>

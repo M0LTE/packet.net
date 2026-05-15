@@ -824,6 +824,73 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — codegen: four new emitters (Rust, C, JSON, Python)
+
+The IR refactor now powers **seven** language backends. Each emitter
+follows the established pattern: a `tools/Packet.Sdl.CodeGen.<Lang>/`
+project that consumes the language-neutral `ResolvedPage` /
+`ResolvedSubroutinesPage` IR and produces files into a sibling
+`<lang>-spec/` directory.
+
+**New emitters and their outputs:**
+
+- **Rust** (`tools/Packet.Sdl.CodeGen.Rust/`, `rust-spec/`) — cargo
+  crate. Generated `*.g.rs` files contain `pub static
+  DATA_LINK_CONNECTED: StatePage = …` plus a co-located
+  `#[cfg(test)] mod tests` with per-transition assertions. `lib.rs`
+  is generated; `types.rs` is hand-written. `cargo build/test/fmt`
+  in CI. **165 generated tests pass.**
+
+- **C** (`tools/Packet.Sdl.CodeGen.C/`, `c-spec/`) — CMake project.
+  `c-spec/src/*.g.c` defines `const StatePage DataLinkConnected = …`;
+  `c-spec/src/ax25sdl.g.h` is the generated header that aggregates
+  every `extern const …` declaration. `c-spec/test/*.g.test.c` are
+  per-page test binaries wired into CTest. Hand-written
+  `c-spec/include/ax25sdl.h` carries the runtime types.
+  `cmake/make/ctest/clang-format` in CI. **6 generated ctest binaries pass.**
+
+- **JSON** (`tools/Packet.Sdl.CodeGen.Json/`, `json-spec/`) — pure
+  data. Each `*.g.json` is structurally validated against the
+  generated `schema.json` (JSON Schema draft-2020-12) at codegen
+  time via JsonSchema.Net; CI just asserts no drift. No runtime; the
+  schema is the contract. **6 generated `.g.json` files + `index.json`
+  + `schema.json`.**
+
+- **Python** (`tools/Packet.Sdl.CodeGen.Python/`, `python-spec/`) —
+  pip-installable package. Frozen `@dataclass(frozen=True, slots=True)`
+  instances per page, plus per-transition `def test_…` functions
+  picked up by pytest. `__init__.py` is generated (importlib-based
+  re-export — the `.g.py` filename's literal dot blocks normal
+  `from .x.g import …`). `pytest` in CI. **169 generated tests pass.**
+
+**CLI surface.** The Program.cs orchestrator now exposes seven
+opt-in-by-presence flags: `--csharp`, `--go`, `--ts`, `--json`,
+`--rust`, `--emit-c` (CommandLineParser rejects single-char long
+names so `--c` isn't available; short alias `-c` works), `--python`.
+Each has a paired `--<lang>-out PATH` option. No flags = all seven
+backends emit to default paths.
+
+**CI shape.** The `sdl-codegen-discipline` set is now seven parallel
+jobs — one per backend. Each installs only its own toolchain (Rust
+via dtolnay/rust-toolchain, C via apt + cmake, Python via
+actions/setup-python, JSON needs only .NET). With 4 self-hosted
+runners the seven discipline jobs fan out alongside the test matrix.
+
+**Method.** Four sub-agents ran in parallel `git worktree`-isolated
+copies of the integration branch, one per new backend. Each delivered
+the emitter project, the spec output, the agent's CodegenRunner
+extensions, and the per-language CI job. The frontend crashed
+mid-way; on restart, the worktrees were recoverable and the
+integration completed by hand-merging each agent's Program.cs slice
+into the parent's already-wired JSON state.
+
+**Total** 1,069 + 165 + 6 + 169 = **1,409 tests verifying the spec**
+across four runtimes — every transition's id/on/next/guard/actions
+encoded once in `*.sdl.yaml`, asserted independently by seven
+language toolchains.
+
+
+
 ### 2026-05-15 — ci: sweep workflow annotations (bump action pins, disable empty Go cache)
 
 PR #113's CI run carried persistent warnings on every job —

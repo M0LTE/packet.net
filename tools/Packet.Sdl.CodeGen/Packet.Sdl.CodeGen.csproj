@@ -14,6 +14,11 @@
     <ProjectReference Include="..\Packet.Sdl.CodeGen.Csharp\Packet.Sdl.CodeGen.Csharp.csproj" />
     <ProjectReference Include="..\Packet.Sdl.CodeGen.Go\Packet.Sdl.CodeGen.Go.csproj" />
     <ProjectReference Include="..\Packet.Sdl.CodeGen.Ts\Packet.Sdl.CodeGen.Ts.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.Json\Packet.Sdl.CodeGen.Json.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.Rust\Packet.Sdl.CodeGen.Rust.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.C\Packet.Sdl.CodeGen.C.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.Python\Packet.Sdl.CodeGen.Python.csproj" />
+    <ProjectReference Include="..\Packet.Sdl.CodeGen.Json\Packet.Sdl.CodeGen.Json.csproj" />
   </ItemGroup>
 
 </Project>
