@@ -198,7 +198,7 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: ts-spec build (so file: deps in web/ax25-ts resolve)
+      - name: "ts-spec build (so file: deps in web/ax25-ts resolve)"
         # web/ax25-ts depends on ts-spec via `file:../../ts-spec`, which
         # copies the files listed in ts-spec/package.json's `files`
         # array — that's `dist/**`. tsc must run first or the copy is
