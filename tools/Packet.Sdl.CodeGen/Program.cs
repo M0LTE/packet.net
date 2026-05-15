@@ -140,6 +140,17 @@ internal static class Program
             }
         }
 
+        // Predicate-completeness lint: every predicate the YAML's
+        // decisions reference must have a binding in
+        // Ax25SessionBindings.CreateDefault. Without this, an unbound
+        // predicate makes GuardEvaluator.Evaluate throw at runtime
+        // — and worse, the throw can be silently swallowed by a
+        // background pump task, manifesting as a state machine that
+        // mysteriously ignores certain frames. The lint catches it at
+        // codegen time so transcription gaps surface BEFORE the live
+        // RF test exposes them.
+        LintPredicateBindings(pages, subroutinePages, errors);
+
         if (errors.Count > 0)
         {
             foreach (var e in errors) Console.Error.WriteLine($"::error::{e}");
@@ -625,6 +636,105 @@ internal static class Program
         {
             Console.Error.WriteLine("::warning::clang-format not found on PATH; emitted C files may not be canonically formatted.");
         }
+    }
+
+    private const string BindingsPath = "src/Packet.Ax25/Session/Ax25SessionBindings.cs";
+
+    private static readonly HashSet<string> GuardOperators =
+        new(new[] { "and", "or", "not" }, StringComparer.Ordinal);
+
+    private static readonly char[] PredicateTokenSeparators = { ' ', '\t' };
+
+    /// <summary>
+    /// Cross-reference every predicate identifier the YAML's decisions
+    /// reference against the bindings <see cref="BindingsPath"/> declares.
+    /// Missing bindings become codegen errors with the precise predicate
+    /// name and the YAML location of its first use.
+    /// </summary>
+    /// <remarks>
+    /// Bindings are extracted by regex-scanning <see cref="BindingsPath"/>
+    /// for indexer literals (<c>["name"] =</c>) — the canonical syntax for
+    /// declaring bindings today. If someone adds a binding via a different
+    /// mechanism (e.g. dynamic <c>bindings.Add(...)</c>), this lint won't
+    /// see it; the regex is the contract. The lint is silently skipped
+    /// when the bindings file isn't present, keeping the codegen tool
+    /// useful as a standalone library generator without
+    /// <c>Packet.Ax25</c> on disk.
+    /// </remarks>
+    private static void LintPredicateBindings(
+        List<SdlPage> pages,
+        List<SubroutinePage> subroutinePages,
+        List<string> errors)
+    {
+        if (!File.Exists(BindingsPath))
+        {
+            // Standalone codegen invocation without the runtime library
+            // on disk — skip rather than fail.
+            return;
+        }
+
+        var bound = ExtractBoundPredicateNames(File.ReadAllText(BindingsPath));
+
+        // Walk every decision in every page, tokenize its predicate,
+        // and remember the first YAML location each identifier appears
+        // at so the error message can point at it.
+        var firstSeen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var page in pages)
+        {
+            foreach (var d in page.Decisions)
+            {
+                CollectIdents(d.Predicate, $"{page.SourcePath}: decision `{d.Id}`", firstSeen);
+            }
+        }
+        foreach (var page in subroutinePages)
+        {
+            foreach (var sub in page.Subroutines)
+            {
+                foreach (var d in sub.Decisions)
+                {
+                    CollectIdents(d.Predicate, $"{page.SourcePath}: subroutine `{sub.Name}` decision `{d.Id}`", firstSeen);
+                }
+            }
+        }
+
+        foreach (var (ident, loc) in firstSeen.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+        {
+            if (!bound.Contains(ident))
+            {
+                errors.Add(
+                    $"{loc}: predicate `{ident}` has no binding in {BindingsPath}. " +
+                    "Add an entry to Ax25SessionBindings.CreateDefault — unbound predicates throw " +
+                    "GuardEvaluationException at runtime, which can manifest as silently-dropped frames " +
+                    "when a background pump swallows the exception.");
+            }
+        }
+    }
+
+    private static void CollectIdents(string predicate, string location, Dictionary<string, string> firstSeen)
+    {
+        if (string.IsNullOrWhiteSpace(predicate)) return;
+        var tokens = predicate.Split(PredicateTokenSeparators, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var tok in tokens)
+        {
+            if (GuardOperators.Contains(tok)) continue;
+            firstSeen.TryAdd(tok, location);
+        }
+    }
+
+    private static HashSet<string> ExtractBoundPredicateNames(string bindingsSource)
+    {
+        // Match `["name"]` indexer literals — both the dictionary-
+        // initializer form (`["foo"] = ...`) and any other use of
+        // the same indexer syntax. The regex's identifier class
+        // matches C# identifier rules (letter/underscore start,
+        // alnum/underscore body).
+        var rx = new System.Text.RegularExpressions.Regex(@"\[""([A-Za-z_][A-Za-z0-9_]*)""\]");
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (System.Text.RegularExpressions.Match m in rx.Matches(bindingsSource))
+        {
+            names.Add(m.Groups[1].Value);
+        }
+        return names;
     }
 
     private static void WriteIfChanged(string path, string contents)

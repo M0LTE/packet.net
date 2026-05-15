@@ -51,6 +51,21 @@ public static class Ax25SessionBindings
             ["version_2_2"]                = () => context.IsExtended,
             ["srej_exception_gt_0"]        = () => context.SrejExceptionCount > 0,
 
+            // ─── Node policy (figc4.1 SABM_received decision) ──────────
+            //
+            // "Able to establish?" — the spec defers to the station's
+            // own policy: link budget, channel busy, callsign allow-list,
+            // resource limits, etc. We default to `true` (always accept)
+            // which matches direwolf's behaviour ("we are always willing
+            // to accept connections", ax25_link.c:4337). Production
+            // stations that need finer control should override this
+            // binding with their own policy hook — the cleanest shape
+            // is probably an `IAx25SessionPolicy` injected into the
+            // session ctor, but until that lands the override-on-build
+            // pattern (replace the entry in this dictionary before
+            // handing it to GuardEvaluator) is sufficient.
+            ["able_to_establish"]          = () => true,
+
             // ─── Sequence-variable comparisons (mod-aware) ─────────────
             ["V_s_eq_V_a"]                 = () => context.VS == context.VA,
             ["V_s_eq_V_a_plus_k"]
