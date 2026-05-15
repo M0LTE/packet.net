@@ -1,0 +1,25 @@
+[**@packet-net/ax25-ts**](../../README.md)
+
+***
+
+[@packet-net/ax25-ts](../../README.md) / [index](../README.md) / pollFinal
+
+# Function: pollFinal()
+
+```ts
+function pollFinal(frame): boolean;
+```
+
+Defined in: [frame.ts:82](https://github.com/M0LTE/packet.net/blob/main/web/ax25-ts/src/frame.ts#L82)
+
+True if the P/F bit in the control byte is set.
+
+## Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `frame` | [`Ax25Frame`](../interfaces/Ax25Frame.md) |
+
+## Returns
+
+`boolean`

@@ -3,11 +3,11 @@
  * (no KISS framing — that's the transport's job).
  *
  * Concrete implementations:
- *   - {@link WebSerialKissTransport} — KISS over Web Serial.
- *   - {@link MockTransport} (tests/utils) — paired in-memory mock for tests.
+ *   - {@link WebSerialKissTransport} — KISS over Web Serial (browser).
+ *   - `TcpKissTransport` (Node-only, via `@packet-net/ax25-ts/tcp-transport` subpath import).
+ *   - `MockTransport` (tests/mock-transport.ts) — paired in-memory mock for tests.
  *
- * Future implementations (out of scope for v1):
- *   - TcpKissTransport (Node-only)
+ * Future implementations (out of scope for v0.1):
  *   - AgwTransport
  *   - AxudpTransport
  */
