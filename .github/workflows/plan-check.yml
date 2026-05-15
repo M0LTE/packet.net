@@ -8,6 +8,11 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  # Opt into Node.js 24 for JavaScript actions ahead of GitHub's
+  # June 2nd, 2026 forced cutover. See ci.yml for context.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Enforces docs/plan.md §18 — every PR that materially changes the project
 # must update the living plan in the same PR.
 #

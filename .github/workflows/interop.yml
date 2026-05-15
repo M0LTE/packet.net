@@ -29,6 +29,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Opt into Node.js 24 for JavaScript actions ahead of GitHub's
+  # June 2nd, 2026 forced cutover. See ci.yml for context.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   interop:
     name: interop matrix
