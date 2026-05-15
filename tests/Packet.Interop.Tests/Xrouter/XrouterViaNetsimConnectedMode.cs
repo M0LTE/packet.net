@@ -86,6 +86,107 @@ public class XrouterViaNetsimConnectedMode
         try { await Task.WhenAll(pumps); } catch (OperationCanceledException) { }
     }
 
+    /// <summary>
+    /// Beyond the handshake: drive the figc4.4 Connected state's data path
+    /// end-to-end against XRouter's node prompt. After SABM/UA we send
+    /// "?\r" (help-summary command) as an outbound I-frame and wait for
+    /// XRouter's response indication, then DISC/UA to close the link
+    /// cleanly. Mirrors
+    /// <c>LinbpqViaNetsimConnectedMode.Connected_IFrame_RoundTrip_Against_Linbpq_Node_Prompt</c>
+    /// against the second third-party AX.25 stack. This exercises t18
+    /// (DL-DATA push), t19/t20 (I-frame TX with V(s)++ and T1 management),
+    /// t14-t16 (I-frame RX with N(s)/N(r) accounting), the upward data
+    /// plumbing via sendUpward, and XRouter's own ack/RR handling on
+    /// both directions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Unlike LinBPQ, XRouter does NOT emit a welcome banner on connects
+    /// to its NODECALL — its CTEXT block is documented as "sent to
+    /// anyone connecting to the node alias" (see /data/XROUTER.CFG.example
+    /// in the container image), so NODECALL connects engage the node
+    /// prompt silently. We therefore skip the banner-wait step here and
+    /// drive the command exchange directly. A short settle after UA
+    /// lets the post-handshake RR exchange flow before the queue drain.
+    /// </para>
+    /// <para>
+    /// Assertion is intentionally tolerant of XRouter's exact wording —
+    /// only "non-empty payload from XRouter" is checked, not specific
+    /// text — so the test survives XRouter upstream wording changes. Pid
+    /// is asserted as 0xF0 (no layer 3) which is what XRouter's node
+    /// prompt uses; any other pid would surface a real protocol mismatch
+    /// worth investigating.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Connected_IFrame_RoundTrip_Against_Xrouter_Node_Prompt()
+    {
+        var totalBudget = ConnectBudget
+            + TimeSpan.FromSeconds(15)   // command response wait
+            + DisconnectBudget
+            + TimeSpan.FromSeconds(15);  // slack
+        using var cts = new CancellationTokenSource(totalBudget);
+
+        await using var kiss = await KissTcpClient.ConnectAsync(Host, OurKissPort, cts.Token);
+        var rig = BuildRig(local: OurCall, remote: XrouterCall, kiss: kiss);
+
+        var pumps = new[]
+        {
+            Task.Run(() => InboundPump(rig, cts.Token), cts.Token),
+        };
+
+        await Task.Delay(500, cts.Token);
+
+        // ─── Connect ────────────────────────────────────────────────
+        rig.Session.PostEvent(new DlConnectRequest());
+        var connectConfirm = await WaitForSignal<DataLinkConnectConfirm>(rig.Signals, ConnectBudget, pumps, cts.Token);
+        connectConfirm.Should().NotBeNull("must complete handshake before any data exchange");
+
+        // ─── Settle ─────────────────────────────────────────────────
+        // Unlike LinBPQ, XRouter's NODECALL connect path does not emit a
+        // CTEXT welcome banner (CTEXT is alias-only — see XROUTER.CFG
+        // and /data/XROUTER.CFG.example: "Connection text, sent to anyone
+        // connecting to the node alias"). The node prompt is engaged for
+        // NODECALL connects, but it's silent until the first command
+        // arrives — there's no banner to gate on. We give the link a
+        // brief settle for the post-UA RR exchange to flow, then drive
+        // the command round-trip directly.
+        await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
+        DrainIndications(rig.Signals);
+
+        // ─── Outbound command ───────────────────────────────────────
+        // "?\r" is the help-summary command at XRouter's node prompt —
+        // short, deterministically non-empty response, no side effects
+        // on XRouter's state.
+        rig.Session.PostEvent(new DlDataRequest(System.Text.Encoding.ASCII.GetBytes("?\r"), Ax25Frame.PidNoLayer3));
+
+        var response = await WaitForSignal<DataLinkDataIndication>(rig.Signals, TimeSpan.FromSeconds(15), pumps, cts.Token);
+        response.Should().NotBeNull("XRouter must reply to our help command with at least one I-frame");
+        response!.Info.Length.Should().BeGreaterThan(0, "response payload should not be empty");
+        response.Pid.Should().Be(Ax25Frame.PidNoLayer3);
+
+        rig.Session.CurrentState.Should().Be("Connected", "link must survive the data round-trip");
+
+        // ─── Disconnect ─────────────────────────────────────────────
+        rig.Session.PostEvent(new DlDisconnectRequest());
+        var disconnectConfirm = await WaitForSignal<DataLinkDisconnectConfirm>(rig.Signals, DisconnectBudget, pumps, cts.Token);
+        disconnectConfirm.Should().NotBeNull("clean DISC/UA close after data exchange");
+        rig.Session.CurrentState.Should().Be("Disconnected");
+
+        cts.Cancel();
+        try { await Task.WhenAll(pumps); } catch (OperationCanceledException) { }
+    }
+
+    private static void DrainIndications(ConcurrentQueue<DataLinkSignal> signals)
+    {
+        var keep = new List<DataLinkSignal>();
+        while (signals.TryDequeue(out var s))
+        {
+            if (s is not DataLinkDataIndication) keep.Add(s);
+        }
+        foreach (var s in keep) signals.Enqueue(s);
+    }
+
     // ─── Rig ────────────────────────────────────────────────────────
     //
     // Same shape as LinbpqViaNetsimConnectedMode.BuildRig. Kept
