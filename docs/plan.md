@@ -826,6 +826,31 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — codegen: lint pack (subroutine, DL-ERROR, state-target, dispatcher orphan, catchall)
+
+Five more codegen-time lints, completing the structural-consistency family. Each is the same shape as the predicate / action-verb lints — walk the resolved IR, cross-reference against a per-file extraction (dispatcher regex / subroutine registry / state set), report gaps with the YAML location.
+
+**LintSubroutineCoverage** — every `kind: subroutine` action must resolve to a figc4.7 subroutine page entry or a `LegacyAliases` entry in `SubroutineRegistry.cs`. Mirrors the action-verb lint for the subroutine name-space. Caught zero new gaps (the registry is small and well-known) but closes a runtime-throw surface.
+
+**LintDlErrorLetters** — every `DL_ERROR_indication_<X>` (or `DL-ERROR Indication (<X>)`) must have a matching case in the dispatcher. Lets the dispatcher's case list be the source of truth for which §C5 letter variants are recognised, rather than hardcoding A..R in the lint. Caught zero new gaps.
+
+**LintStateTargets** — every transition's `next:` must name a state declared somewhere in the same machine. Caught one real gap: figc4.4 t38 (T1 expiry) and t39 (T3 expiry) target `TimerRecovery`, which is figc4.5 — not yet transcribed (the runtime registers `TransitionMap[TimerRecovery] = empty` as a placeholder). Added `StateTargetAllowList` with a single entry for `TimerRecovery` referencing §6.4 SDL inventory. Lint respects `coverage: partial`.
+
+**LintDispatcherOrphans** — every `case "..."` in `ActionDispatcher.Execute` should be reachable from at least one SDL transition (post alias resolution). Caught seven cases:
+
+- `Check_I_Frames_Acknowledged` (plural alias; canonical handles it)
+- `Enquiry_Response` (canonical body; transcriptions use `_F_0` / `_F_1` variants)
+- `Establish_Extended_Data_Link` (figc4.7 v2.2 path — not yet referenced from figc4.x)
+- `Set_Version_2_0` / `Set_Version_2_2` (figc4.7 subroutines — not yet referenced)
+- `discard_i_frame_queue` (lowercase alias — defensive case-drift)
+- `start_T2` / `stop_T2` (T2 lazy-ack driven internally, not from SDL)
+
+Allow-listed each with a one-line reason in `DispatcherOrphanAllowList`. Three of the seven (Establish_Extended_Data_Link, Set_Version_2_0, Set_Version_2_2) are real transcription gaps — figc4.7 invocations from figc4.x transitions aren't fully wired. Captured as "expected gap" rather than blocking the lint; will burn down as figc4.7 transcription progresses.
+
+**LintCatchallCoverage** — every state page should have at least one transition triggered by a `catchalls:` event (`all_other_primitives__*` / `all_other_commands`). Without it, events the state doesn't explicitly handle silently no-op — a quietly-dropped-frame bug. Caught zero new gaps (every existing page has a catchall). Respects `coverage: partial`.
+
+Side-effect on `Packet.Sdl.CodeGen.Tests`: the codegen test fixtures used `coverage: complete` while declaring single-state pages with cross-state `next:` targets. The state-target lint correctly rejected this as "you said complete but referenced an undefined state". Changed all 12 test-fixture pages to `coverage: partial` — they're work-in-progress codegen mechanics tests, not full transcriptions, so `partial` is honest.
+
 ### 2026-05-15 — codegen: action-verb-completeness lint + two latent action bugs
 
 Mirror of the predicate-completeness lint added earlier today, addressing the follow-up flagged in the previous I-frame round-trip entry. Walks every action verb in every resolved SDL page (post-`actions.yaml` alias substitution) and confirms there's a matching `case "..."` arm in `ActionDispatcher.Execute`. Verbs lacking a case become codegen errors with the YAML location of their first use and a hint to either add a dispatcher case or an `actions.yaml` alias.

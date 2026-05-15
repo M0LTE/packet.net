@@ -167,6 +167,43 @@ internal static class Program
         //      canonical name so we know to add the case.
         LintActionDispatcherCoverage(pages, subroutinePages, errors);
 
+        // Subroutine-completeness lint: every action with kind=subroutine
+        // must resolve to either a figc4.7 subroutine page entry or a
+        // hard-coded legacy alias in SubroutineRegistry.LegacyAliases.
+        // Otherwise SubroutineRegistry.Invoke throws "unknown subroutine"
+        // at runtime — same silent-swallow risk profile as the action /
+        // predicate lints.
+        LintSubroutineCoverage(pages, subroutinePages, errors);
+
+        // DL-ERROR letter lint: every DL_ERROR_indication_<X> verb must
+        // use a letter (or the special "add" annotation) the dispatcher
+        // is prepared to relay. Catches transcription typos like
+        // DL_ERROR_indication_Z.
+        LintDlErrorLetters(pages, subroutinePages, errors);
+
+        // State-target lint: every transition's `next:` must name a state
+        // that exists somewhere in the same machine. Catches transcription
+        // typos like `next: connecteed` that would otherwise wedge the
+        // session in a state the runtime can't dispatch on.
+        LintStateTargets(pages, errors);
+
+        // Dispatcher-orphan lint: every `case "..."` in ActionDispatcher
+        // should be reachable from at least one SDL transition (post-
+        // alias resolution). Orphans aren't a runtime bug, but they
+        // accumulate dead code that obscures real coverage. Symmetric
+        // with the existing unused-alias lint on actions.yaml.
+        LintDispatcherOrphans(pages, subroutinePages, errors);
+
+        // Per-state catchall-coverage lint: every state should have at
+        // least one transition triggered by a `catchalls:` event (e.g.
+        // all_other_primitives__from_lower_layer). Without a catchall,
+        // any event not explicitly handled silently no-ops, which can
+        // mask real transcription gaps. The lint is intentionally
+        // tolerant — it only requires SOME catchall, not full event
+        // coverage; deciding which events a state should handle is the
+        // spec author's call, not codegen's.
+        LintCatchallCoverage(pages, errors);
+
         if (errors.Count > 0)
         {
             foreach (var e in errors) Console.Error.WriteLine($"::error::{e}");
@@ -844,6 +881,364 @@ internal static class Program
             labels.Add(m.Groups[1].Value);
         }
         return labels;
+    }
+
+    private const string SubroutineRegistryPath = "src/Packet.Ax25/Session/SubroutineRegistry.cs";
+
+    /// <summary>
+    /// Cross-reference every subroutine name the resolved IR invokes
+    /// against the figc4.7 subroutine pages + the legacy-alias map in
+    /// <see cref="SubroutineRegistryPath"/>. Missing names become codegen
+    /// errors so figc4.x → figc4.7 wiring gaps don't first surface as
+    /// runtime "unknown subroutine" throws.
+    /// </summary>
+    private static void LintSubroutineCoverage(
+        List<SdlPage> pages,
+        List<SubroutinePage> subroutinePages,
+        List<string> errors)
+    {
+        // Known subroutines: every name defined in any figc4.7 page,
+        // plus the LegacyAliases dictionary in SubroutineRegistry.cs.
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var sp in subroutinePages)
+        {
+            foreach (var sub in sp.Subroutines)
+            {
+                known.Add(sub.Name);
+            }
+        }
+        if (File.Exists(SubroutineRegistryPath))
+        {
+            foreach (var legacy in ExtractLegacyAliasKeys(File.ReadAllText(SubroutineRegistryPath)))
+            {
+                known.Add(legacy);
+            }
+        }
+
+        var firstSeen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var page in pages)
+        {
+            var resolved = Resolver.Resolve(page);
+            foreach (var t in resolved.Transitions)
+            {
+                foreach (var a in t.Actions)
+                {
+                    if (a.Kind != ResolvedActionKind.Subroutine) continue;
+                    var loc = $"{page.SourcePath}: transition `{t.Id}` invokes subroutine `{a.Verb}`";
+                    firstSeen.TryAdd(a.Verb, loc);
+                }
+            }
+        }
+        // Subroutines that call other subroutines: figc4.7 pages too.
+        foreach (var subPage in subroutinePages)
+        {
+            var resolved = Resolver.Resolve(subPage);
+            foreach (var sub in resolved.Subroutines)
+            {
+                foreach (var path in sub.Paths)
+                {
+                    foreach (var a in path.Actions)
+                    {
+                        if (a.Kind != ResolvedActionKind.Subroutine) continue;
+                        var loc = $"{subPage.SourcePath}: subroutine `{sub.Name}` path `{path.Id}` invokes subroutine `{a.Verb}`";
+                        firstSeen.TryAdd(a.Verb, loc);
+                    }
+                }
+            }
+        }
+
+        foreach (var (name, loc) in firstSeen.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+        {
+            if (!known.Contains(name))
+            {
+                errors.Add(
+                    $"{loc}: no figc4.7 subroutine page defines `{name}` and {SubroutineRegistryPath} " +
+                    "has no legacy-alias entry for it. Add the subroutine to a figc4.7 *.sdl.yaml " +
+                    "page (canonical), OR add a LegacyAliases entry mapping it to an existing canonical name.");
+            }
+        }
+    }
+
+    private static HashSet<string> ExtractLegacyAliasKeys(string registrySource)
+    {
+        // Match `["name"] = "..."` indexer-literal entries inside the
+        // LegacyAliases dictionary initialiser. The same regex used by
+        // the predicate lint is too permissive here (it'd match any
+        // `["foo"]` indexer), so we anchor to lines that contain `= "`
+        // (the value-assignment part of the dict literal).
+        var rx = new System.Text.RegularExpressions.Regex(@"\[""([A-Za-z_][A-Za-z0-9_]*)""\]\s*=\s*""");
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (System.Text.RegularExpressions.Match m in rx.Matches(registrySource))
+        {
+            keys.Add(m.Groups[1].Value);
+        }
+        return keys;
+    }
+
+    // ─── DL-ERROR letter lint ───────────────────────────────────────────
+    //
+    // Per §C5 the canonical letter set is A..R inclusive plus a few
+    // composite forms the figures actually use. The dispatcher's
+    // `case "DL_ERROR_indication_<X>":` arms decide which letters are
+    // actually relayable; we read those rather than hard-coding the
+    // alphabet, so adding a new letter only requires touching the
+    // dispatcher.
+
+    /// <summary>
+    /// Every `DL_ERROR_indication_<X>` verb in the resolved IR must
+    /// have a corresponding case in the dispatcher. This is redundant
+    /// with the action-verb lint for canonical verbs, but it adds an
+    /// independent check that the X portion is recognisable (e.g.
+    /// flags a typo like `DL_ERROR_indication_Z` even if someone
+    /// added a misleading alias in actions.yaml that mapped it to a
+    /// valid canonical).
+    /// </summary>
+    private static void LintDlErrorLetters(
+        List<SdlPage> pages,
+        List<SubroutinePage> subroutinePages,
+        List<string> errors)
+    {
+        if (!File.Exists(DispatcherPath)) return;
+        var handled = ExtractDispatcherCaseLabels(File.ReadAllText(DispatcherPath));
+
+        // Build the recognised DL-ERROR verbs from the dispatcher's
+        // own case labels — anything starting with `DL_ERROR_indication`
+        // or `DL-ERROR Indication`.
+        var recognised = new HashSet<string>(
+            handled.Where(c => c.StartsWith("DL_ERROR_indication", StringComparison.Ordinal)
+                            || c.StartsWith("DL-ERROR Indication",  StringComparison.Ordinal)),
+            StringComparer.Ordinal);
+
+        var firstSeen = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        void Collect(string verb, string loc)
+        {
+            if (!verb.StartsWith("DL_ERROR_indication", StringComparison.Ordinal)
+                && !verb.StartsWith("DL-ERROR Indication", StringComparison.Ordinal))
+                return;
+            firstSeen.TryAdd(verb, loc);
+        }
+
+        foreach (var page in pages)
+        {
+            var resolved = Resolver.Resolve(page);
+            foreach (var t in resolved.Transitions)
+                foreach (var a in t.Actions)
+                    Collect(a.Verb, $"{page.SourcePath}: transition `{t.Id}` action `{a.Verb}`");
+        }
+        foreach (var subPage in subroutinePages)
+        {
+            var resolved = Resolver.Resolve(subPage);
+            foreach (var sub in resolved.Subroutines)
+                foreach (var path in sub.Paths)
+                    foreach (var a in path.Actions)
+                        Collect(a.Verb, $"{subPage.SourcePath}: subroutine `{sub.Name}` path `{path.Id}` action `{a.Verb}`");
+        }
+
+        foreach (var (verb, loc) in firstSeen.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+        {
+            if (!recognised.Contains(verb))
+            {
+                errors.Add(
+                    $"{loc}: DL-ERROR variant `{verb}` is not in {DispatcherPath}'s recognised set. " +
+                    "Either the suffix letter is a typo (compare against §C5's A..R range), or this " +
+                    "is a genuinely new variant that needs a dispatcher case + actions.yaml entry.");
+            }
+        }
+    }
+
+    // ─── State-target lint ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Every transition's `next:` must name a state that exists somewhere
+    /// in the same machine. Catches transcription typos before the runtime
+    /// silently wedges in a state for which no transitions are dispatched.
+    /// </summary>
+    /// <remarks>
+    /// "Same machine" is taken from the page's <c>machine:</c> field. We
+    /// collect every declared state per machine from <c>state:</c> fields
+    /// across all pages and check `next:` against that set.
+    /// </remarks>
+    /// <summary>
+    /// Allow-list of <c>next:</c> state targets that don't have a
+    /// corresponding <c>*.sdl.yaml</c> page yet but ARE registered at
+    /// runtime (typically with an empty transition list — see
+    /// <c>TransitionMap</c> wiring in the rig builders). Add an entry
+    /// here with a one-line reason rather than letting the lint shrug.
+    /// </summary>
+    private static readonly HashSet<string> StateTargetAllowList = new(StringComparer.Ordinal)
+    {
+        // figc4.5 not yet transcribed. figc4.4 t38 / t39 (T1 / T3
+        // expiry from Connected) target TimerRecovery, which is a real
+        // state in the v2.2 spec but its page hasn't been transcribed
+        // yet. Runtime registers TransitionMap[TimerRecovery] = empty
+        // so the dispatcher dictionary lookup succeeds; semantically a
+        // gap until figc4.5 lands. See plan.md §6.4.
+        "TimerRecovery",
+    };
+
+    private static void LintStateTargets(List<SdlPage> pages, List<string> errors)
+    {
+        var statesByMachine = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var page in pages)
+        {
+            if (string.IsNullOrWhiteSpace(page.Machine) || string.IsNullOrWhiteSpace(page.State)) continue;
+            if (!statesByMachine.TryGetValue(page.Machine, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                statesByMachine[page.Machine] = set;
+            }
+            set.Add(page.State);
+        }
+
+        foreach (var page in pages)
+        {
+            // `coverage: partial` signals "this transcription is a
+            // work-in-progress" — cross-page consistency is intentionally
+            // incomplete. Same escape hatch the catchall lint uses.
+            if (string.Equals(page.Coverage, "partial", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!statesByMachine.TryGetValue(page.Machine, out var validStates)) continue;
+            foreach (var t in page.Transitions)
+            {
+                if (string.IsNullOrWhiteSpace(t.Next)) continue;
+                if (validStates.Contains(t.Next)) continue;
+                if (StateTargetAllowList.Contains(t.Next)) continue;
+                errors.Add(
+                    $"{page.SourcePath}: transition `{t.Id}` targets state `{t.Next}` which is not " +
+                    $"a known state in machine `{page.Machine}` (known: {string.Join(", ", validStates.OrderBy(x => x, StringComparer.Ordinal))}). " +
+                    "Typo, OR add a new *.sdl.yaml page declaring the target state, OR add an entry to " +
+                    "StateTargetAllowList in tools/Packet.Sdl.CodeGen/Program.cs with a one-line reason.");
+            }
+        }
+    }
+
+    // ─── Dispatcher orphan lint ─────────────────────────────────────────
+
+    /// <summary>
+    /// Every <c>case "..."</c> in the dispatcher's Execute switch should
+    /// be reachable from at least one SDL transition's resolved action.
+    /// Orphan cases aren't a runtime bug but they accumulate dead code
+    /// that obscures real coverage. Symmetric with the unused-alias lint
+    /// on <c>spec-sdl/actions.yaml</c>.
+    /// </summary>
+    /// <remarks>
+    /// We exclude a small allow-list of verbs that the dispatcher accepts
+    /// but no SDL page emits today, kept distinct in the source so the
+    /// audit log stays accurate. Add an entry here (with a one-line
+    /// reason) rather than letting the lint shrug at unused arms.
+    /// </remarks>
+    private static readonly HashSet<string> DispatcherOrphanAllowList = new(StringComparer.Ordinal)
+    {
+        // Plural alias of Check_I_Frame_Acknowledged. actions.yaml
+        // normalises away the plural at codegen time, so the dispatcher
+        // case is belt-and-braces for hand-written tests / future paths
+        // that bypass codegen.
+        "Check_I_Frames_Acknowledged",
+
+        // Canonical body name. figc4.4 transcriptions use the
+        // _F_0 / _F_1 variants per the dispatcher's "legacy names"
+        // comment; the canonical body is invoked indirectly via those.
+        // Kept distinct so hand-invoked dispatcher calls work.
+        "Enquiry_Response",
+
+        // figc4.7 subroutine bodies, NOT YET REFERENCED from any
+        // figc4.x state-page transition. These are real transcription
+        // gaps (Establish_Extended_Data_Link is the v2.2 / SABME path;
+        // Set_Version_2_0 / _2_2 are the modulus-selection bodies).
+        // Allow-listed for now so the lint doesn't block until the
+        // transcription gap is closed — see plan.md §6.4 SDL inventory.
+        "Establish_Extended_Data_Link",
+        "Set_Version_2_0",
+        "Set_Version_2_2",
+
+        // Lowercase alias of discard_I_frame_queue (figc4.6 spelling
+        // path). The actions.yaml entry rewrites at codegen, leaving
+        // the lowercase form unused post-resolution but kept here for
+        // defensive case-drift protection in hand-written code.
+        "discard_i_frame_queue",
+
+        // T2 timer ops. T2 (lazy-ack timer) is currently driven only
+        // by internal action paths in the dispatcher, not by direct
+        // SDL `start_T2` / `stop_T2` actions. The cases exist for
+        // when figc4.4's ack_pending paths are fully wired through.
+        "start_T2",
+        "stop_T2",
+    };
+
+    private static void LintDispatcherOrphans(
+        List<SdlPage> pages,
+        List<SubroutinePage> subroutinePages,
+        List<string> errors)
+    {
+        if (!File.Exists(DispatcherPath)) return;
+        var cases = ExtractDispatcherCaseLabels(File.ReadAllText(DispatcherPath));
+
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var page in pages)
+        {
+            var resolved = Resolver.Resolve(page);
+            foreach (var t in resolved.Transitions)
+                foreach (var a in t.Actions)
+                    used.Add(a.Verb);
+        }
+        foreach (var subPage in subroutinePages)
+        {
+            var resolved = Resolver.Resolve(subPage);
+            foreach (var sub in resolved.Subroutines)
+                foreach (var path in sub.Paths)
+                    foreach (var a in path.Actions)
+                        used.Add(a.Verb);
+        }
+
+        foreach (var c in cases.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            if (used.Contains(c)) continue;
+            if (DispatcherOrphanAllowList.Contains(c)) continue;
+            errors.Add(
+                $"{DispatcherPath}: case `\"{c}\"` is not emitted by any SDL transition (post alias " +
+                "resolution). Either remove the case, OR add an entry to DispatcherOrphanAllowList in " +
+                "tools/Packet.Sdl.CodeGen/Program.cs with a one-line reason for keeping it.");
+        }
+    }
+
+    // ─── Per-state catchall coverage lint ───────────────────────────────
+
+    /// <summary>
+    /// Every state should have at least one transition triggered by a
+    /// <c>catchalls:</c> event (<c>all_other_primitives__from_lower_layer</c>
+    /// / <c>all_other_primitives__from_upper_layer</c> / <c>all_other_commands</c>).
+    /// Without a catchall, events the state doesn't explicitly handle
+    /// silently no-op — which can mask real transcription gaps. The
+    /// lint is intentionally tolerant: it requires SOME catchall, not
+    /// full event coverage (deciding which events a state should handle
+    /// is the spec author's call).
+    /// </summary>
+    private static readonly string[] CatchallEvents =
+    {
+        "all_other_primitives__from_lower_layer",
+        "all_other_primitives__from_upper_layer",
+        "all_other_commands",
+    };
+
+    private static void LintCatchallCoverage(List<SdlPage> pages, List<string> errors)
+    {
+        foreach (var page in pages)
+        {
+            // Skip pages explicitly marked partial. `coverage: partial`
+            // signals "this is a work-in-progress transcription"; the
+            // catchall requirement applies once the page is complete.
+            if (string.Equals(page.Coverage, "partial", StringComparison.OrdinalIgnoreCase)) continue;
+
+            bool hasCatchall = page.Transitions.Any(t => CatchallEvents.Contains(t.On, StringComparer.Ordinal));
+            if (!hasCatchall)
+            {
+                errors.Add(
+                    $"{page.SourcePath}: state `{page.State}` has no transition triggered by any of " +
+                    $"`{string.Join("` / `", CatchallEvents)}`. Add a catchall transition (or mark the page " +
+                    "`coverage: partial` if this is a work-in-progress transcription) so events not " +
+                    "explicitly handled don't silently no-op at runtime.");
+            }
+        }
     }
 
     private static void WriteIfChanged(string path, string contents)
