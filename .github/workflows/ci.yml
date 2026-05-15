@@ -333,13 +333,15 @@ jobs:
         run: dotnet --version
 
       - name: probe Python
-        # We need both `python3` and an importable `venv` module. The
-        # system Python on Ubuntu 26.04 ships python3 but `venv` is in
-        # a separate apt package (`python3.14-venv`) — without it,
-        # `python3 -m venv` fails with "ensurepip is not available".
-        # The `gh` user can't `sudo apt install` non-interactively, so
-        # missing venv means we degrade to a drift-only check rather
-        # than reach for --break-system-packages.
+        # We need python3 + a working `python3 -m venv`. On Debian/Ubuntu
+        # the venv module needs ensurepip, shipped in the version-pinned
+        # apt package (e.g. `python3.14-venv` for Python 3.14 — the meta
+        # `python3-venv` doesn't always track the system default cleanly
+        # on bleeding-edge Ubuntu releases).
+        #
+        # Probe by actually creating a throwaway venv. `import venv`
+        # succeeds even when ensurepip is missing, so an importable
+        # check is misleading.
         id: probe
         run: |
           have_python=false
@@ -347,8 +349,9 @@ jobs:
           if which python3 >/dev/null 2>&1; then
             have_python=true
             python3 --version
-            if python3 -c "import venv" 2>/dev/null; then
+            if python3 -m venv /tmp/probe-venv 2>/dev/null; then
               have_venv=true
+              rm -rf /tmp/probe-venv
             fi
           fi
           {
@@ -382,4 +385,4 @@ jobs:
       - name: warn on missing Python tooling
         if: steps.probe.outputs.have_python != 'true' || steps.probe.outputs.have_venv != 'true'
         run: |
-          echo "::warning::Self-hosted runner missing Python tooling (python3=${{ steps.probe.outputs.have_python }} venv=${{ steps.probe.outputs.have_venv }}). pytest skipped. Install python3 + python3.14-venv to enable pytest verification."
+          echo "::warning::Self-hosted runner missing Python tooling (python3=${{ steps.probe.outputs.have_python }} workable-venv=${{ steps.probe.outputs.have_venv }}). pytest skipped. Install the version-pinned venv package matching the system python (e.g. python3.14-venv) — the meta python3-venv may not pull in the right one on bleeding-edge Ubuntu."
