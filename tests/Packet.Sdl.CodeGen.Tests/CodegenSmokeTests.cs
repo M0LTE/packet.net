@@ -21,7 +21,7 @@ public class CodegenSmokeTests
     private const string ValidMinimalPage = """
         machine: data_link
         state: Connected
-        coverage: complete
+        coverage: partial
         source:
           spec: test_spec
           figure: figc.test
@@ -76,7 +76,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions:
               - id: my_predicate
@@ -106,7 +106,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions:
               - id: cond_a
@@ -161,7 +161,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions:
               - id: has_more
@@ -212,7 +212,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions:
               - id: has_more
@@ -259,7 +259,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions: []
             transitions:
@@ -290,7 +290,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions: []
             transitions:
@@ -332,7 +332,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions: []
             transitions:
@@ -379,7 +379,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             decisions: []
             transitions:
@@ -408,7 +408,7 @@ public class CodegenSmokeTests
         r.WritePage("data-link/connected.sdl.yaml", """
             machine: data_link
             state: Connected
-            coverage: complete
+            coverage: partial
             source: { spec: test, figure: f }
             pinned_refs:
               linbpq:

@@ -28,7 +28,7 @@ public class JsonEmitterTests
     private const string ValidMinimalPage = """
         machine: data_link
         state: Connected
-        coverage: complete
+        coverage: partial
         source:
           spec: test_spec
           figure: figc.test
