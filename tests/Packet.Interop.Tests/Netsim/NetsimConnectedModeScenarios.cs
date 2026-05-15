@@ -61,9 +61,17 @@ public class NetsimConnectedModeScenarios
         var rigB = BuildRig(local: nodeB, remote: nodeA, kiss: kissB);
 
         // Inbound pumps: every KISS frame from net-sim becomes an
-        // Ax25Event into the matching session.
-        var pumpA = Task.Run(() => InboundPump(rigA, cts.Token), cts.Token);
-        var pumpB = Task.Run(() => InboundPump(rigB, cts.Token), cts.Token);
+        // Ax25Event into the matching session. The pump tasks must be
+        // observed by the wait helpers below — if a pump throws (e.g.
+        // GuardEvaluationException from an unbound predicate), we want
+        // the test to fail immediately with the real exception, not
+        // sit for ConnectBudget seconds waiting for a signal that can
+        // never arrive.
+        var pumps = new[]
+        {
+            Task.Run(() => InboundPump(rigA, cts.Token), cts.Token),
+            Task.Run(() => InboundPump(rigB, cts.Token), cts.Token),
+        };
 
         // Brief settle so net-sim's per-port TX queue is ready before
         // we fire SABM.
@@ -72,29 +80,29 @@ public class NetsimConnectedModeScenarios
         // ─── Connect ────────────────────────────────────────────────
         rigA.Session.PostEvent(new DlConnectRequest());
 
-        var connectConfirm = await WaitForSignal<DataLinkConnectConfirm>(rigA.Signals, ConnectBudget, cts.Token);
+        var connectConfirm = await WaitForSignal<DataLinkConnectConfirm>(rigA.Signals, ConnectBudget, pumps, cts.Token);
         connectConfirm.Should().NotBeNull("node A must observe UA(F=1) from node B and emit DL-CONNECT-confirm");
         rigA.Session.CurrentState.Should().Be("Connected");
 
         // Node B saw SABM, replied UA, and transitioned. Give the
         // post-state mutations a beat to settle before asserting.
         await WaitUntil(() => rigB.Session.CurrentState == "Connected",
-            TimeSpan.FromSeconds(5), cts.Token);
+            TimeSpan.FromSeconds(5), pumps, cts.Token);
         rigB.Session.CurrentState.Should().Be("Connected");
 
         // ─── Disconnect ─────────────────────────────────────────────
         rigA.Session.PostEvent(new DlDisconnectRequest());
 
-        var disconnectConfirm = await WaitForSignal<DataLinkDisconnectConfirm>(rigA.Signals, DisconnectBudget, cts.Token);
+        var disconnectConfirm = await WaitForSignal<DataLinkDisconnectConfirm>(rigA.Signals, DisconnectBudget, pumps, cts.Token);
         disconnectConfirm.Should().NotBeNull("node A must observe UA(F=1) to its DISC and emit DL-DISCONNECT-confirm");
         rigA.Session.CurrentState.Should().Be("Disconnected");
 
         await WaitUntil(() => rigB.Session.CurrentState == "Disconnected",
-            TimeSpan.FromSeconds(5), cts.Token);
+            TimeSpan.FromSeconds(5), pumps, cts.Token);
         rigB.Session.CurrentState.Should().Be("Disconnected");
 
         cts.Cancel();
-        try { await Task.WhenAll(pumpA, pumpB); } catch (OperationCanceledException) { }
+        try { await Task.WhenAll(pumps); } catch (OperationCanceledException) { }
     }
 
     // ─── Rig ────────────────────────────────────────────────────────
@@ -130,16 +138,7 @@ public class NetsimConnectedModeScenarios
             sendInternal:  _ => { },
             subroutines:   subroutines);
 
-        // figc4.1 t14/t15 (SABM_received) gates on `able_to_establish`
-        // — "is this peer willing to accept the incoming connection".
-        // CreateDefault doesn't ship a binding for it; the production
-        // answer would consult node policy (callsign allow-list, link
-        // budget, etc.). For an interop test we always accept.
-        var defaultBindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
-        var bindings = new Dictionary<string, Func<bool>>(defaultBindings, StringComparer.Ordinal)
-        {
-            ["able_to_establish"] = () => true,
-        };
+        var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
         var guards = new GuardEvaluator(bindings);
 
         var session = new Ax25Session(ctx, scheduler, dispatcher, guards,
@@ -196,12 +195,14 @@ public class NetsimConnectedModeScenarios
     private static async Task<T?> WaitForSignal<T>(
         ConcurrentQueue<DataLinkSignal> signals,
         TimeSpan budget,
+        IReadOnlyList<Task> backgroundTasks,
         CancellationToken outer) where T : DataLinkSignal
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(outer);
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
+            ThrowIfAnyFaulted(backgroundTasks);
             while (signals.TryDequeue(out var sig))
             {
                 if (sig is T match) return match;
@@ -212,15 +213,42 @@ public class NetsimConnectedModeScenarios
         return null;
     }
 
-    private static async Task WaitUntil(Func<bool> condition, TimeSpan budget, CancellationToken outer)
+    private static async Task WaitUntil(
+        Func<bool> condition,
+        TimeSpan budget,
+        IReadOnlyList<Task> backgroundTasks,
+        CancellationToken outer)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(outer);
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
+            ThrowIfAnyFaulted(backgroundTasks);
             if (condition()) return;
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>
+    /// If any of the supplied background tasks has faulted, rethrow
+    /// its exception. Lets a wait-helper turn a backgrounded crash
+    /// (e.g. an unbound predicate throwing inside the rx pump) into
+    /// an immediate test failure with the real stack trace, rather
+    /// than a budget timeout that hides the cause.
+    /// </summary>
+    private static void ThrowIfAnyFaulted(IReadOnlyList<Task> tasks)
+    {
+        foreach (var t in tasks)
+        {
+            if (t.IsFaulted)
+            {
+                // GetBaseException unwraps the AggregateException so
+                // the assertion stack trace points at the real
+                // throwing line, not the task plumbing.
+                throw t.Exception?.GetBaseException()
+                    ?? new InvalidOperationException("background task faulted with no exception attached");
+            }
         }
     }
 }
