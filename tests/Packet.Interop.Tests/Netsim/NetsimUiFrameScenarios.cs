@@ -142,7 +142,7 @@ public class NetsimUiFrameScenarios
         // 5 frames in quick succession. afsk1200 won't transmit them in
         // parallel — net-sim will queue them and key the TX in sequence
         // — but the receive side should see all 5 within the budget.
-        var ourSource = new Callsign("PNBURST", 9);
+        var ourSource = new Callsign("PNBRST", 9);  // 6-char limit on AX.25 callsign base
         const int N = 5;
         for (int i = 0; i < N; i++)
         {
