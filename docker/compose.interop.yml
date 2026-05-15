@@ -70,6 +70,13 @@ services:
     image: ghcr.io/packethacking/xrouter@sha256:6a885470e19d5c8ee3033d224a30a8675d5b1957428a832aa89746f37ec0b611
     container_name: pn-xrouter
     restart: unless-stopped
+    depends_on:
+      # Second INTERFACE block in XROUTER.CFG dials netsim's KISS-TCP
+      # listener at 172.30.0.12:8103 (node d). XRouter retries the dial
+      # so strict ordering isn't required, but waiting for netsim to be
+      # healthy keeps the first connect attempt from racing.
+      netsim:
+        condition: service_healthy
     volumes:
       - ./xrouter/XROUTER.CFG:/data/XROUTER.CFG:ro
     ports:
