@@ -34,14 +34,19 @@
  *   ✓ SABM → UA → Connected, DISC → UA → Disconnected
  *   ✓ I-frame TX/RX with V(s)/V(r)/V(a) bookkeeping, k=1 window
  *   ✓ T1 retry (default 3 s), capped at N2 (default 10)
+ *   ✓ Session state machine walks the generated SDL tables in
+ *     [`ax25sdl`](../../../ts-spec/) — same transitions as the C# runtime
+ *     reads from `src/Packet.Ax25.Sdl/*.g.cs`
  *
  *   ✗ mod-128 (SABME, extended sequence numbers)
- *   ✗ REJ recovery (we ack-advance on REJ and rely on T1 retransmit)
- *   ✗ SREJ
- *   ✗ T1 dynamic adjustment (fixed 3-second default)
+ *   ✗ T1 dynamic adjustment (the `Select_T1_Value` subroutine is stubbed)
  *   ✗ FRMR generation/handling
- *   ✗ Multi-frame TX windowing (k>1)
- *   ✗ figc4.7 subroutine framework (Establish_Data_Link, Select_T1_Value, …)
+ *   ✗ Multi-frame TX windowing (k=1 hard-coded; the SDL guard
+ *     `V_s_eq_V_a_plus_k` reads ctx.k so widening is a single-line change)
+ *   ✗ Full figc4.7 subroutine framework (the dispatcher inlines the
+ *     subset the happy path needs; the rest route through a no-op
+ *     registry, which means REJ/SREJ recovery and Enquiry_Response
+ *     don't have real bodies yet)
  *   ✗ Digipeater paths (`via` throws "not implemented")
  *   ✗ TCP/AGW/audio transports — Web Serial only
  *   ✗ Inbound connection acceptance (no `onConnectRequest` API)

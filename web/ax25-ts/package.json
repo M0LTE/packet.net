@@ -22,6 +22,9 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "ax25sdl": "file:../../ts-spec"
+  },
   "devDependencies": {
     "@types/w3c-web-serial": "^1.0.6",
     "typescript": "^5.5.0",

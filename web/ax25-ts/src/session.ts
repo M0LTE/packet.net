@@ -3,45 +3,30 @@ import {
   type Ax25Frame,
   classify,
   decodeFrame,
-  disc,
-  dm,
   encodeFrame,
-  getNr,
-  getNs,
-  iFrame,
-  isCommand,
-  pollFinal,
-  rr,
-  sabm,
-  ua,
 } from "./frame.js";
+import type { DataLinkSignal } from "./sdl/action-dispatcher.js";
+import type { Ax25Event } from "./sdl/events.js";
+import {
+  type Ax25SessionContext,
+  createSessionContext,
+} from "./sdl/session-context.js";
+import { SdlSessionDriver } from "./sdl/session-driver.js";
+import { RealTimerScheduler } from "./sdl/timer-scheduler.js";
 import type { Ax25Transport } from "./transport.js";
 
 /**
- * Hand-rolled AX.25 v2.2 mod-8 connected-mode session driver.
+ * Table-driven AX.25 v2.2 connected-mode session.
  *
- * This is NOT a faithful port of figc4.1-4.7. It implements the happy paths
- * Tom asked for:
+ * Internally walks the generated SDL transition tables in
+ * [`ax25sdl`](../../../ts-spec/) — same encoding as the C# runtime's
+ * `Packet.Ax25.Sdl.*` tables. For each posted event the driver looks up
+ * transitions for the current state, evaluates guards, picks the first
+ * match, runs the action chain, and advances to `next`.
  *
- *   - SABM → UA → Connected
- *   - I-frame TX/RX with V(s)/V(r)/V(a) bookkeeping and RR acks
- *   - DISC → UA → Disconnected
- *   - T1 retry on SABM and DISC, capped at N2 (default 10)
- *
- * Out of scope (will not work / will throw / will silently drop):
- *   - mod-128 (SABME, extended sequence numbers)
- *   - REJ / SREJ recovery (we just ignore REJ; T1 retransmit covers most cases)
- *   - T1 dynamic adjustment (fixed 3-second default)
- *   - FRMR generation
- *   - Multi-frame windowing beyond k=1 (one outstanding I-frame at a time)
- *   - Digipeater paths — `via` triggers "not implemented" at construction time
+ * Public API is unchanged from the previous hand-rolled implementation:
+ * `connect`, `onData`, `onDisconnected`, `write`, `disconnect`.
  */
-type SessionState =
-  | "Disconnected"
-  | "AwaitingConnection"
-  | "Connected"
-  | "AwaitingRelease";
-
 const DEFAULT_T1_MS = 3000;
 const DEFAULT_N2 = 10;
 const DEFAULT_PID = 0xf0;
@@ -49,6 +34,10 @@ const DEFAULT_PID = 0xf0;
 export interface Ax25SessionOptions {
   /** T1 retry timeout (ms). Default 3000. */
   t1Ms?: number;
+  /** T2 response-delay timeout (ms). Default 1500. */
+  t2Ms?: number;
+  /** T3 inactive-link timeout (ms). Default 30000. */
+  t3Ms?: number;
   /** Maximum retries (N2). Default 10. */
   n2?: number;
   /** PID for outbound I-frames. Default 0xF0 (no L3 protocol). */
@@ -67,29 +56,28 @@ export class Ax25Session {
   private readonly send: (frame: Ax25Frame) => Promise<void>;
   private readonly removeFromStack: () => void;
   private readonly opts: Required<Ax25SessionOptions>;
+  private readonly driver: SdlSessionDriver;
+  private readonly sessionContext: Ax25SessionContext;
 
-  private state: SessionState = "Disconnected";
-  private vs = 0; // send state variable
-  private va = 0; // ack state variable (last acked)
-  private vr = 0; // receive state variable
-  private retries = 0;
-
-  /** Resolves when SABM exchange completes; rejects on N2 exhaustion. */
+  /** Resolves when SABM exchange completes; rejects on N2 exhaustion / DM. */
   private connectResolver: {
     resolve: () => void;
     reject: (err: Error) => void;
   } | null = null;
-  /** Resolves when DISC exchange completes (UA received, or timer expired). */
+  /** Resolves when DISC exchange completes. */
   private disconnectResolver: { resolve: () => void } | null = null;
 
-  /** Pending I-frame retransmit (k=1 window). null = none outstanding. */
-  private pendingI: { ns: number; info: Uint8Array; pid: number } | null = null;
-  /** Queue of payloads to send after the current outstanding I-frame is ack'd. */
-  private txQueue: { info: Uint8Array; pid: number }[] = [];
-
-  private t1Handle: ReturnType<typeof setTimeout> | null = null;
   private dataListeners: Array<(chunk: Uint8Array) => void> = [];
   private disconnectListeners: Array<() => void> = [];
+  /** Tracks whether the driver has ever left Disconnected (for disconnect()). */
+  private hasBeenConnected = false;
+  /**
+   * Sticky pending error captured from a DL-ERROR indication during the
+   * pending action chain — surfaced on the next DL_DISCONNECT_indication
+   * so the connect promise rejects with the spec error letter. AX.25
+   * DL-ERROR(G) = "Connection timed out (retry limit reached)".
+   */
+  private pendingError: string | null = null;
 
   /** @internal — constructed only by Ax25Stack. */
   constructor(
@@ -105,9 +93,37 @@ export class Ax25Session {
     this.removeFromStack = removeFromStack;
     this.opts = {
       t1Ms: opts.t1Ms ?? DEFAULT_T1_MS,
+      t2Ms: opts.t2Ms ?? 1500,
+      t3Ms: opts.t3Ms ?? 30000,
       n2: opts.n2 ?? DEFAULT_N2,
       pid: opts.pid ?? DEFAULT_PID,
     };
+
+    this.sessionContext = createSessionContext(from, to);
+    this.sessionContext.n2 = this.opts.n2;
+    this.sessionContext.t1vMs = this.opts.t1Ms;
+    // k=1 is a documented v1 reduction: only one outstanding I-frame
+    // at a time. The SDL guard `V_s_eq_V_a_plus_k` uses ctx.k, so this
+    // sets the dispatcher's window size.
+    this.sessionContext.k = 1;
+
+    const scheduler = new RealTimerScheduler();
+    this.driver = new SdlSessionDriver(this.sessionContext, scheduler, {
+      sendFrame: (frame) => {
+        void this.send(frame);
+      },
+      emitUpward: (signal) => this.handleUpwardSignal(signal),
+      onUnhandledEvent: () => {
+        // Per SDL semantics: unmatched events are silently ignored.
+      },
+      t1Ms: this.opts.t1Ms,
+      t2Ms: this.opts.t2Ms,
+      t3Ms: this.opts.t3Ms,
+      // Honour the caller-supplied t1Ms: the SDL's default-init
+      // actions (SRT := Initial Default; T1V := 2 * SRT) would
+      // otherwise reset T1V to 6 s on every connect.
+      freezeT1V: true,
+    });
   }
 
   /** Register a callback invoked when the peer delivers I-frame info. */
@@ -121,24 +137,26 @@ export class Ax25Session {
   }
 
   /**
-   * Queue a payload for transmission. Resolves once the bytes have been
-   * accepted into the local TX queue (NOT once the peer has ack'd — that
-   * would require a much richer API). The session sends one I-frame at a
-   * time; subsequent calls queue behind the outstanding frame.
+   * Queue a payload for transmission. Resolves once the bytes are
+   * accepted into the local TX queue (not once the peer has ack'd —
+   * that would require a much richer API).
    */
   async write(chunk: Uint8Array): Promise<void> {
-    if (this.state !== "Connected") {
-      throw new Error(`cannot write in state ${this.state}`);
+    if (this.driver.currentState !== "Connected") {
+      throw new Error(`cannot write in state ${this.driver.currentState}`);
     }
     if (chunk.length === 0) return;
-    this.txQueue.push({ info: chunk, pid: this.opts.pid });
-    await this.pumpTx();
+    this.driver.postEvent({
+      name: "DL_DATA_request",
+      data: chunk,
+      pid: this.opts.pid,
+    });
   }
 
   /** Initiate disconnect. Resolves when the link is fully torn down. */
   async disconnect(): Promise<void> {
-    if (this.state === "Disconnected") return;
-    if (this.state === "AwaitingRelease") {
+    if (this.driver.currentState === "Disconnected") return;
+    if (this.driver.currentState === "AwaitingRelease") {
       return new Promise<void>((resolve) => {
         const prev = this.disconnectResolver;
         this.disconnectResolver = {
@@ -149,63 +167,38 @@ export class Ax25Session {
         };
       });
     }
-    this.clearT1();
-    this.state = "AwaitingRelease";
-    this.retries = 0;
     const p = new Promise<void>((resolve) => {
       this.disconnectResolver = { resolve };
     });
-    await this.sendDisc();
+    this.driver.postEvent({ name: "DL_DISCONNECT_request" });
     return p;
   }
 
   /** @internal — called by Ax25Stack at session creation to start SABM. */
   async _initiateConnect(): Promise<void> {
-    if (this.state !== "Disconnected") {
+    if (this.driver.currentState !== "Disconnected") {
       throw new Error("session already started");
     }
-    this.state = "AwaitingConnection";
-    this.retries = 0;
     const p = new Promise<void>((resolve, reject) => {
       this.connectResolver = { resolve, reject };
     });
-    await this.sendSabm();
+    this.driver.postEvent({ name: "DL_CONNECT_request" });
     return p;
   }
 
   /** @internal — called by Ax25Stack for every inbound frame matching this peer. */
   _handleFrame(frame: Ax25Frame): void {
     const kind = classify(frame);
-    switch (this.state) {
-      case "AwaitingConnection":
-        this.onFrameAwaitingConnection(frame, kind);
-        break;
-      case "Connected":
-        this.onFrameConnected(frame, kind);
-        break;
-      case "AwaitingRelease":
-        this.onFrameAwaitingRelease(frame, kind);
-        break;
-      case "Disconnected":
-        // Stray frame after teardown. Reply DM if peer is still polling us.
-        if (kind === "SABM" || kind === "DISC") {
-          void this.send(
-            dm({
-              destination: frame.source.callsign,
-              source: this.from,
-              finalBit: pollFinal(frame),
-            }),
-          );
-        }
-        break;
-    }
+    const eventName = mapKindToEvent(kind);
+    if (eventName === null) return; // unknown frame; drop
+    const event: Ax25Event = { name: eventName, frame };
+    this.driver.postEvent(event);
   }
 
   /** @internal — called by Ax25Stack when transport stops. */
   _forceDisconnect(): void {
-    this.clearT1();
-    if (this.state !== "Disconnected") {
-      this.state = "Disconnected";
+    if (this.driver.currentState !== "Disconnected") {
+      this.driver.setState("Disconnected");
       this.connectResolver?.reject(new Error("transport stopped"));
       this.connectResolver = null;
       this.disconnectResolver?.resolve();
@@ -215,311 +208,123 @@ export class Ax25Session {
     this.removeFromStack();
   }
 
-  // ─── State handlers ──────────────────────────────────────────────────
+  // ─── Upward-signal routing ─────────────────────────────────────────
 
-  private onFrameAwaitingConnection(frame: Ax25Frame, kind: string): void {
-    if (kind === "UA") {
-      // Connection established.
-      this.clearT1();
-      this.state = "Connected";
-      this.vs = 0;
-      this.va = 0;
-      this.vr = 0;
-      this.retries = 0;
-      this.connectResolver?.resolve();
-      this.connectResolver = null;
-      // Now pump any I-frames queued before the link came up.
-      void this.pumpTx();
-    } else if (kind === "DM") {
-      // Peer refused.
-      this.clearT1();
-      this.state = "Disconnected";
-      this.connectResolver?.reject(
-        new Error("peer refused connection (DM received)"),
-      );
-      this.connectResolver = null;
-      for (const cb of this.disconnectListeners) cb();
-      this.removeFromStack();
-    } else if (kind === "SABM") {
-      // Collision: peer also wants to connect. Respond UA and consider
-      // ourselves connected.
-      void this.send(
-        ua({
-          destination: frame.source.callsign,
-          source: this.from,
-          finalBit: pollFinal(frame),
-        }),
-      );
-      this.clearT1();
-      this.state = "Connected";
-      this.vs = 0;
-      this.va = 0;
-      this.vr = 0;
-      this.connectResolver?.resolve();
-      this.connectResolver = null;
-    }
-    // Other frames ignored in this state.
-  }
-
-  private onFrameConnected(frame: Ax25Frame, kind: string): void {
-    if (kind === "I") {
-      const ns = getNs(frame);
-      const nr = getNr(frame);
-      this.handleAck(nr);
-      if (ns === this.vr) {
-        this.vr = (this.vr + 1) % 8;
-        if (frame.info && frame.info.length > 0) {
-          for (const cb of this.dataListeners) cb(frame.info);
+  private handleUpwardSignal(signal: DataLinkSignal): void {
+    switch (signal.type) {
+      case "DL_CONNECT_confirm":
+        this.hasBeenConnected = true;
+        this.connectResolver?.resolve();
+        this.connectResolver = null;
+        return;
+      case "DL_CONNECT_indication":
+        // Peer-initiated connect — we don't expose an onConnectRequest
+        // API in v1, so this fires only when our outbound SABM has
+        // collided with a peer SABM (collision recovery, figc4.4 t41).
+        this.hasBeenConnected = true;
+        this.connectResolver?.resolve();
+        this.connectResolver = null;
+        return;
+      case "DL_DISCONNECT_confirm":
+      case "DL_DISCONNECT_indication":
+        this.handleDisconnect(
+          signal.type === "DL_DISCONNECT_indication"
+            ? "peer refused connection"
+            : null,
+        );
+        return;
+      case "DL_DATA_indication":
+        for (const cb of this.dataListeners) {
+          cb(signal.data);
         }
-        // Send RR with updated N(R). If the peer polled us (P=1), set F=1.
-        void this.send(
-          rr({
-            destination: frame.source.callsign,
-            source: this.from,
-            nr: this.vr,
-            isCommand: false,
-            pollFinal: pollFinal(frame),
-          }),
-        );
-      } else {
-        // Out-of-sequence I-frame. Per spec we'd send REJ; we send an
-        // RR (no-update) which causes the peer's T1 to fire and they'll
-        // retransmit. This is a known reduction from full v2.2.
-        void this.send(
-          rr({
-            destination: frame.source.callsign,
-            source: this.from,
-            nr: this.vr,
-            isCommand: false,
-            pollFinal: pollFinal(frame),
-          }),
-        );
-      }
-    } else if (kind === "RR") {
-      const nr = getNr(frame);
-      this.handleAck(nr);
-      // If peer is polling, respond with our own RR/F=1.
-      if (pollFinal(frame) && isCommand(frame)) {
-        void this.send(
-          rr({
-            destination: frame.source.callsign,
-            source: this.from,
-            nr: this.vr,
-            isCommand: false,
-            pollFinal: true,
-          }),
-        );
-      }
-    } else if (kind === "REJ") {
-      // Reject. Spec says retransmit all I-frames from N(R) onwards.
-      // Our k=1 simplification: just ack-advance and rely on T1 retransmit.
-      const nr = getNr(frame);
-      this.handleAck(nr);
-      // Trigger an immediate retransmit if anything is still outstanding.
-      if (this.pendingI !== null) {
-        void this.retransmitI();
-      }
-    } else if (kind === "DISC") {
-      // Peer is tearing down. Respond UA, enter Disconnected.
-      void this.send(
-        ua({
-          destination: frame.source.callsign,
-          source: this.from,
-          finalBit: pollFinal(frame),
-        }),
-      );
-      this.transitionToDisconnected();
-    } else if (kind === "SABM") {
-      // Peer is re-establishing. Per spec this resets the session.
-      void this.send(
-        ua({
-          destination: frame.source.callsign,
-          source: this.from,
-          finalBit: pollFinal(frame),
-        }),
-      );
-      this.vs = 0;
-      this.va = 0;
-      this.vr = 0;
-      this.pendingI = null;
-      this.txQueue = [];
-    } else if (kind === "DM") {
-      // Peer dropped link.
-      this.transitionToDisconnected();
+        return;
+      case "DL_UNIT_DATA_indication":
+        // Surface UI-frame payloads on the same data listeners.
+        for (const cb of this.dataListeners) {
+          cb(signal.data);
+        }
+        return;
+      case "DL_ERROR_indication":
+        // Stash the error letter so a paired DL_DISCONNECT_indication
+        // can reject the connect promise with a meaningful message.
+        // Mapping (§C.5): G = retry limit reached; D = unexpected UA;
+        // E = unexpected DM; M = info-field error; N = U/S-frame length
+        // error; F = SABM collision; etc.
+        this.pendingError = signal.code;
+        return;
     }
   }
 
-  private onFrameAwaitingRelease(frame: Ax25Frame, kind: string): void {
-    if (kind === "UA" || kind === "DM") {
-      // Both are valid responses to DISC.
-      this.clearT1();
-      this.transitionToDisconnected();
-      this.disconnectResolver?.resolve();
-      this.disconnectResolver = null;
-    } else if (kind === "DISC") {
-      // Cross-DISC: respond UA and proceed to disconnected.
-      void this.send(
-        ua({
-          destination: frame.source.callsign,
-          source: this.from,
-          finalBit: pollFinal(frame),
-        }),
-      );
-      this.clearT1();
-      this.transitionToDisconnected();
-      this.disconnectResolver?.resolve();
-      this.disconnectResolver = null;
-    }
-    // Other frames ignored while we wait for UA.
-  }
-
-  // ─── TX pumps ────────────────────────────────────────────────────────
-
-  private async pumpTx(): Promise<void> {
-    if (this.state !== "Connected") return;
-    if (this.pendingI !== null) return; // k=1 window already occupied
-    const next = this.txQueue.shift();
-    if (!next) return;
-    const ns = this.vs;
-    this.pendingI = { ns, info: next.info, pid: next.pid };
-    this.vs = (this.vs + 1) % 8;
-    this.retries = 0;
-    await this.sendPendingI(true);
-  }
-
-  private async sendPendingI(armTimer: boolean): Promise<void> {
-    if (!this.pendingI) return;
-    const frame = iFrame({
-      destination: this.to,
-      source: this.from,
-      nr: this.vr,
-      ns: this.pendingI.ns,
-      info: this.pendingI.info,
-      pid: this.pendingI.pid,
-      pollBit: true,
-    });
-    await this.send(frame);
-    if (armTimer) this.armT1(() => this.onT1ExpiredIFrame());
-  }
-
-  private async retransmitI(): Promise<void> {
-    if (!this.pendingI) return;
-    await this.sendPendingI(true);
-  }
-
-  private handleAck(nr: number): void {
-    // A peer N(R) acks frames with N(s) < N(R) (mod 8).
-    if (
-      this.pendingI !== null &&
-      seqInWindow(this.pendingI.ns, this.va, nr)
-    ) {
-      this.va = nr;
-      this.pendingI = null;
-      this.clearT1();
-      // Pump the next queued frame, if any.
-      void this.pumpTx();
-    } else {
-      this.va = nr;
-    }
-  }
-
-  // ─── Control transmissions + T1 management ──────────────────────────
-
-  private async sendSabm(): Promise<void> {
-    await this.send(
-      sabm({ destination: this.to, source: this.from, pollBit: true }),
-    );
-    this.armT1(() => this.onT1ExpiredSabm());
-  }
-
-  private async sendDisc(): Promise<void> {
-    await this.send(
-      disc({ destination: this.to, source: this.from, pollBit: true }),
-    );
-    this.armT1(() => this.onT1ExpiredDisc());
-  }
-
-  private onT1ExpiredSabm(): void {
-    if (this.state !== "AwaitingConnection") return;
-    this.retries++;
-    if (this.retries > this.opts.n2) {
-      this.state = "Disconnected";
-      this.connectResolver?.reject(
-        new Error(`SABM retry limit (N2=${this.opts.n2}) exhausted`),
-      );
+  private handleDisconnect(disconnectReason: string | null): void {
+    // Resolve / reject pending promises depending on whether we ever
+    // reached Connected. If we never connected, this is the "peer
+    // refused" path — reject the connect promise.
+    if (!this.hasBeenConnected && this.connectResolver) {
+      const error = this.translateConnectError(disconnectReason);
+      this.connectResolver.reject(error);
       this.connectResolver = null;
-      this.removeFromStack();
-      return;
     }
-    void this.sendSabm();
-  }
-
-  private onT1ExpiredDisc(): void {
-    if (this.state !== "AwaitingRelease") return;
-    this.retries++;
-    if (this.retries > this.opts.n2) {
-      // Per spec: declare disconnected even without UA.
-      this.transitionToDisconnected();
-      this.disconnectResolver?.resolve();
-      this.disconnectResolver = null;
-      return;
-    }
-    void this.sendDisc();
-  }
-
-  private onT1ExpiredIFrame(): void {
-    if (this.state !== "Connected") return;
-    if (!this.pendingI) return;
-    this.retries++;
-    if (this.retries > this.opts.n2) {
-      // Link broken — force disconnect.
-      this.transitionToDisconnected();
-      return;
-    }
-    void this.retransmitI();
-  }
-
-  private armT1(onFire: () => void): void {
-    this.clearT1();
-    this.t1Handle = setTimeout(onFire, this.opts.t1Ms);
-  }
-
-  private clearT1(): void {
-    if (this.t1Handle !== null) {
-      clearTimeout(this.t1Handle);
-      this.t1Handle = null;
-    }
-  }
-
-  private transitionToDisconnected(): void {
-    this.clearT1();
-    this.state = "Disconnected";
-    this.pendingI = null;
-    this.txQueue = [];
+    this.pendingError = null;
+    this.disconnectResolver?.resolve();
+    this.disconnectResolver = null;
     for (const cb of this.disconnectListeners) cb();
     this.removeFromStack();
+  }
+
+  /**
+   * Map the most-recent DL-ERROR letter into a human-readable connect
+   * failure. The hand-rolled implementation rejected with two distinct
+   * messages: "/refused/" on DM and "/retry limit/" on N2 exhaustion.
+   * Those substrings live in the existing test suite, so we preserve
+   * them here.
+   */
+  private translateConnectError(disconnectReason: string | null): Error {
+    if (this.pendingError === "G") {
+      return new Error(
+        `SABM retry limit (N2=${this.opts.n2}) exhausted (DL-ERROR G)`,
+      );
+    }
+    return new Error(
+      disconnectReason ?? "peer refused connection (DM received)",
+    );
   }
 }
 
 /**
- * Sequence-arithmetic helper: is `ns` in the half-open window (va, nr] mod 8?
- * Used to decide whether a peer N(R) acks our outstanding I-frame.
+ * Map a wire-frame {@link FrameKind} to the SDL event name in the
+ * transition tables. Returns null for frames the SDL doesn't model
+ * (UI in a v1-restricted runtime, SREJ, FRMR, XID, TEST, etc.).
  */
-function seqInWindow(ns: number, va: number, nr: number): boolean {
-  // mod-8 distance from va to nr (forward, exclusive of va).
-  const dist = (nr - va + 8) % 8;
-  // distance from va to ns + 1 (since N(R) acks up to but not including).
-  const want = (ns - va + 8) % 8;
-  // ns is acked iff want < dist.
-  return want < dist;
+function mapKindToEvent(kind: string): string | null {
+  switch (kind) {
+    case "I":
+      return "I_received";
+    case "RR":
+      return "RR_received";
+    case "RNR":
+      return "RNR_received";
+    case "REJ":
+      return "REJ_received";
+    case "SABM":
+      return "SABM_received";
+    case "DISC":
+      return "DISC_received";
+    case "UA":
+      return "UA_received";
+    case "DM":
+      return "DM_received";
+    case "UI":
+      return "UI_received";
+    default:
+      return null;
+  }
 }
 
 // ─── Stack: routes inbound frames to sessions, multiplexes outbound ─────
 
 /**
  * Holds the transport, runs the inbound demux loop, and is the factory
- * for new Ax25Sessions. Designed for one-shot connect-and-stream usage —
- * see README.
+ * for new {@link Ax25Session}s.
  */
 export class Ax25Stack {
   private readonly transport: Ax25Transport;
