@@ -829,6 +829,26 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — ax25.ts: developer docs + npm distribution plumbing
+
+Stacks on the two ax25.ts entries below. Before this PR the library was internally documented (README, in-code JSDoc) but had no API reference, no distribution plumbing, no LICENSE / CHANGELOG, and the `ts-spec/` package was missing the npm metadata fields needed to publish. This PR fills all of those gaps without touching the library's runtime code path.
+
+**Deliverables**:
+
+- **`web/ax25-ts/README.md` rewritten** with a 1-paragraph "what this is" opener aimed at developers new to amateur-radio app work, a future-state `npm install @packet-net/ax25-ts` snippet (with a NOTE callout flagging the package isn't on npmjs yet), a Transport Seams table that distinguishes provided transports from not-yet-implemented ones, an in/out scope table, and links into the new API ref + publishing guide.
+- **`web/ax25-ts/LICENSE`** — MIT, copyright "Tom Fanning and Packet.NET contributors", matching the repo-root LICENSE shape.
+- **`web/ax25-ts/CHANGELOG.md`** — Keep-a-Changelog 1.1.0 format, 0.1.0 marked UNRELEASED until first publish.
+- **API reference via TypeDoc** — `web/ax25-ts/typedoc.json` configures two entry points (`src/index.ts` + `src/tcp-transport.ts`) and emits markdown to `docs/web-ax25-ts/api/` via `typedoc-plugin-markdown`. `npm run docs` regenerates. SDL driver internals (`src/sdl/**`), the Node-types shim, and tests are excluded. `gitRevision: "main"` keeps the "Defined in:" source links stable across merges. Emits cleanly (zero warnings, 50 markdown files, 270 KB total).
+- **`docs/web-ax25-ts/README.md`** — index page pointing readers at the API ref, examples, publishing guide.
+- **Three worked examples in `web/ax25-ts/examples/`** — `quick-start.ts` (Web Serial — refreshed from the existing version with a clearer narrative), `node-tcp.ts` (Node TCP via `TcpKissTransport` against `127.0.0.1:8100` / net-sim), `with-mock-transport.ts` (paired `MockTransport`, scripted peer, drives `Ax25Stack` under test). `tsconfig.examples.json` + `npm run typecheck:examples` script keep all three typechecking against the public API surface on every CI run.
+- **`docs/web-ax25-ts/publishing.md`** — full runbook for first npm publish. Aimed at someone whose package-management muscle memory is NuGet (table at top maps npm concepts to their NuGet equivalents). Covers account setup, `@packet-net` scope creation, automation token, `NPM_TOKEN` GitHub secret, manual `npm pack --dry-run` validation, the `file:../../ts-spec` → `^0.1.0` flip required pre-publish, SemVer bump + tag workflow, and troubleshooting for `402` / name-taken / ERESOLVE / "cannot publish over existing version".
+- **`.github/workflows/npm-publish.yml`** — triggers on tags matching `v*`. Builds + publishes `ax25sdl` first, then mutates `web/ax25-ts/package.json` in the CI shell to flip the `file:` dep to a registry version, then builds + publishes `@packet-net/ax25-ts`. The flip is CI-local — never committed back to main — so local-dev `npm install` continues to work unchanged. Skips both `npm publish` steps if `NPM_TOKEN` is unset; build + dry-run-pack still run so packaging issues surface even without credentials.
+- **`ts-spec/package.json` metadata** — added `license: MIT`, `repository.directory: ts-spec`, `homepage`, `bugs`, richer `description`, `keywords`. Bumped version from `0.0.0` to `0.1.0` to track the first `@packet-net/ax25-ts` release.
+
+**`web/ax25-ts/src/transport.ts` doc-only edit**: one JSDoc comment carried a broken `{@link MockTransport}` reference (MockTransport isn't an exported symbol — it lives under `tests/`) and an outdated "Future implementations: TcpKissTransport" note. Fixed the link and updated the comment to reflect TcpKissTransport now existing. This is the only `src/` change in the PR; no public API surface moved.
+
+**Constraint compliance**: 64 unit tests + 173 ts-spec tests still pass; `npm run typecheck` clean in both packages; TypeDoc emits zero warnings; YAML in the workflow lints clean.
+
 ### 2026-05-15 — ax25.ts: TCP transport + first live interop against LinBPQ
 
 Stacks on the ax25.ts library entry below. Before this PR, the library had no real interop evidence — `tests/session.test.ts` proved the SDL session machine wires up against itself via paired `MockTransport` pipes, but a closed-loop test of the library against itself doesn't catch wire-level mismatches with third-party stacks that weren't built from the same SDL tables. This PR closes that gap.
