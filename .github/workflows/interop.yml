@@ -39,7 +39,7 @@ jobs:
     name: interop matrix
     runs-on: [self-hosted, Linux, X64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: report .NET
         run: dotnet --version
