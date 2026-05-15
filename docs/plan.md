@@ -824,6 +824,41 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-15 — ci: split sdl-codegen-discipline into 3 parallel jobs + Node 24 opt-in
+
+Now that the self-hosted box runs 4 GitHub Actions runners (Tom
+registered 3 additional ones), the bottleneck is no longer "wait for
+one runner": it's "wait for the long-pole job within the workflow".
+Two changes:
+
+**1. Per-language codegen-discipline jobs.** The old monolithic
+`sdl-codegen-discipline` did C# drift → Go build/vet/test → TS
+typecheck/test in series inside one runner. Split into
+`sdl-codegen-csharp`, `sdl-codegen-go`, `sdl-codegen-ts` — three
+parallel jobs, each installing only its own language toolchain. With
+4 runners, all three run alongside the 13-entry test matrix instead
+of forming a bottleneck behind it.
+
+Each job runs the codegen with `--no-go` / `--no-ts` so it only emits
+the backend it verifies. Two new flags on `tools/Packet.Sdl.CodeGen`:
+
+- `--no-go` — suppress Go emission even when `go-spec/ax25sdl/` exists.
+- `--no-ts` — suppress TS emission even when `ts-spec/src/ax25sdl/` exists.
+
+The arg parser now uses `case "--flag" when i + 1 < args.Length:` so
+flag-without-value at end-of-args doesn't index past the array; the
+old `for (i = 0; i < args.Length - 1; i++)` bound that papered over
+this issue is gone.
+
+**2. Node.js 24 opt-in.** GitHub flagged that JavaScript actions
+(notably `actions/checkout@v4`) run on Node.js 20, which is being
+removed Sep 16th 2026 with a forced Node 24 cutover on June 2nd 2026.
+Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` at workflow level
+in all three workflows (`ci.yml`, `interop.yml`, `plan-check.yml`) to
+silence the deprecation warning and catch Node-24 breakage early
+rather than at the forced cutover.
+
+
 ### 2026-05-15 — session: runtime wiring follow-ups (Tier 2 prep)
 
 Five-item work item from the figc4.7 arc: now that the data-link state

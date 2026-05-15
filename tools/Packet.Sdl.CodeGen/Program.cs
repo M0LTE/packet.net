@@ -24,25 +24,37 @@ internal static class Program
         string? mermaidDir = null;  // null = "alongside the source YAML"
         string? goDir = null;       // null = don't emit Go
         string? tsDir = null;       // null = don't emit TS
+        bool suppressGo = false;    // --no-go overrides auto-detection
+        bool suppressTs = false;    // --no-ts overrides auto-detection
 
-        for (int i = 0; i < args.Length - 1; i++)
+        // Note: the value-arg branches use `args[++i]`, which we guard
+        // with `i + 1 < args.Length` so a flag at the very end without
+        // a value doesn't index past the array. The bare flags (--no-go,
+        // --no-ts) consume only their own slot.
+        for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
-                case "--in":      inDir      = args[++i]; break;
-                case "--out":     outDir     = args[++i]; break;
-                case "--tests":   testsDir   = args[++i]; break;
-                case "--mermaid": mermaidDir = args[++i]; break;
-                case "--go":      goDir      = args[++i]; break;
-                case "--ts":      tsDir      = args[++i]; break;
+                case "--in"      when i + 1 < args.Length: inDir      = args[++i]; break;
+                case "--out"     when i + 1 < args.Length: outDir     = args[++i]; break;
+                case "--tests"   when i + 1 < args.Length: testsDir   = args[++i]; break;
+                case "--mermaid" when i + 1 < args.Length: mermaidDir = args[++i]; break;
+                case "--go"      when i + 1 < args.Length: goDir      = args[++i]; break;
+                case "--ts"      when i + 1 < args.Length: tsDir      = args[++i]; break;
+                case "--no-go":  suppressGo = true; break;
+                case "--no-ts":  suppressTs = true; break;
             }
         }
 
         // Default: emit Go / TS when the conventional package directory
         // exists, so a normal `dotnet run --project tools/Packet.Sdl.CodeGen`
-        // keeps every backend in sync without an explicit flag.
-        if (goDir is null && Directory.Exists("go-spec/ax25sdl")) goDir = "go-spec/ax25sdl";
-        if (tsDir is null && Directory.Exists("ts-spec/src/ax25sdl")) tsDir = "ts-spec/src/ax25sdl";
+        // keeps every backend in sync without an explicit flag. CI splits
+        // verification across per-language jobs and uses --no-go / --no-ts
+        // so each job only installs the toolchain it needs.
+        if (!suppressGo && goDir is null && Directory.Exists("go-spec/ax25sdl")) goDir = "go-spec/ax25sdl";
+        if (!suppressTs && tsDir is null && Directory.Exists("ts-spec/src/ax25sdl")) tsDir = "ts-spec/src/ax25sdl";
+        if (suppressGo) goDir = null;
+        if (suppressTs) tsDir = null;
 
         try
         {
