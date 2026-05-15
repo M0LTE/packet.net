@@ -22,6 +22,27 @@ The node is designed for **real-world half-duplex, lossy, shared-medium**
 KISS+ACKMODE radio links. It's tested against LinBPQ, Xrouter, net-sim, and a
 back-to-back pair of NinoTNCs in CI.
 
+### Spec-driven, multi-language
+
+The AX.25 v2.2 SDL state machines (figc4.1 / 4.2 / 4.4 / 4.6 / 4.7) are
+transcribed verbatim from the published spec into a YAML DSL under
+[`spec-sdl/`](spec-sdl/), then emitted into **seven** target languages by
+[`tools/Packet.Sdl.CodeGen`](tools/Packet.Sdl.CodeGen/):
+
+| Backend | Output | Consumer convention |
+|---|---|---|
+| C# | [`src/Packet.Ax25.Sdl/`](src/Packet.Ax25.Sdl/) | `static readonly` tables + xUnit conformance tests |
+| Go | [`go-spec/`](go-spec/) | `go` module — `var DataLinkConnected = StatePage{…}` + `_test.go` |
+| TypeScript | [`ts-spec/`](ts-spec/) | npm package, ESM, strict mode |
+| Rust | [`rust-spec/`](rust-spec/) | cargo crate — `pub static DATA_LINK_CONNECTED: StatePage` + `#[cfg(test)]` |
+| C | [`c-spec/`](c-spec/) | CMake — `const StatePage DataLinkConnected` + CTest binaries |
+| JSON | [`json-spec/`](json-spec/) | `*.g.json` files validated against `schema.json` |
+| Python | [`python-spec/`](python-spec/) | `pip install -e .` — frozen dataclasses + pytest |
+
+Every backend is independently verified by CI (build / vet / format / test
+on its native toolchain). One YAML transcription, seven verified
+implementations, zero hand-translation drift.
+
 ## Goals
 
 - Zero file editing for configuration — everything is web-based.

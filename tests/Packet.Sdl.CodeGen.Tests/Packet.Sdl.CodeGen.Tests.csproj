@@ -17,4 +17,12 @@
     </ProjectReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- JsonSchema.Net is used by the JSON emitter tests to re-validate
+         generated .g.json files against the generated schema.json, as a
+         second-opinion check independent of the emitter's own internal
+         validation. -->
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+
 </Project>
