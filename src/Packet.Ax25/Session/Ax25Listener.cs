@@ -203,7 +203,7 @@ public sealed class Ax25Listener : IAsyncDisposable
                 switch (sig)
                 {
                     case DataLinkConnectConfirm:
-                        SessionAccepted?.Invoke(this, new Ax25SessionEventArgs { Session = cached.Session });
+                        RaiseSessionAccepted(cached.Session);
                         return cached.Session;
                     case DataLinkDisconnectIndication:
                     case DataLinkDisconnectConfirm:
@@ -267,14 +267,28 @@ public sealed class Ax25Listener : IAsyncDisposable
                 if (kiss.Command != KissCommand.Data) continue;
                 if (!Ax25Frame.TryParse(kiss.Payload, out var parsed)) continue;
 
-                TraceFrame(parsed, FrameDirection.Received);
-                DispatchInbound(parsed);
+                // Each per-frame step is isolated from the next so a
+                // throwing event-handler or a misbehaving session
+                // can't tear the pump down. A buggy consumer must not
+                // be able to DoS the modem.
+                try { TraceFrame(parsed, FrameDirection.Received); }
+                catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
+
+                try { DispatchInbound(parsed); }
+                catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Normal shutdown.
         }
+        // Note on event-handler exceptions:
+        // The Listener is a long-running infrastructure component —
+        // a buggy SessionAccepted / FrameTraced subscriber must not
+        // be allowed to crash the pump or leak through StopAsync /
+        // DisposeAsync. We swallow synchronously here; future work
+        // could surface them on a dedicated ListenerExceptionRaised
+        // event so consumers that DO care can observe.
     }
 
     private void DispatchInbound(Ax25Frame parsed)
@@ -305,7 +319,7 @@ public sealed class Ax25Listener : IAsyncDisposable
 
             if (isReconnectSabm && cached.Session.CurrentState == "Connected")
             {
-                SessionAccepted?.Invoke(this, new Ax25SessionEventArgs { Session = cached.Session });
+                RaiseSessionAccepted(cached.Session);
             }
             return;
         }
@@ -339,7 +353,14 @@ public sealed class Ax25Listener : IAsyncDisposable
         AddToCache(peer, built);
         options.ConfigureSession?.Invoke(built.Session);
         built.Session.PostEvent(classified);
-        SessionAccepted?.Invoke(this, new Ax25SessionEventArgs { Session = built.Session });
+        RaiseSessionAccepted(built.Session);
+    }
+
+    private void RaiseSessionAccepted(Ax25Session session)
+    {
+        var handler = SessionAccepted;
+        if (handler is null) return;
+        SafeInvoke(handler, new Ax25SessionEventArgs { Session = session });
     }
 
     private CachedSession GetOrCreateSession(Callsign peer)
@@ -500,12 +521,29 @@ public sealed class Ax25Listener : IAsyncDisposable
     {
         var handler = FrameTraced;
         if (handler is null) return;
-        handler.Invoke(this, new Ax25FrameEventArgs
+        var args = new Ax25FrameEventArgs
         {
             Frame = frame,
             Direction = direction,
             Timestamp = timeProvider.GetUtcNow(),
-        });
+        };
+        SafeInvoke(handler, args);
+    }
+
+    /// <summary>
+    /// Invoke each subscriber on a multicast delegate independently,
+    /// swallowing any exception per-handler so one buggy subscriber
+    /// can't suppress others. The Listener is infrastructure code —
+    /// a faulty event consumer must not be able to break the
+    /// inbound pump or starve other consumers.
+    /// </summary>
+    private void SafeInvoke<T>(EventHandler<T> handler, T args) where T : EventArgs
+    {
+        foreach (var del in handler.GetInvocationList())
+        {
+            try { ((EventHandler<T>)del).Invoke(this, args); }
+            catch (Exception) { /* swallowed; see XML doc */ }
+        }
     }
 
     private static readonly Dictionary<string, IReadOnlyList<TransitionSpec>> DefaultTransitionMap = new()
