@@ -1,25 +1,19 @@
 # `@packet-net/ax25-ts`
 
-Browser-targeted TypeScript library for AX.25 v2.2 connected-mode sessions over Web Serial KISS modems.
-
-This is the JavaScript companion to [`Packet.Ax25`](../../src/Packet.Ax25) — the canonical C# implementation in this repo. As of the table-driven rework the session state machine **walks the generated SDL transition tables in [`../../ts-spec/`](../../ts-spec/)** rather than a hand-rolled switch. The transitions are codegen'd from the same `spec-sdl/` YAML that drives the C# runtime, so future spec transcriptions flow into TypeScript automatically — no manual edits to `session.ts` for new states, events, or guards.
-
-## Status
-
-Stretch-goal experiment. Functional for the happy path; missing chunks of AX.25 v2.2. See "What's in / what's out" below.
+Browser-targeted TypeScript library for AX.25 v2.2 connected-mode sessions over KISS modems. Open a connection to a remote callsign, get back a bidirectional `Stream`-ish session with `onData(...)`, `write(...)`, and `disconnect()`. The library walks the generated AX.25 SDL state-machine tables verbatim — no prior amateur-radio-app-development experience required to use it.
 
 ## Install
 
-This package is not yet published to npm. Inside this monorepo:
-
 ```sh
-cd web/ax25-ts
-npm install
-npm run build
-npm test
+npm install @packet-net/ax25-ts
 ```
 
-## Quick start
+> [!NOTE]
+> `@packet-net/ax25-ts` is **not yet published to npm**. Until v0.1.0 ships, the package exists only inside this monorepo. Local-dev usage (cloning the repo and running `npm install` from `web/ax25-ts/`) works today; the npm-install line above will succeed once Tom runs the manual `npm publish` documented in [`docs/web-ax25-ts/publishing.md`](../../docs/web-ax25-ts/publishing.md).
+
+## Quick start (Web Serial)
+
+A complete browser app — open a USB modem, connect to `GB7CIP`, send a line, receive replies, disconnect:
 
 ```ts
 import {
@@ -28,7 +22,9 @@ import {
   WebSerialKissTransport,
 } from "@packet-net/ax25-ts";
 
+// User-gesture-driven port picker (a button's onclick handler, typically):
 const port = await navigator.serial.requestPort();
+
 const transport = new WebSerialKissTransport(port, { baudRate: 9600 });
 const stack = new Ax25Stack(transport);
 await stack.start();
@@ -38,52 +34,79 @@ const session = await stack.connect({
   to: "GB7CIP",
 });
 
-session.onData((chunk) => {
-  console.log(new TextDecoder().decode(chunk));
-});
-session.onDisconnected(() => {
-  console.log("link closed");
-});
+session.onData((chunk) => console.log(new TextDecoder().decode(chunk)));
+session.onDisconnected(() => console.log("link closed"));
 
 await session.write(new TextEncoder().encode("hello\r"));
 
-// Later:
+// Later, when the user clicks "disconnect":
 await session.disconnect();
 await stack.stop();
 ```
 
-The full typechecked example is in [`examples/quick-start.ts`](examples/quick-start.ts).
+The same code as a typechecking file lives at [`examples/quick-start.ts`](examples/quick-start.ts). Two more end-to-end examples (Node TCP, in-memory mock for unit tests) live alongside it — see [`examples/`](examples/).
 
-## Public API
+## Transport seams
 
-| Export | Purpose |
-| --- | --- |
-| `Callsign` | 0-6 char base + 0-15 SSID. `Callsign.parse("M0LTE-7")`. |
-| `Ax25Frame` (interface) | A parsed AX.25 frame: destination, source, digipeaters, control, pid, info. |
-| `sabm / disc / ua / dm / ui / rr / rnr / rej / iFrame` | Frame factories. |
-| `encodeFrame / decodeFrame` | Round-trip an `Ax25Frame` to/from wire bytes (no FCS — KISS form). |
-| `classify` | `"SABM" | "DISC" | "UA" | "DM" | "UI" | "RR" | "RNR" | "REJ" | "I" | "UNKNOWN"`. |
-| `KissDecoder`, `encodeKiss` | KISS framing (FEND/FESC escape). |
-| `Ax25Transport` | 3-method interface (`start / send / stop`). |
-| `WebSerialKissTransport` | KISS over a `SerialPort`. |
-| `Ax25Stack` | Owns the transport. `connect({ from, to })` → `Promise<Ax25Session>`. |
-| `Ax25Session` | `onData(cb)`, `onDisconnected(cb)`, `write(bytes)`, `disconnect()`. |
+`Ax25Stack` accepts any `Ax25Transport` (a 3-method interface: `start` / `send` / `stop`). The library ships three concrete transports plus a documented "implement-your-own" seam:
 
-## What's in / what's out / what's known to be wrong
+| Transport | Where it lives | Environment | Status |
+| --- | --- | --- | --- |
+| `WebSerialKissTransport` | `@packet-net/ax25-ts` main entry | Chromium browsers (Chrome / Edge / Opera / Brave) | Provided |
+| `TcpKissTransport` | `@packet-net/ax25-ts/tcp-transport` subpath | Node.js (uses `node:net`) | Provided |
+| `MockTransport` | `tests/mock-transport.ts` (not in published bundle — copy into your project for testing) | Anywhere | Provided for tests |
+| AGW (over TCP) | n/a | Node | Not yet implemented |
+| AXUDP | n/a | Node | Not yet implemented |
+| Audio (modem-in-browser) | n/a | Browser | Not yet implemented |
 
-### Implemented (v0.2)
+To roll your own, implement `Ax25Transport` and pass it to `new Ax25Stack(yourTransport)`.
 
-- Frame parser/encoder for U-frames (SABM, UA, DISC, DM, UI), S-frames (RR, RNR, REJ), and I-frames. Mod-8 only.
-- 7-octet callsign codec with SSID + C/H + E bit handling.
-- KISS framing: FEND (0xC0) / FESC (0xDB) / TFEND / TFESC escape, port nibble.
-- `WebSerialKissTransport`: opens a Web Serial port, runs a read loop, KISS-decodes inbound, KISS-encodes outbound.
-- **Table-driven session machine** — the driver in [`src/sdl/session-driver.ts`](src/sdl/session-driver.ts) imports `DataLinkDisconnected`, `DataLinkAwaitingConnection`, `DataLinkAwaitingConnection22`, `DataLinkConnected`, and `DataLinkAwaitingRelease` from the [`ax25sdl`](../../ts-spec/) package, looks up the transitions out of the current state for each posted event, evaluates guard expressions like `command and info_field_valid and V_a_le_N_r_le_V_s` against a bindings dictionary, executes the action chain via [`src/sdl/action-dispatcher.ts`](src/sdl/action-dispatcher.ts), and advances state. This is the same architecture the C# runtime uses (see `src/Packet.Ax25/Session/`).
-- SABM → UA → Connected, DISC → UA → Disconnected, I-frame TX/RX with V(s)/V(r)/V(a) bookkeeping, k=1 outstanding window, FIFO TX queue.
-- Inbound I-frame delivery via `session.onData(...)`, inbound RR acks via the `Check_I_Frame_Acknowledged` inlined subroutine (advances V(a), pumps the next queued frame).
-- T1 retry on SABM, DISC, and outstanding I-frame, capped at N2 (default 10) via the SDL `RC_eq_N2` guard.
-- Mock transport pair for tests — no Web Serial hardware required to run vitest.
+## Scope — what's in v0.1, what's deliberately out
 
-### File layout
+### In
+
+- Frame codec for U/S/I frames (mod-8): SABM, UA, DISC, DM, UI, RR, RNR, REJ, I.
+- 7-octet callsign codec with SSID + C/H + E-bit handling.
+- KISS framing (FEND/FESC/TFEND/TFESC, multi-port nibble).
+- Web Serial transport for the browser.
+- Node TCP transport for KISS-over-TCP listeners (BPQ / Xrouter / direwolf / net-sim).
+- Table-driven session machine that walks the generated SDL transitions in [`ax25sdl`](../../ts-spec/) — same architecture as the C# runtime in [`src/Packet.Ax25/Session/`](../../src/Packet.Ax25/Session/).
+- SABM → UA → Connected, DISC → UA → Disconnected.
+- I-frame TX/RX with V(s)/V(r)/V(a) bookkeeping, k=1 outstanding window, FIFO TX queue.
+- T1 retry capped at N2 (default 10), SDL `RC_eq_N2` guard.
+- Public API: `Ax25Stack`, `Ax25Session`, `Ax25Frame`, `Callsign`, KISS helpers, `Ax25Transport` interface.
+
+### Out (deliberate — will land in later versions)
+
+| Missing feature | Behaviour today | Tracked for |
+| --- | --- | --- |
+| mod-128 (SABME, extended sequence numbers) | SDL `version_2_2` / `mod_128` predicates return false; mod-128 branches route-around | post-v0.1 |
+| REJ / SREJ recovery loops | Wire frames emit, but the `Invoke_Retransmission` / `N_r_Error_Recovery` subroutines are no-op stubs | post-v0.1 |
+| FRMR generation / handling | Inbound FRMR silently dropped | post-v0.1 |
+| figc4.7 subroutine walker | The dispatcher inlines `Establish_Data_Link` + `Check_I_Frame_Acknowledged`; everything else routes through no-op registry stubs | post-v0.1 |
+| Multi-frame TX window (k>1) | Hard-coded k=1 | post-v0.1 |
+| `via` digipeater paths | `stack.connect({ via: [...] })` throws | post-v0.1 |
+| AGW client / server | Not implemented (Node-side; the [Packet.Agw .NET package](../../src/Packet.Agw/) has the working reference impl) | post-v0.1 |
+| Audio modem transport (browser-side AFSK) | Not implemented | post-v0.1 |
+| Inbound connection acceptance | A SABM to us with no matching outbound session is silently dropped — no `onConnectRequest` API yet | post-v0.1 |
+| XID negotiation | Not implemented — defaults used (mod-8, no SREJ) | post-v0.1 |
+| Dynamic T1 (`Select_T1_Value`) | Stub; caller-supplied `t1Ms` is honoured for the lifetime of the session | post-v0.1 |
+
+## Documentation
+
+- **API reference** — [`docs/web-ax25-ts/api/`](../../docs/web-ax25-ts/api/) (regenerated by `npm run docs`; see also the [docs index](../../docs/web-ax25-ts/README.md)).
+- **Worked examples** — [`examples/`](examples/) — three self-contained, typechecked examples (Web Serial, Node TCP, in-memory mock).
+- **Distribution & publishing** — [`docs/web-ax25-ts/publishing.md`](../../docs/web-ax25-ts/publishing.md). Written for `.NET` / NuGet veterans new to npm.
+- **Changelog** — [`CHANGELOG.md`](CHANGELOG.md).
+- **C# reference implementation** — for spec-purity-minded readers, [`src/Packet.Ax25/Session/`](../../src/Packet.Ax25/Session/) is the fuller AX.25 v2.2 runtime, walking the same SDL transitions this library walks. It implements the figc4.7 subroutines and REJ/SREJ recovery this library currently stubs.
+
+## Browser compatibility
+
+Web Serial is supported in Chromium-based browsers (Chrome, Edge, Opera, Brave) on desktop OSes. Firefox and Safari don't expose it. The user must grant permission per port via `navigator.serial.requestPort()` from a user-gesture handler (button click, etc.).
+
+For non-browser environments (Node.js, Bun, Deno) reach for the `TcpKissTransport` subpath import (`@packet-net/ax25-ts/tcp-transport`) or implement your own transport against `Ax25Transport`.
+
+## Source layout
 
 ```
 src/
@@ -93,6 +116,7 @@ src/
 ├── kiss.ts                    KISS framing (FEND/FESC/TFEND/TFESC)
 ├── transport.ts               Ax25Transport interface
 ├── webserial-transport.ts     KISS over Web Serial port
+├── tcp-transport.ts           KISS over TCP socket (Node-only)
 ├── session.ts                 Public Ax25Stack / Ax25Session — wraps the SDL driver
 └── sdl/                       Table-walking session engine
     ├── events.ts                  Ax25Event variants (frame-receipt, timer, DL primitives)
@@ -105,62 +129,6 @@ src/
     └── session-driver.ts          PostEvent → find transition → execute → advance
 ```
 
-### Why table-driven?
-
-Three reasons:
-
-1. **Spec faithfulness.** The SDL figures in AX.25 v2.2 appendix C define the state machine exactly. The transitions in `ts-spec/src/ax25sdl/*.g.ts` are codegen'd from human-authored transcriptions of those figures (see [`spec-sdl/`](../../spec-sdl/)). Walking the tables means we behave exactly as the figures say.
-
-2. **No manual sync.** Adding a new transition or fixing a transcribed guard now flows automatically into this library on the next codegen run. The old hand-rolled `switch (state)` had to be kept in sync by hand.
-
-3. **Same source of truth as C#.** The C# runtime in `src/Packet.Ax25/Session/Ax25Session.cs` walks the same tables (its own .g.cs flavour). If a peer-interop issue gets fixed in the SDL YAML, both runtimes benefit on the next codegen.
-
-### Out of scope (deliberate — declared, not implemented)
-
-| Missing thing | Behaviour | Why |
-| --- | --- | --- |
-| **mod-128 (SABME)** | Not exposed. The SDL's `version_2_2` / `mod_128` predicates always return `false`, so mod-128 branches in the transition tables are routed-around. | v2.2 §6.2; very few peers use it. |
-| **figc4.7 subroutines** | The dispatcher **inlines** `Establish_Data_Link` and `Check_I_Frame_Acknowledged` because the happy path needs them. The rest (`Select_T1_Value`, `Transmit_Enquiry`, `Invoke_Retransmission`, `N_r_Error_Recovery`, `Enquiry_Response`, `Check_Need_For_Response`, `UI_Check`, `Set_Version_2_*`) route through a no-op stub registry. | Walking figc4.7's paths through the same dispatcher is the next obvious follow-up but isn't in this PR. The C# `DefaultSubroutineRegistry` is the model. |
-| **REJ / SREJ recovery** | Whatever the figc4.4 tables say happens. Since `Enquiry_Response`, `Invoke_Retransmission`, and `N_r_Error_Recovery` are stubbed, full REJ/SREJ recovery is incomplete — some paths emit the right wire frames (REJ, SREJ) but the recovery loop is a no-op. Documented as a follow-up. | Implementation needed in the dispatcher / subroutine registry. |
-| **T1 dynamic adjustment** | The `Select_T1_Value` subroutine is a no-op stub, so T1V stays at the initial value. The dispatcher's `freezeT1V` flag suppresses the spec's `SRT := Initial Default` / `T1V := 2 * SRT` actions so a caller-supplied `t1Ms` is honoured. | RTT smoothing is high-complexity and unnecessary for the happy path. |
-| **FRMR** | Not generated; inbound FRMR is silently dropped. | §4.3.3.6 — peers rarely send it; we don't have anything to do with it. |
-| **Multi-frame window (k>1)** | Hard-coded `k=1` in the session constructor. Subsequent `write()` calls queue locally. | The SDL guard `V_s_eq_V_a_plus_k` reads `ctx.k` — change the assignment in `session.ts` to widen. |
-| **Digipeater paths (`via`)** | `stack.connect({ via: [...] })` **throws "not implemented"**. | Frame factories accept digipeaters and the codec round-trips them — only the session driver doesn't route through them. |
-| **TCP / AGW / AXUDP / audio transports** | Web Serial only. | Define `Ax25Transport` and slot in your own. |
-| **Inbound connection acceptance** | A SABM addressed to us with no matching outbound session is silently dropped. | No `onConnectRequest` API yet. |
-| **XID negotiation** | Not implemented. | Defaults are used (mod-8, no SREJ). |
-
-### Known gotchas
-
-- **K=1 window is a real limitation.** Throughput on a real link will be SRT-bound (each frame waits for the peer's RR before the next frame leaves). Reasonable for interactive BBS sessions; awful for bulk transfer.
-- **Out-of-sequence inbound I-frames** are answered with RR(N(R)=V(r)) instead of REJ. The peer's T1 eventually retransmits the missing frame. This is "works, but slower than spec".
-- **`MockTransport` uses `queueMicrotask`**, not `setTimeout(0)`. If you write a test that needs the round-trip to interleave with a `setTimeout`, you may need extra `await peer.flush()` calls. Two flushes is usually enough.
-- **Web Serial port lifecycle:** if `start()` resolves and the user yanks the cable, the read loop just exits silently and the session's T1 will eventually fire. There's no `onTransportError` callback — this is a gap.
-
-### How does this compare to the C# reference?
-
-`src/Packet.Ax25/Session/` is the faithful spec implementation:
-
-- It walks the same SDL tables this library now walks (its own `.g.cs` flavour from the same codegen).
-- It implements figc4.7 subroutines for real (`Select_T1_Value`, `Invoke_Retransmission`, `Check_I_Frame_Acknowledged`, `Transmit_Enquiry`, etc.) — so REJ/SREJ recovery, dynamic T1V, and proper enquiry-response work.
-- It handles XID negotiation, FRMR rejection coding, retried-DISC-counts-as-cleared-link, all the edge cases that matter for interop with real peers (BPQ, Xrouter, direwolf, rax25).
-
-This TS library walks the same transitions but **stubs the figc4.7 subroutines**. That means it covers ≈80% of the wire behaviour — enough for chat-style BBS / node-prompt usage — but it doesn't yet handle REJ/SREJ recovery loops, dynamic T1V, or anything else that requires walking the subroutine paths.
-
-If you're improving this library, the C# code is the spec reference. Start with:
-
-- [`src/Packet.Ax25/Session/Ax25Session.cs`](../../src/Packet.Ax25/Session/Ax25Session.cs) — the table-walking driver. Same shape as `src/sdl/session-driver.ts`.
-- [`src/Packet.Ax25/Session/ActionDispatcher.cs`](../../src/Packet.Ax25/Session/ActionDispatcher.cs) — the action-verb switch. Same shape as `src/sdl/action-dispatcher.ts`.
-- [`src/Packet.Ax25/Session/Ax25SessionBindings.cs`](../../src/Packet.Ax25/Session/Ax25SessionBindings.cs) — guard predicate bindings.
-- [`src/Packet.Ax25/Session/SubroutineRegistry.cs`](../../src/Packet.Ax25/Session/SubroutineRegistry.cs) — figc4.7 wiring (NOT yet ported to TS).
-- [`src/Packet.Ax25.Sdl/DataLink_Connected.g.cs`](../../src/Packet.Ax25.Sdl/) — Connected-state transitions (the C# flavour of what `ts-spec/src/ax25sdl/connected.g.ts` contains).
-
-## Browser compatibility
-
-Web Serial is supported in Chromium-based browsers (Chrome, Edge, Opera, Brave) on desktop OSes. Firefox and Safari don't expose it. The user must grant permission per port via `navigator.serial.requestPort()`.
-
-For non-browser environments (Node.js, Bun, Deno) you'll want a TCP/IP transport instead — implement `Ax25Transport` against a KISS-over-TCP socket. PRs welcome.
-
 ## License
 
-MIT
+[MIT](LICENSE) — copyright Tom Fanning and Packet.NET contributors.
