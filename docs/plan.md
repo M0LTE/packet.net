@@ -601,7 +601,7 @@ CI filter convention: default jobs run with `--filter "Category!=HardwareLoop&Ca
 | 2 | SABM/UA cycle (mod-8) vs LinBPQ over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`LinbpqViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs XRouter over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`XrouterViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs rax25 (Habets, Rust) over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`Rax25ViaNetsimConnectedMode`) — handshake only; REJ/SREJ + segmentation untested in rax25 |
-| 2 | ax25.ts (TypeScript, Node TCP) vs LinBPQ over net-sim AFSK1200 | `Ax25Stack` + `TcpKissTransport` reach Connected after UA, exchange I-frames (banner from BPQ + `P\r` ports-command round-trip), DISC/UA cleanly returns to Disconnected (`web/ax25-ts/tests/integration/linbpq-via-netsim.test.ts`) |
+| 2 | ax25.ts (TypeScript, Node TCP) vs LinBPQ over net-sim AFSK1200 | `Ax25Stack` + `TcpKissTransport` reach Connected after UA, exchange I-frames (banner from BPQ + `P\r` ports-command round-trip), DISC/UA cleanly returns to Disconnected (`web/ax25/tests/integration/linbpq-via-netsim.test.ts`) |
 | 2 | 30 % scripted loss net-sim afsk1200, 10 kB transfer | completes; retries observed; no FRMR |
 | 3 | ACKMODE echo via LinBPQ | ack-bytes returned within 5 s |
 | 3 | ACKMODE via NinoTNC pair | ack-bytes correlate to RX on partner TNC |
@@ -829,9 +829,13 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-16 — ax25.ts: rename to @packet-net/ax25
+
+Pre-publish rename. Unscoped `ax25` on npm is already taken (existing Node KISS+AX.25 stack at v1.1.2), so we ship under the `@packet-net` scope. Drops the `-ts` suffix from the package name; the directory and docs paths match (`web/ax25/`, `docs/web-ax25/`). No code-shape changes; nothing was published under the old name so there's no migration path to honour.
+
 ### 2026-05-16 — codegen: generalise runtime-specific lints across C# and TypeScript
 
-Before this PR the codegen-time lints in `tools/Packet.Sdl.CodeGen/Program.cs` hard-coded paths under `src/Packet.Ax25/Session/` — so the predicate-binding / action-dispatcher / subroutine-coverage / DL-ERROR / dispatcher-orphan lints only ran against the C# runtime. Gaps in the TypeScript port (under `web/ax25-ts/src/sdl/`) would silently land and only surface at runtime when a transcription referenced an unbound predicate or unknown action verb. This PR drives the runtime-specific lints from a single config file so both runtimes (and any future ones) get the same coverage.
+Before this PR the codegen-time lints in `tools/Packet.Sdl.CodeGen/Program.cs` hard-coded paths under `src/Packet.Ax25/Session/` — so the predicate-binding / action-dispatcher / subroutine-coverage / DL-ERROR / dispatcher-orphan lints only ran against the C# runtime. Gaps in the TypeScript port (under `web/ax25/src/sdl/`) would silently land and only surface at runtime when a transcription referenced an unbound predicate or unknown action verb. This PR drives the runtime-specific lints from a single config file so both runtimes (and any future ones) get the same coverage.
 
 **Shape of the refactor**:
 
@@ -857,17 +861,17 @@ Stacks on the two ax25.ts entries below. Before this PR the library was internal
 
 **Deliverables**:
 
-- **`web/ax25-ts/README.md` rewritten** with a 1-paragraph "what this is" opener aimed at developers new to amateur-radio app work, a future-state `npm install @packet-net/ax25-ts` snippet (with a NOTE callout flagging the package isn't on npmjs yet), a Transport Seams table that distinguishes provided transports from not-yet-implemented ones, an in/out scope table, and links into the new API ref + publishing guide.
-- **`web/ax25-ts/LICENSE`** — MIT, copyright "Tom Fanning and Packet.NET contributors", matching the repo-root LICENSE shape.
-- **`web/ax25-ts/CHANGELOG.md`** — Keep-a-Changelog 1.1.0 format, 0.1.0 marked UNRELEASED until first publish.
-- **API reference via TypeDoc** — `web/ax25-ts/typedoc.json` configures two entry points (`src/index.ts` + `src/tcp-transport.ts`) and emits markdown to `docs/web-ax25-ts/api/` via `typedoc-plugin-markdown`. `npm run docs` regenerates. SDL driver internals (`src/sdl/**`), the Node-types shim, and tests are excluded. `gitRevision: "main"` keeps the "Defined in:" source links stable across merges. Emits cleanly (zero warnings, 50 markdown files, 270 KB total).
-- **`docs/web-ax25-ts/README.md`** — index page pointing readers at the API ref, examples, publishing guide.
-- **Three worked examples in `web/ax25-ts/examples/`** — `quick-start.ts` (Web Serial — refreshed from the existing version with a clearer narrative), `node-tcp.ts` (Node TCP via `TcpKissTransport` against `127.0.0.1:8100` / net-sim), `with-mock-transport.ts` (paired `MockTransport`, scripted peer, drives `Ax25Stack` under test). `tsconfig.examples.json` + `npm run typecheck:examples` script keep all three typechecking against the public API surface on every CI run.
-- **`docs/web-ax25-ts/publishing.md`** — full runbook for first npm publish. Aimed at someone whose package-management muscle memory is NuGet (table at top maps npm concepts to their NuGet equivalents). Covers account setup, `@packet-net` scope creation, automation token, `NPM_TOKEN` GitHub secret, manual `npm pack --dry-run` validation, the `file:../../ts-spec` → `^0.1.0` flip required pre-publish, SemVer bump + tag workflow, and troubleshooting for `402` / name-taken / ERESOLVE / "cannot publish over existing version".
-- **`.github/workflows/npm-publish.yml`** — triggers on tags matching `v*`. Builds + publishes `ax25sdl` first, then mutates `web/ax25-ts/package.json` in the CI shell to flip the `file:` dep to a registry version, then builds + publishes `@packet-net/ax25-ts`. The flip is CI-local — never committed back to main — so local-dev `npm install` continues to work unchanged. Skips both `npm publish` steps if `NPM_TOKEN` is unset; build + dry-run-pack still run so packaging issues surface even without credentials.
-- **`ts-spec/package.json` metadata** — added `license: MIT`, `repository.directory: ts-spec`, `homepage`, `bugs`, richer `description`, `keywords`. Bumped version from `0.0.0` to `0.1.0` to track the first `@packet-net/ax25-ts` release.
+- **`web/ax25/README.md` rewritten** with a 1-paragraph "what this is" opener aimed at developers new to amateur-radio app work, a future-state `npm install @packet-net/ax25` snippet (with a NOTE callout flagging the package isn't on npmjs yet), a Transport Seams table that distinguishes provided transports from not-yet-implemented ones, an in/out scope table, and links into the new API ref + publishing guide.
+- **`web/ax25/LICENSE`** — MIT, copyright "Tom Fanning and Packet.NET contributors", matching the repo-root LICENSE shape.
+- **`web/ax25/CHANGELOG.md`** — Keep-a-Changelog 1.1.0 format, 0.1.0 marked UNRELEASED until first publish.
+- **API reference via TypeDoc** — `web/ax25/typedoc.json` configures two entry points (`src/index.ts` + `src/tcp-transport.ts`) and emits markdown to `docs/web-ax25/api/` via `typedoc-plugin-markdown`. `npm run docs` regenerates. SDL driver internals (`src/sdl/**`), the Node-types shim, and tests are excluded. `gitRevision: "main"` keeps the "Defined in:" source links stable across merges. Emits cleanly (zero warnings, 50 markdown files, 270 KB total).
+- **`docs/web-ax25/README.md`** — index page pointing readers at the API ref, examples, publishing guide.
+- **Three worked examples in `web/ax25/examples/`** — `quick-start.ts` (Web Serial — refreshed from the existing version with a clearer narrative), `node-tcp.ts` (Node TCP via `TcpKissTransport` against `127.0.0.1:8100` / net-sim), `with-mock-transport.ts` (paired `MockTransport`, scripted peer, drives `Ax25Stack` under test). `tsconfig.examples.json` + `npm run typecheck:examples` script keep all three typechecking against the public API surface on every CI run.
+- **`docs/web-ax25/publishing.md`** — full runbook for first npm publish. Aimed at someone whose package-management muscle memory is NuGet (table at top maps npm concepts to their NuGet equivalents). Covers account setup, `@packet-net` scope creation, automation token, `NPM_TOKEN` GitHub secret, manual `npm pack --dry-run` validation, the `file:../../ts-spec` → `^0.1.0` flip required pre-publish, SemVer bump + tag workflow, and troubleshooting for `402` / name-taken / ERESOLVE / "cannot publish over existing version".
+- **`.github/workflows/npm-publish.yml`** — triggers on tags matching `v*`. Builds + publishes `ax25sdl` first, then mutates `web/ax25/package.json` in the CI shell to flip the `file:` dep to a registry version, then builds + publishes `@packet-net/ax25`. The flip is CI-local — never committed back to main — so local-dev `npm install` continues to work unchanged. Skips both `npm publish` steps if `NPM_TOKEN` is unset; build + dry-run-pack still run so packaging issues surface even without credentials.
+- **`ts-spec/package.json` metadata** — added `license: MIT`, `repository.directory: ts-spec`, `homepage`, `bugs`, richer `description`, `keywords`. Bumped version from `0.0.0` to `0.1.0` to track the first `@packet-net/ax25` release.
 
-**`web/ax25-ts/src/transport.ts` doc-only edit**: one JSDoc comment carried a broken `{@link MockTransport}` reference (MockTransport isn't an exported symbol — it lives under `tests/`) and an outdated "Future implementations: TcpKissTransport" note. Fixed the link and updated the comment to reflect TcpKissTransport now existing. This is the only `src/` change in the PR; no public API surface moved.
+**`web/ax25/src/transport.ts` doc-only edit**: one JSDoc comment carried a broken `{@link MockTransport}` reference (MockTransport isn't an exported symbol — it lives under `tests/`) and an outdated "Future implementations: TcpKissTransport" note. Fixed the link and updated the comment to reflect TcpKissTransport now existing. This is the only `src/` change in the PR; no public API surface moved.
 
 **Constraint compliance**: 64 unit tests + 173 ts-spec tests still pass; `npm run typecheck` clean in both packages; TypeDoc emits zero warnings; YAML in the workflow lints clean.
 
@@ -877,16 +881,16 @@ Stacks on the ax25.ts library entry below. Before this PR, the library had no re
 
 **New code**:
 
-- **`web/ax25-ts/src/tcp-transport.ts`** — `TcpKissTransport implements Ax25Transport`. Same three-method shape as `WebSerialKissTransport`. Wraps a `node:net` socket: `start` dials with a 5 s timeout, attaches a `data`-event handler that pushes bytes through a `KissDecoder` and surfaces decoded payloads via `onFrame`; `send` KISS-encodes and writes; `stop` half-closes via `end()` with a 200 ms grace before `destroy()`.
-- **`web/ax25-ts/src/node-types.d.ts`** — minimal ambient declarations for the surface of `node:net` + `node:events` we touch. Keeps the library off `@types/node` (which would muddy the browser-targeted main entry) at the price of stretching the shim when the Node surface grows. When/if a true Node-side surface lands (server, AGW listener…), flipping on `@types/node` properly will be cheaper than keeping this shim alive.
-- **Subpath export** in `web/ax25-ts/package.json`: `./tcp-transport` → `dist/tcp-transport.{js,d.ts}`. Main `index.ts` does NOT re-export `TcpKissTransport` — browser bundlers won't pull in `node:net` unless callers deep-import via `@packet-net/ax25-ts/tcp-transport`.
+- **`web/ax25/src/tcp-transport.ts`** — `TcpKissTransport implements Ax25Transport`. Same three-method shape as `WebSerialKissTransport`. Wraps a `node:net` socket: `start` dials with a 5 s timeout, attaches a `data`-event handler that pushes bytes through a `KissDecoder` and surfaces decoded payloads via `onFrame`; `send` KISS-encodes and writes; `stop` half-closes via `end()` with a 200 ms grace before `destroy()`.
+- **`web/ax25/src/node-types.d.ts`** — minimal ambient declarations for the surface of `node:net` + `node:events` we touch. Keeps the library off `@types/node` (which would muddy the browser-targeted main entry) at the price of stretching the shim when the Node surface grows. When/if a true Node-side surface lands (server, AGW listener…), flipping on `@types/node` properly will be cheaper than keeping this shim alive.
+- **Subpath export** in `web/ax25/package.json`: `./tcp-transport` → `dist/tcp-transport.{js,d.ts}`. Main `index.ts` does NOT re-export `TcpKissTransport` — browser bundlers won't pull in `node:net` unless callers deep-import via `@packet-net/ax25/tcp-transport`.
 
 **Tests**:
 
 - **Unit tests** (`tests/tcp-transport.test.ts`, 12 facts): MockSocket fake (paired `EventEmitter` shape, mirroring the C# `KissTcpClient` paired-pipe trick) exercises connect/connect-error/connect-timeout, send → KISS-encoded write, multi-chunk inbound reassembly, port-nibble filter, non-Data-command drop, and stop idempotency. No real socket dialled. All 64 unit tests (52 existing + 12 new) pass in <1 s.
 - **Integration test** (`tests/integration/linbpq-via-netsim.test.ts`, 2 facts): mirror of `tests/Packet.Interop.Tests/Linbpq/LinbpqViaNetsimConnectedMode.cs`. (1) Connect + Disconnect — `Ax25Stack` connects `PNTEST-1`→`PN0TST` via net-sim 8100; asserts session opens; disconnects cleanly. (2) I-frame round-trip — same setup, waits for BPQ's CTEXT banner I-frame, sends `P\r` (BPQ ports command), waits for non-empty response I-frame, then disconnects. Uses SSID 1 to dodge collision with the C# test (no-SSID `PNTEST`). 15 s / 15 s budgets per phase.
 - **Skip-guard**: top-level `await netsimReachable()` probes `127.0.0.1:8100` with a 200 ms budget; `describe.skipIf(!stackReachable)` no-ops the whole block when the stack isn't up. Lets the integration file live in the same vitest tree as the unit tests without breaking dev-machine `npm test` (which is also pointed away from `tests/integration/` by the `exclude` in `vitest.config.ts`, belt-and-braces).
-- **CI**: `interop.yml` gains a `ax25.ts integration tests` step after the C# `interop tests` step. Builds ts-spec, builds web/ax25-ts, runs `npm run test:integration` against the same already-up compose stack. `paths:` filter widened to include `web/ax25-ts/**` and `ts-spec/**` so a change in either retriggers the interop matrix.
+- **CI**: `interop.yml` gains a `ax25.ts integration tests` step after the C# `interop tests` step. Builds ts-spec, builds web/ax25, runs `npm run test:integration` against the same already-up compose stack. `paths:` filter widened to include `web/ax25/**` and `ts-spec/**` so a change in either retriggers the interop matrix.
 
 **Wire-log evidence** (`docker logs --since 60s pn-netsim | grep PNTEST-1`):
 
@@ -915,7 +919,7 @@ Clean handshake → banner → ack → command → multi-frame response → DISC
 
 ### 2026-05-15 — ax25.ts: browser-targeted TypeScript library, table-driven from the SDL
 
-New package at `web/ax25-ts/` — a TypeScript library for connected-mode AX.25 v2.2 sessions over Web Serial KISS modems. Hand-rolled at first; reworked mid-PR to walk the generated SDL transition tables in `ts-spec/src/ax25sdl/` (same shape as the C# runtime in `src/Packet.Ax25/Session/`).
+New package at `web/ax25/` — a TypeScript library for connected-mode AX.25 v2.2 sessions over Web Serial KISS modems. Hand-rolled at first; reworked mid-PR to walk the generated SDL transition tables in `ts-spec/src/ax25sdl/` (same shape as the C# runtime in `src/Packet.Ax25/Session/`).
 
 **Layout** (mirrors `src/Packet.Ax25/Session/` deliberately):
 
@@ -936,7 +940,7 @@ New package at `web/ax25-ts/` — a TypeScript library for connected-mode AX.25 
 
 **Predicates / actions wired** in `session-bindings.ts` / `action-dispatcher.ts`: all 39 predicates referenced by figc4.x guards, ~140 action verbs in both snake_case and figc4.7 title-case spellings.
 
-**Explicitly out of scope** (documented in `web/ax25-ts/README.md`'s scope-limitations table):
+**Explicitly out of scope** (documented in `web/ax25/README.md`'s scope-limitations table):
 
 - mod-128 / SABME (the `version_2_2` binding always returns false; mod-128-only transitions route around).
 - figc4.7 subroutine walker (4 inlined: `Establish_Data_Link`, `Establish_Extended_Data_Link`, `Clear_Exception_Conditions`, `Check_I_Frame_Acknowledged`; 8 left as no-op registry stubs — `Select_T1_Value`, `Transmit_Enquiry`, `Invoke_Retransmission`, `N_r_Error_Recovery`, `Enquiry_Response`, `Check_Need_For_Response`, `UI_Check`, `Set_Version_2_*`).
@@ -948,7 +952,7 @@ New package at `web/ax25-ts/` — a TypeScript library for connected-mode AX.25 
 
 **`ts-spec/package.json` fix**: `main`/`types`/`exports` were pointing at `dist/index.*` but `tsc` emits to `dist/ax25sdl/index.*` (because the source layout is `src/ax25sdl/`). Corrected to actual output paths. Codegen doesn't regenerate `package.json` so the fix is stable.
 
-**CI**: added two steps after the existing ts-spec typecheck/test — `ts-spec build` (so the `file:../../ts-spec` dependency's `files: ["dist/**"]` copies aren't empty) and `web/ax25-ts build + test` (npm ci, tsc, vitest). The TS-drift assertion is unchanged.
+**CI**: added two steps after the existing ts-spec typecheck/test — `ts-spec build` (so the `file:../../ts-spec` dependency's `files: ["dist/**"]` copies aren't empty) and `web/ax25 build + test` (npm ci, tsc, vitest). The TS-drift assertion is unchanged.
 
 ### 2026-05-15 — interop: bpq32.cfg simplification (drop redundant NODE=1, BBS=0)
 
