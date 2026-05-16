@@ -188,22 +188,8 @@
     flex-direction: column;
   }
 
-  /* Tape-deck-style corner labels on the bezel */
-  .crt::before, .crt::after {
-    position: absolute;
-    font-family: var(--type-ui);
-    font-size: 0.55rem;
-    letter-spacing: 0.32em;
-    color: var(--phosphor-dim);
-    top: 0.55rem;
-    text-transform: uppercase;
-  }
-  .crt::before { content: 'TUBE · 2026'; left: 1.3rem; }
-  .crt::after  { content: 'PHOSPHOR P1';  right: 1.3rem; }
-
-  /* xterm gets its own minimum content area below the corner labels */
+  /* xterm content area */
   #terminal {
-    margin-top: 1.4rem;
     flex: 1 1 auto;
     min-height: 0;
   }
@@ -213,9 +199,10 @@
   .xterm .xterm-viewport,
   .xterm .xterm-screen { background: transparent !important; }
   .xterm .xterm-screen canvas { filter: drop-shadow(0 0 1px rgba(51, 255, 102, 0.6)); }
-  .xterm-cursor-block {
-    box-shadow: 0 0 6px var(--phosphor);
-  }
+  /* Note: no .xterm-cursor-block box-shadow — xterm's blink animation
+     toggles cursor opacity but leaves the DOM element in place, which
+     leaves a stale halo during the blink-off phase. The canvas's
+     drop-shadow already gives the cursor visible bloom when drawn. */
   .xterm-helper-textarea {
     /* hidden input area — visually nothing */
     opacity: 0;
@@ -373,7 +360,7 @@
     <header class="status">
       <div class="station-mark">
         PACKET<span class="dot">/</span>TERM
-        <span class="sub">TNC2 EMULATION · BROWSER NATIVE</span>
+        <span class="sub">TNC2 EMULATION</span>
       </div>
 
       <div></div>
@@ -517,12 +504,7 @@
     const boot = [
       ['PACKET TERMINAL v0.1.0',                AMBER],
       ['@packet-net/ax25 0.1.0 · ax25sdl 0.1.0', DIM],
-      ['xterm.js 5.3.0 · VT323 typeface',        DIM],
-      ['',                                       DIM],
-      ['[ok] frame codec (mod-8) loaded',        PHOSPHOR],
-      ['[ok] kiss framer (FEND/FESC) loaded',    PHOSPHOR],
-      ['[ok] state machine: table-driven from ax25sdl', PHOSPHOR],
-      ['[..] transport: awaiting modem attach',  AMBER],
+      ['xterm.js 5.3.0',                         DIM],
       ['',                                       DIM],
       ['type HELP for the command list.',        DIM],
       ['press ATTACH MODEM to bind a USB serial KISS modem.', DIM],
@@ -547,6 +529,22 @@
     let echoLocal = true;
     let monitor   = false;     // when true, every frame is decoded + traced
     let frameCount = { tx: 0, rx: 0 };
+
+    // MYCALL persists across page reloads in localStorage. Cleared via
+    // `MYCALL —` (with a literal dash) or by clearing site storage.
+    const STORAGE_MYCALL = 'packet-terminal:mycall';
+    (function restoreMycall() {
+      try {
+        const saved = localStorage.getItem(STORAGE_MYCALL);
+        if (saved) {
+          mycall = Callsign.parse(saved);
+          setMycall(mycall.toString());
+        }
+      } catch {
+        // corrupt stored value — silently drop
+        localStorage.removeItem(STORAGE_MYCALL);
+      }
+    })();
 
     // ─── Monitor: BPQ-style frame trace ────────────────────────────
     //
@@ -814,6 +812,7 @@
       }
       mycall = parsed;
       setMycall(parsed.toString());
+      try { localStorage.setItem(STORAGE_MYCALL, parsed.toString()); } catch {}
       println(`${DIM}MYCALL = ${RESET}${parsed.toString()}`);
     }
 
