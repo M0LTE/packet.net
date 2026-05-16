@@ -830,6 +830,25 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-16 — ActionDispatcher property tests
+
+Broadened test coverage of `src/Packet.Ax25/Session/ActionDispatcher.cs` with FsCheck-driven property tests in `tests/Packet.Ax25.Properties/ActionDispatcherProperties.cs`. The dispatcher's 140-odd-verb switch had at-best one example case per verb in `tests/Packet.Ax25.Tests/Session/ActionDispatcherTests.cs`; the new properties exercise each verb category across arbitrary starting `Ax25SessionContext` states + arbitrary input values, catching the class of regression that a single pinned example can't.
+
+**Categories under property test (42 new properties, all 200 iterations except the mod-128 wrap which drops to 50 because the input space is larger):**
+
+- `FlagMutationProperties` (6) — every `set_X` / `clear_X` pair (own/peer receiver busy, ack pending, layer-3 initiated, reject exception): set→clear inverse, set×2 idempotent, clear×2 idempotent, no cross-flag contamination; plus `increment_srej_exception` / `decrement_srej_exception_if_gt_0` count + flag interlock.
+- `SequenceVariableProperties` (8) — `V(s) := V(s) + 1` wraps at mod-8 and mod-128 (`IsExtended`), `V(s) := 0` after N increments lands at 0, `V(r) := V(r) + 1` wraps, `RC := RC + 1` increments by 1, `RC := 0` / `RC := 1` set exact values, `V(a) := N(r)` reads N(R) from incoming frame and throws cleanly without one.
+- `PendingFrameAssignmentProperties` (8) — `N(r) := V(r)`, `N(s) := V(s)`, `N(r) := N(s)` (with clean error on missing trigger frame), `F := 0`, `F := 1`, `F := P` (echoes incoming poll bit; clean error on missing frame), `p := 0`.
+- `FrameEmissionProperties` (7) — supervisory verbs (`RR_command`, `RR`, `RNR_response`, `REJ`, `SREJ`, plus the figc4.7 title-case forms `RR Command`/`RR Response`/`RNR Command`/`RNR Response`) emit exactly one S-frame with right type / role / N(R) / P-F; default N(R) falls back to V(R); unnumbered verbs (`UA`, `DM`, `DM (F = 1)`, `Expedited UA`/`DM`, `SABM (P == 1)`, `SABME (P = 1)`, `DISC (P = 1)`, figc4.7 `SABM`/`SABME`) emit one U-frame with right type / command-role / PF-override / expedited flag; `I_command` builds spec from Pending + trigger payload and stashes for retransmit; `UI_command` reads payload from `DlUnitDataRequest`; clean errors on wrong trigger kinds.
+- `UpwardSignalProperties` (5) — `DL_CONNECT_indication` / `_confirm`, `DL_DISCONNECT_indication` / `_confirm`, all ten `DL_ERROR_indication_*` letter forms and the figc4.7 `DL-ERROR Indication (X)` spellings emit exactly one `DataLinkSignal` of the matching record type / code; `DL_DATA_indication` reads info+pid from incoming I-frame and throws cleanly without one.
+- `TimerProperties` (4) — `start_TX` arms / `stop_TX` cancels for all of T1/T2/T3 (both snake_case and figc4.7 title-case forms); start-stop-start re-arms; stop-without-start is a safe no-op.
+- `QueueClearProperties` (2) — every spelling of "clear the I-frame queue" (`discard_frame_queue`, `discard_queue`, `discard_I_frame_queue`, `discard_i_frame_queue`, `Discard I Queue Entries`) empties the queue; the no-op discards (`discard_I_frame`, `discard_contents_of_I_frame`, `discard_primitive`) leave queue depth unchanged.
+- `UnknownVerbProperties` (2) — any string outside the known-verb set (sanitised arbitrary string + empty/whitespace) throws `InvalidOperationException` with the verb name in the message.
+
+**No real bugs surfaced in `ActionDispatcher`.** Every property passes on first run against the existing implementation, which is the encouraging outcome — the example tests had already pinned the right behaviour. The properties' value is forward: a future regression that breaks any verb's contract across the input space will fall out.
+
+**Runtime.** Whole property suite (`Packet.Ax25.Properties.dll`, 58 tests = 42 new + 16 pre-existing) runs in ~0.8s end-to-end, well under the 60s task ceiling. No `[Trait("Category", "Slow")]` needed.
+
 ### 2026-05-16 — fix(ax25): #141 via-chain reversal + #143 listener cache-miss DM
 
 Two implementation bugs surfaced by PR #140's coverage-broadening sweep. Both are in-engine, no SDL / spec interpretation needed — the issues' fixed behaviour matches AX.25 v2.2 §C.2 (Path Construction) and figc4.1 t05 / t13 (the catch-all that emits DM for unrecognised events in Disconnected).
