@@ -434,6 +434,14 @@
       Ax25Stack,
       WebSerialKissTransport,
       Callsign,
+      decodeFrame,
+      classify,
+      getNr,
+      getNs,
+      isCommand,
+      isResponse,
+      pollFinal,
+      PID_NO_LAYER_3,
     } from 'https://esm.sh/@packet-net/ax25@0.1.0';
 
     // ─── Terminal setup ────────────────────────────────────────────
@@ -537,7 +545,116 @@
     let buffer    = '';        // command-line buffer
     let convBuf   = '';        // converse-mode line buffer (flushed on CR)
     let echoLocal = true;
+    let monitor   = false;     // when true, every frame is decoded + traced
     let frameCount = { tx: 0, rx: 0 };
+
+    // ─── Monitor: BPQ-style frame trace ────────────────────────────
+    //
+    // Wraps any Ax25Transport, intercepting both directions. When the
+    // `monitor` flag is on, every frame is decoded and printed in
+    // BPQ-monitor format:
+    //
+    //   HH:MM:SS X SRC>DEST [,VIA…] <KIND C|R [Rn] [Sn] [P|F]>
+    //       [info field — I and UI frames]
+    //
+    // The wrap is installed permanently so toggling MON ON/OFF is O(1)
+    // and doesn't disrupt the live link.
+    function pad2(n) { return n.toString().padStart(2, '0'); }
+    function fmtTime(d) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
+
+    function tryDecode(bytes) {
+      try { return decodeFrame(bytes); } catch { return null; }
+    }
+
+    function fmtCallsign(c) {
+      // Library callsigns toString as "BASE-SSID" or just "BASE" when
+      // SSID is 0. Match BPQ's habit of keeping SSID 0 visible only
+      // when non-zero.
+      const s = c.toString();
+      return s.endsWith('-0') ? s.slice(0, -2) : s;
+    }
+
+    function fmtFrame(direction, bytes) {
+      const f = tryDecode(bytes);
+      if (!f) {
+        return `${DIM}${fmtTime(new Date())}${RESET} ${direction === 'T' ? AMBER : PHOSPHOR}${direction}${RESET} ${RED}<undecodable ${bytes.length}B>${RESET}`;
+      }
+
+      const ts   = fmtTime(new Date());
+      const kind = classify(f);
+      const cr   = isCommand(f) ? 'C' : (isResponse(f) ? 'R' : '?');
+      const pf   = pollFinal(f) ? (isCommand(f) ? 'P' : 'F') : '';
+
+      const src  = fmtCallsign(f.source);
+      const dst  = fmtCallsign(f.destination);
+      const via  = (f.digipeaters && f.digipeaters.length > 0)
+        ? ',' + f.digipeaters.map(d => fmtCallsign(d)).join(',')
+        : '';
+
+      let body;
+      if (kind === 'I') {
+        body = `I ${cr} R${getNr(f)} S${getNs(f)}${pf ? ' ' + pf : ''}`;
+      } else if (kind === 'RR' || kind === 'RNR' || kind === 'REJ' || kind === 'SREJ') {
+        body = `${kind} ${cr} R${getNr(f)}${pf ? ' ' + pf : ''}`;
+      } else {
+        body = `${kind} ${cr}${pf ? ' ' + pf : ''}`;
+      }
+
+      // Direction colour: T=amber (we're transmitting), R=phosphor (we're receiving)
+      const dirColour = direction === 'T' ? AMBER : PHOSPHOR;
+      const header = `${DIM}${ts}${RESET} ${dirColour}${direction}${RESET} ${src}>${dst}${via} ${DIM}<${RESET}${body}${DIM}>${RESET}`;
+
+      // I-frames and UI carry an info field. Show it indented on the
+      // next line, trimming trailing CR/LF that the peer added.
+      if ((kind === 'I' || kind === 'UI') && f.info && f.info.length > 0) {
+        let info = new TextDecoder().decode(f.info).replace(/[\r\n]+$/, '');
+        const pidHint = (kind === 'UI' && f.pid !== PID_NO_LAYER_3)
+          ? ` ${DIM}pid=0x${f.pid.toString(16).padStart(2, '0')}${RESET}`
+          : '';
+        return header + pidHint + '\r\n' + DIM + '    ' + RESET + info;
+      }
+      return header;
+    }
+
+    function logFrame(direction, bytes) {
+      if (!monitor) return;
+      const line = fmtFrame(direction, bytes);
+      // Drop a clean newline first so the monitor trace doesn't land
+      // on top of the user's in-progress cmd prompt or converse buffer.
+      term.write('\r\n' + line + '\r\n');
+      if (mode === 'cmd' && buffer.length > 0) {
+        // Repaint the partially-typed cmd buffer below the trace.
+        term.write(`${DIM}cmd:${RESET} ${buffer}`);
+      } else if (mode === 'cmd') {
+        prompt();
+      } else if (mode === 'converse' && convBuf.length > 0) {
+        term.write(convBuf);
+      }
+    }
+
+    /**
+     * Wrap an Ax25Transport so we can observe both directions. The
+     * wrap is installed once at modem-attach time; toggling monitor
+     * just flips a flag, no relink needed.
+     */
+    function wrapTransport(inner) {
+      let started = false;
+      return {
+        async start(onFrame) {
+          if (started) return;
+          started = true;
+          return inner.start((bytes) => {
+            logFrame('R', bytes);
+            onFrame(bytes);
+          });
+        },
+        async send(bytes) {
+          logFrame('T', bytes);
+          return inner.send(bytes);
+        },
+        async stop() { return inner.stop(); },
+      };
+    }
 
     function prompt() {
       if (mode === 'cmd') {
@@ -638,6 +755,7 @@
       status: cmdStatus, st: cmdStatus,
       clear: cmdClear, cls: cmdClear,
       echo: cmdEcho,
+      mon: cmdMonitor, monitor: cmdMonitor,
       version: cmdVersion, v: cmdVersion,
     };
 
@@ -673,11 +791,12 @@
       println(`  ${BOLD}DISCONNECT${RESET}         ${DIM}or ${BOLD}D${RESET}${DIM} or ${BOLD}BYE${RESET}${DIM} — drop the link${RESET}`);
       println(`  ${BOLD}STATUS${RESET}             ${DIM}show link state and frame counters${RESET}`);
       println(`  ${BOLD}ECHO${RESET} ON|OFF        ${DIM}local-echo toggle (default ON)${RESET}`);
+      println(`  ${BOLD}MON${RESET} ON|OFF         ${DIM}or ${BOLD}MONITOR${RESET}${DIM} — BPQ-style frame trace${RESET}`);
       println(`  ${BOLD}CLEAR${RESET}              ${DIM}wipe the screen${RESET}`);
       println(`  ${BOLD}VERSION${RESET}            ${DIM}runtime stack identity${RESET}`);
       println(`  ${BOLD}HELP${RESET}               ${DIM}this list${RESET}`);
       println('');
-      println(`${DIM}while connected, every keystroke goes to the peer. ${BOLD}Ctrl-C${RESET}${DIM} returns to cmd mode (link stays up).${RESET}`);
+      println(`${DIM}while connected, type a line and press ${BOLD}Enter${RESET}${DIM} to send it as one I-frame. ${BOLD}Ctrl-C${RESET}${DIM} returns to cmd mode (link stays up).${RESET}`);
       println('');
     }
 
@@ -723,7 +842,7 @@
         wireSession(session);
         setLink('connected', target);
         println(`${PHOSPHOR}*** CONNECTED to ${target}${RESET}`);
-        println(`${DIM}    [type Ctrl-C to return to cmd mode without disconnecting]${RESET}`);
+        println(`${DIM}    [type a line + Enter to transmit · Ctrl-C → cmd mode (link stays up)]${RESET}`);
         mode = 'converse';
       } catch (e) {
         setLink('error', 'connect failed');
@@ -770,6 +889,13 @@
       if (v === 'on')  { echoLocal = true;  println(`${DIM}ECHO on${RESET}`); return; }
       if (v === 'off') { echoLocal = false; println(`${DIM}ECHO off${RESET}`); return; }
       println(`${DIM}ECHO ${echoLocal ? 'on' : 'off'}${RESET}`);
+    }
+
+    function cmdMonitor(args) {
+      const v = (args[0] ?? '').toLowerCase();
+      if (v === 'on')  { monitor = true;  println(`${DIM}MON on — tracing every TX/RX frame${RESET}`); return; }
+      if (v === 'off') { monitor = false; println(`${DIM}MON off${RESET}`); return; }
+      println(`${DIM}MON ${monitor ? 'on' : 'off'}${RESET}`);
     }
 
     function cmdVersion() {
@@ -820,7 +946,8 @@
         attachBtn.disabled = true;
         attachBtn.textContent = 'OPENING…';
         const port = await navigator.serial.requestPort();
-        const transport = new WebSerialKissTransport(port, { baudRate: 57600 });
+        const innerTransport = new WebSerialKissTransport(port, { baudRate: 57600 });
+        const transport = wrapTransport(innerTransport);
         stack = new Ax25Stack(transport);
         await stack.start();
         setModem('attached', 'web serial · 57600 8N1');
