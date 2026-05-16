@@ -60,6 +60,14 @@ survives a third backend.
 
 ## Not yet transcribed
 
+> For the **cross-runtime** view of what's implemented where (frame
+> codec coverage, transports, lifecycle features, subroutine wiring,
+> etc.), see
+> [`docs/runtime-capability-matrix.md`](../docs/runtime-capability-matrix.md).
+> The narrative below is the TypeScript-runtime-specific status of the
+> SDL transcription pipeline; the matrix is the multi-runtime
+> companion view.
+
 The AX.25 v2.2 SDL chapter is figc4.1 through figc4.7. Each YAML
 transcription's `coverage:` field declares whether it's `complete` or
 `partial`. Current status:
