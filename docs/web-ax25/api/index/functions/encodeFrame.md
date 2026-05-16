@@ -10,7 +10,7 @@
 function encodeFrame(frame): Uint8Array;
 ```
 
-Defined in: [frame.ts:146](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L146)
+Defined in: [frame.ts:150](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L150)
 
 Encode an Ax25Frame into a flat Uint8Array (no KISS framing).
 

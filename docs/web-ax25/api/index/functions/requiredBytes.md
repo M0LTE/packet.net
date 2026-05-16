@@ -10,7 +10,7 @@
 function requiredBytes(frame): number;
 ```
 
-Defined in: [frame.ts:134](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L134)
+Defined in: [frame.ts:138](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L138)
 
 Compute total wire length the encoder will produce for this frame.
 

@@ -10,7 +10,7 @@
 function getNr(frame): number;
 ```
 
-Defined in: [frame.ts:129](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L129)
+Defined in: [frame.ts:133](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L133)
 
 Mod-8 N(R) — valid on I frames and S frames. Bits 7-5 of the control byte.
 

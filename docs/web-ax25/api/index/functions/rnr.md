@@ -10,7 +10,7 @@
 function rnr(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:351](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L351)
+Defined in: [frame.ts:376](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L376)
 
 Build a Receive Not Ready (RNR) supervisory frame.
 

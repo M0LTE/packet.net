@@ -10,7 +10,7 @@
 function decodeFrame(bytes): Ax25Frame;
 ```
 
-Defined in: [frame.ts:169](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L169)
+Defined in: [frame.ts:173](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L173)
 
 Decode an Ax25Frame from KISS-form bytes (no flag, no FCS). Throws on
 malformed input — call inside try/catch when feeding raw KISS payloads.

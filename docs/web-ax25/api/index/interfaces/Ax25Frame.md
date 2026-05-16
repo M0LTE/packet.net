@@ -6,7 +6,7 @@
 
 # Interface: Ax25Frame
 
-Defined in: [frame.ts:59](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L59)
+Defined in: [frame.ts:61](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L61)
 
 One AX.25 frame as delivered by KISS — no opening / closing flag,
 no FCS (the TNC handles HDLC framing and the FCS).
@@ -21,9 +21,9 @@ PID and info are present only on I and UI frames.
 
 | Property | Type | Description | Defined in |
 | ------ | ------ | ------ | ------ |
-| <a id="control"></a> `control` | `number` | Raw control byte. | [frame.ts:64](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L64) |
-| <a id="destination"></a> `destination` | [`Ax25Address`](Ax25Address.md) | - | [frame.ts:60](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L60) |
-| <a id="digipeaters"></a> `digipeaters` | readonly [`Ax25Address`](Ax25Address.md)[] | - | [frame.ts:62](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L62) |
-| <a id="info"></a> `info` | `Uint8Array` | Information field. Always present (zero-length if absent). | [frame.ts:68](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L68) |
-| <a id="pid"></a> `pid` | `number` \| `null` | PID byte, present on I/UI frames only. | [frame.ts:66](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L66) |
-| <a id="source"></a> `source` | [`Ax25Address`](Ax25Address.md) | - | [frame.ts:61](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L61) |
+| <a id="control"></a> `control` | `number` | Raw control byte. | [frame.ts:66](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L66) |
+| <a id="destination"></a> `destination` | [`Ax25Address`](Ax25Address.md) | - | [frame.ts:62](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L62) |
+| <a id="digipeaters"></a> `digipeaters` | readonly [`Ax25Address`](Ax25Address.md)[] | - | [frame.ts:64](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L64) |
+| <a id="info"></a> `info` | `Uint8Array` | Information field. Always present (zero-length if absent). | [frame.ts:70](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L70) |
+| <a id="pid"></a> `pid` | `number` \| `null` | PID byte, present on I/UI frames only. | [frame.ts:68](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L68) |
+| <a id="source"></a> `source` | [`Ax25Address`](Ax25Address.md) | - | [frame.ts:63](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L63) |

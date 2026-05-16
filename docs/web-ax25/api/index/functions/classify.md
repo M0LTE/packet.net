@@ -10,7 +10,7 @@
 function classify(frame): FrameKind;
 ```
 
-Defined in: [frame.ts:87](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L87)
+Defined in: [frame.ts:89](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L89)
 
 Classify the control byte into a high-level frame kind.
 
