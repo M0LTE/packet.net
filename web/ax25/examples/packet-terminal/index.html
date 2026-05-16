@@ -787,10 +787,14 @@
       s.onData(chunk => {
         frameCount.rx++;
         if (mode === 'converse') {
-          // Stream BPQ/Direwolf node-prompt data straight to the screen.
-          // Servers send CR line-endings; xterm with convertEol handles
-          // both bare CR and bare LF.
+          // Each received I-frame is its own line. The peer's data may
+          // or may not be CR-terminated (BPQ ends prompts with CR, but
+          // mid-stream chunks often aren't terminated); add a trailing
+          // line break unconditionally so successive frames don't run
+          // into each other. The CRLF is fine if the peer already sent
+          // CR — xterm collapses it visually.
           term.write(new TextDecoder().decode(chunk));
+          term.write('\r\n');
         } else {
           // Surface incoming text from cmd mode as a passive notification.
           println(`${DIM}<${s.to.toString()}>${RESET} ${new TextDecoder().decode(chunk).trimEnd()}`);
