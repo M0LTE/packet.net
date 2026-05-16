@@ -13,7 +13,7 @@ on:
       - 'src/Packet.Agw/**'
       - 'src/Packet.Node/**'
       - 'tests/Packet.Interop.Tests/**'
-      - 'web/ax25-ts/**'
+      - 'web/ax25/**'
       - 'ts-spec/**'
       - 'docker/**'
       - '.github/workflows/interop.yml'
@@ -81,7 +81,7 @@ jobs:
       # 127.0.0.1:8100 KISS-TCP listener the C# tests use; the describe
       # block self-skips if the listener is unreachable, but we're inside
       # the interop job so it should always be up by the time this step
-      # runs. Build ts-spec first (web/ax25-ts depends on it via `file:`).
+      # runs. Build ts-spec first (web/ax25 depends on it via `file:`).
       - name: setup Node (for ax25.ts integration tests)
         uses: actions/setup-node@v6
         with:
@@ -89,7 +89,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             ts-spec/package-lock.json
-            web/ax25-ts/package-lock.json
+            web/ax25/package-lock.json
 
       - name: build ts-spec
         run: |
@@ -102,7 +102,7 @@ jobs:
         # `npm run test:integration` uses the integration vitest config,
         # which includes only tests/integration/**.
         run: |
-          cd web/ax25-ts
+          cd web/ax25
           npm ci
           npm run build
           npm run test:integration

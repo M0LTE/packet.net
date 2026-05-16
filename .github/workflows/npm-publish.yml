@@ -1,8 +1,8 @@
 name: npm-publish
 
-# Publishes `ax25sdl` (from ts-spec/) and `@packet-net/ax25-ts` (from
-# web/ax25-ts/) to npmjs.com on any tag matching `v*`. See
-# `docs/web-ax25-ts/publishing.md` for the human-readable runbook
+# Publishes `ax25sdl` (from ts-spec/) and `@packet-net/ax25` (from
+# web/ax25/) to npmjs.com on any tag matching `v*`. See
+# `docs/web-ax25/publishing.md` for the human-readable runbook
 # this workflow implements.
 
 on:
@@ -53,7 +53,7 @@ jobs:
       # ─── Build and publish ax25sdl first ────────────────────────────
       #
       # The order matters: ax25sdl must be on the registry before
-      # @packet-net/ax25-ts can install it by version (`^0.1.0` in the
+      # @packet-net/ax25 can install it by version (`^0.1.0` in the
       # consumer's package.json). If you flip these, the second publish
       # fails with ERESOLVE.
 
@@ -78,21 +78,21 @@ jobs:
 
       # ─── Flip the file: dep to a registry version ───────────────────
       #
-      # web/ax25-ts/package.json on `main` declares its ax25sdl dep as
+      # web/ax25/package.json on `main` declares its ax25sdl dep as
       # `file:../../ts-spec` so monorepo dev works without ceremony.
       # npm refuses to publish packages with file: deps; we flip the
       # reference to a registry version range here, inside the CI
       # shell only — the change is never committed back.
 
-      - name: "web/ax25-ts — flip ax25sdl dep from file: to registry"
-        working-directory: web/ax25-ts
+      - name: "web/ax25 — flip ax25sdl dep from file: to registry"
+        working-directory: web/ax25
         run: |
           ts_spec_version=$(node -p "require('../../ts-spec/package.json').version")
-          echo "Pinning web/ax25-ts → ax25sdl@^${ts_spec_version}"
+          echo "Pinning web/ax25 → ax25sdl@^${ts_spec_version}"
           npm pkg set "dependencies.ax25sdl=^${ts_spec_version}"
 
-      - name: web/ax25-ts — install + build
-        working-directory: web/ax25-ts
+      - name: web/ax25 — install + build
+        working-directory: web/ax25
         # `npm install` (not `npm ci`) because we've just mutated
         # package.json above — the existing lockfile is now stale and
         # `npm ci` would refuse. The install regenerates the lockfile
@@ -101,19 +101,19 @@ jobs:
           npm install
           npm run build
 
-      - name: web/ax25-ts — typecheck examples
-        working-directory: web/ax25-ts
+      - name: web/ax25 — typecheck examples
+        working-directory: web/ax25
         # Belt-and-braces: prove the examples typecheck against the
         # post-flip dependency graph before we publish.
         run: npm run typecheck:examples
 
-      - name: web/ax25-ts — pack (dry-run sanity check)
-        working-directory: web/ax25-ts
+      - name: web/ax25 — pack (dry-run sanity check)
+        working-directory: web/ax25
         run: npm pack --dry-run
 
-      - name: web/ax25-ts — publish
+      - name: web/ax25 — publish
         if: env.NPM_TOKEN != ''
-        working-directory: web/ax25-ts
+        working-directory: web/ax25
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
@@ -121,4 +121,4 @@ jobs:
       - name: warn if NPM_TOKEN missing
         if: env.NPM_TOKEN == ''
         run: |
-          echo "::warning::NPM_TOKEN secret is not set — publish steps were skipped. See docs/web-ax25-ts/publishing.md for setup."
+          echo "::warning::NPM_TOKEN secret is not set — publish steps were skipped. See docs/web-ax25/publishing.md for setup."
