@@ -951,7 +951,7 @@
         await stack.start();
         setModem('attached', 'web serial · 57600 8N1');
         attachBtn.textContent = 'MODEM LIVE';
-        println(`${PHOSPHOR}*** modem attached. kiss tcp ready.${RESET}`);
+        println(`${PHOSPHOR}*** modem attached.${RESET}`);
       } catch (e) {
         attachBtn.textContent = 'ATTACH MODEM';
         attachBtn.disabled = false;
