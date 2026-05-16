@@ -752,10 +752,10 @@
         attachBtn.disabled = true;
         attachBtn.textContent = 'OPENING…';
         const port = await navigator.serial.requestPort();
-        const transport = new WebSerialKissTransport(port, { baudRate: 9600 });
+        const transport = new WebSerialKissTransport(port, { baudRate: 57600 });
         stack = new Ax25Stack(transport);
         await stack.start();
-        setModem('attached', 'web serial · 9600 8N1');
+        setModem('attached', 'web serial · 57600 8N1');
         attachBtn.textContent = 'MODEM LIVE';
         println(`${PHOSPHOR}*** modem attached. kiss tcp ready.${RESET}`);
       } catch (e) {
