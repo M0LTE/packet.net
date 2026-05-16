@@ -221,6 +221,34 @@
     opacity: 0;
   }
 
+  /* Phosphor scrollbar for the terminal viewport. xterm's overlay
+     handles wheel scrolling on canvas; the visible track lives on
+     .xterm-viewport. Match the CRT aesthetic. */
+  .xterm .xterm-viewport {
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: var(--phosphor-dim) transparent;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar {
+    width: 10px;
+    background: transparent;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-track {
+    background: transparent;
+    border-left: 1px solid var(--phosphor-deep);
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+    background: var(--phosphor-dim);
+    border-radius: 0;
+    box-shadow: 0 0 6px rgba(51, 255, 102, 0.45) inset;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: var(--phosphor);
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   /* ─── Control rail ────────────────────────────────────────────── */
   .rail {
     display: flex;
@@ -507,6 +535,7 @@
     let stack     = null;      // Ax25Stack | null
     let session   = null;      // Ax25Session | null
     let buffer    = '';        // command-line buffer
+    let convBuf   = '';        // converse-mode line buffer (flushed on CR)
     let echoLocal = true;
     let frameCount = { tx: 0, rx: 0 };
 
@@ -541,22 +570,57 @@
     }
 
     function handleConverseKey(data) {
-      // Ctrl-C kicks back to command mode without disconnecting.
-      if (data.indexOf('\x03') >= 0) {
-        println('');
-        println(`${DIM}[cmd mode — link still up. type D to disconnect.]${RESET}`);
-        mode = 'cmd';
-        prompt();
-        return;
-      }
-      if (session) {
-        // Translate Enter to CRLF — most TNC2 peers expect \r.
-        const out = data.replace(/\r?\n/g, '\r');
-        if (echoLocal) term.write(out.replace(/\r/g, '\r\n'));
-        const bytes = new TextEncoder().encode(out);
-        session.write(bytes).catch(err => {
-          println(`${RED}*** write failed: ${err.message}${RESET}`);
-        });
+      // Line-buffered: characters are echoed locally and buffered;
+      // only flushed to the peer as a single I-frame when the user
+      // hits CR. Matches default TNC2 converse-mode behaviour.
+      if (!session) return;
+
+      for (const ch of data) {
+        const code = ch.charCodeAt(0);
+
+        if (code === 3) {
+          // Ctrl-C → return to cmd mode without flushing the buffer
+          // (the partial line is discarded, matching TNC2's *AX25*
+          // command-mode return).
+          convBuf = '';
+          term.write('\r\n');
+          println(`${DIM}[cmd mode — link still up. type D to disconnect.]${RESET}`);
+          mode = 'cmd';
+          prompt();
+          return;
+        }
+
+        if (code === 13 || code === 10) {
+          // CR (Enter) → flush the buffered line as one I-frame.
+          // Append \r per TNC2 convention; most BPQ / XRouter / direwolf
+          // node prompts treat CR as the line terminator on the wire.
+          if (echoLocal) term.write('\r\n');
+          const line = convBuf + '\r';
+          convBuf = '';
+          const bytes = new TextEncoder().encode(line);
+          session.write(bytes).then(() => { frameCount.tx++; })
+            .catch(err => {
+              println('');
+              println(`${RED}*** write failed: ${err.message}${RESET}`);
+            });
+          continue;
+        }
+
+        if (code === 127 || code === 8) {
+          // Backspace / DEL → pop one char from the buffer, erase it on screen.
+          if (convBuf.length > 0) {
+            convBuf = convBuf.slice(0, -1);
+            if (echoLocal) term.write('\b \b');
+          }
+          continue;
+        }
+
+        if (code >= 32 && code < 127) {
+          // Printable: append + echo.
+          convBuf += ch;
+          if (echoLocal) term.write(ch);
+        }
+        // Everything else (escape sequences, function keys, etc.) is dropped.
       }
     }
 
