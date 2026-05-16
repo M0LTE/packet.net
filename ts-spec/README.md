@@ -97,13 +97,18 @@ Real consequence: long-running connected sessions where the peer goes
 quiet for > T3 (default 30s in the runtime) will time out and re-poll
 via the unmodelled state. Short-lived sessions never reach it.
 
-### Subroutine status (figc4.7)
+### Subroutine status (figc4.7) — TS runtime
 
 13 subroutines are declared in `spec-sdl/data-link/subroutines.sdl.yaml`.
-The C# `DefaultSubroutineRegistry` and the TS `SubroutineRegistry` ship
-the following coverage:
+The TS `SubroutineRegistry` (`web/ax25/src/sdl/subroutine-registry.ts`)
+ships the following coverage. The C# runtime's `DefaultSubroutineRegistry`
+in [`src/Packet.Ax25/Session/`](../src/Packet.Ax25/Session/) routes every
+subroutine through a `Wire(...)` walker that consumes the generated
+`SubroutineSpec.Paths` directly; see the
+[runtime capability matrix](../docs/runtime-capability-matrix.md#figc47-subroutines)
+for the side-by-side view.
 
-| Subroutine                       | Status                                              |
+| Subroutine                       | TS status                                           |
 | -------------------------------- | --------------------------------------------------- |
 | `Establish_Data_Link`            | ✅ inlined into the dispatcher                      |
 | `Establish_Extended_Data_Link`   | ✅ inlined                                          |
@@ -121,10 +126,10 @@ the following coverage:
 
 The figc4.7 YAML transcriptions are **complete** — every subroutine's
 decision tree, predicate, and action chain is encoded. What's missing
-is the runtime *walker* that consumes those bodies. The dispatcher
-treats a `kind: subroutine` action as a name lookup against a registry;
-nine of the thirteen names map to a no-op that logs a debug message
-instead of executing the SDL-declared body.
+in the TS runtime is the *walker* that consumes those bodies. The TS
+dispatcher treats a `kind: subroutine` action as a name lookup against
+a registry; nine of the thirteen names map to a no-op that logs a debug
+message instead of executing the SDL-declared body.
 
 Real consequence: REJ / SREJ recovery, T1V smoothing, frame
 retransmission on T1 timeout, and v2.2 mode negotiation all degrade to

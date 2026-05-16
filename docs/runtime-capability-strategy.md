@@ -38,7 +38,7 @@ Three audiences, in increasing order of pain:
 2. **Cross-runtime developers.** A team that builds the same app in two languages (e.g. a browser client + a Node bridge) and expects the same wire output. Drift here surfaces as "the C# version works against BPQ but the TS version doesn't" or "the TS app times out where the C# app retries".
 3. **Node operators.** A station running a packet *node* (server) talks to whatever shows up on the air — anything from a hand-rolled APRS gateway to a 1990s firmware TNC. Every gap in our spec coverage is a gap *the node operator* inherits. If the C# node correctly generates FRMR on a malformed frame and a hypothetical TS node silently drops it, the C# node converges with the peer and the TS node hangs. The node-side runtime carries the biggest "match the spec faithfully" obligation.
 
-Today only C# can host a packet node (`src/Packet.Node/`). When TS gets a listener (see matrix row), the node-pain-surface doubles.
+Today only C# can host a packet node — the foundational `Ax25Listener` API (shipped 2026-05-16) is C#-only. The first consumer beyond tests is `Packet.Term` (the TUI); `src/Packet.Node/` is still an empty scaffold. When TS gets a listener (see matrix row), the node-pain-surface doubles.
 
 ---
 
