@@ -6,6 +6,7 @@
 
 **As of:** 2026-05-16
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-05-16 Ax25Listener: broad test coverage](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-16 — runtime capability strategy + matrix](#17-amendment-log)
 
 ---
@@ -828,6 +829,27 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-16 — Ax25Listener: broad test coverage
+
+Six new test groups + a real-bug fix surfaced by them. The Listener landed yesterday (`feat(ax25): Ax25Listener — first-class inbound-session acceptance (#138)`) with 5 unit tests + 1 interop scenario — enough to prove the happy path but not enough for a foundational node-side API. This PR widens that envelope substantially before downstream consumers (BBS, gateway, automatic forwarder, the TUI) build on it.
+
+**Unit tests added (22 new in `tests/Packet.Ax25.Tests/Session/`):**
+
+- `Ax25ListenerConcurrencyTests.cs` (7): SABM collision reuses the cached session; multiple SABMs in T1 window stay idempotent; inbound SABM during outbound `ConnectAsync` produces independent sessions; `StopAsync` mid-active-sessions doesn't deadlock; throwing `SessionAccepted` / `FrameTraced` handlers don't crash the pump; slow handlers don't gate the next frame's observation by more than one slow-handler invocation.
+- `Ax25ListenerMultiPeerTests.cs` (7): second peer accepted while first is active; inbound I-frames routed by source callsign to the right per-peer session; per-peer `V(s)/V(r)/V(a)` independence; cached session reused across disconnect/reconnect with non-SDL-reset context state preserved; LRU eviction past `MaxCachedPeers`; evicted-peer reconnect builds a fresh session with reset sequence variables; `DisposeAsync` releases all cached schedulers.
+- `Ax25ListenerRejectAndEdgeTests.cs` (8): `AcceptIncoming=false` paths (DM emission, no cache entry, no `SessionAccepted` event, flip-back-to-true accepts the next attempt, existing sessions unaffected by a flip); DISC and RR from unknown peer are dropped silently by the listener (no session built, no DM emitted — the listener layer filters before any SDL would fire its t13 catch-all); SABME with default `AcceptIncoming=true` takes figc4.1 t16 → UA + set_version_2_2 (pins current behaviour, contrary to the task brief's expectation of DM — t16/t17 only branch on `able_to_establish`, not on `version_2_2`); SABM with response C-bit is currently accepted by t14 (classifier doesn't filter on C-bits — pinned as current behaviour); SABM with digipeater path is accepted by source-callsign but the outbound UA does not propagate the via-chain — documented gap.
+
+**Interop tests added (3 new in `tests/Packet.Interop.Tests/`):**
+
+- `Netsim/NetsimListenerMultiPeerScenarios.cs` (2): two peers from net-sim node b both connect to the listener on node a (distinct sessions, both accepted); peer disconnects + reconnects, the listener's cached session is the same instance, context probe state survives.
+- `Linbpq/LinbpqListenerScenarios.cs` (1): real-world inverse of the existing `LinbpqViaNetsimConnectedMode` — LinBPQ initiates the L2 connect (driven via its sysop telnet prompt with `C 3 PNTEST`), our listener accepts the SABM, the resulting session reaches Connected, we send a welcome I-frame, then disconnect from our side and watch BPQ's UA come back.
+
+**Real bug fixed in `Ax25Listener`.** The hostile-event-handler tests surfaced an exception-leak: a throwing `SessionAccepted` or `FrameTraced` subscriber would tear down the inbound pump task (exception preserved by `Task.Run`), and surface the exception when `DisposeAsync` awaited the pump task. A buggy subscriber could in effect DoS the modem. Fix: `Ax25Listener.InboundPumpAsync` wraps per-frame `TraceFrame` + `DispatchInbound` calls in per-call try/catch, and event invocations go through a new `SafeInvoke<T>` helper that walks the multicast invocation list and catches each subscriber individually so one throwing handler doesn't suppress downstream ones. Both layers are present as defence in depth — pump-level catches anything else (e.g. a misbehaving SDL action), per-handler ensures one bad consumer doesn't starve another.
+
+**Shared test helpers extracted to `tests/Packet.Ax25.Tests/Session/ListenerTestSupport.cs`.** `LoopbackModem`, `ObservableList<T>`, `WithTimeout` / `WaitFor` helpers were previously private nested in `Ax25ListenerTests`; lifted to an `internal` file in the test assembly so the new tests share them. `LoopbackModem` extended with `DropOutbound` (counted-but-discarded transmits, for "peer lost our UA" scenarios) and `SendDelay` (latency injection, for the slow-handler test). No public-API change.
+
+**Verification.** Unit suite: 1141 tests pass (was 1119; +22 new listener tests). Listener-specific filter: 27/27. Full unit-suite filter `Category!=HardwareLoop&Category!=Interop` is clean. Interop suite: the new listener scenarios all pass (4/4 listener-related, plus the pre-existing 1); the only failures in the interop run are the two pre-existing XRouter-via-Netsim failures, unchanged from before this PR.
 
 ### 2026-05-16 — runtime capability strategy + matrix
 

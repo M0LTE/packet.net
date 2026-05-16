@@ -1,24 +1,27 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using AwesomeAssertions;
-using Microsoft.Extensions.Time.Testing;
 using Packet.Ax25.Session;
 using Packet.Core;
-using Packet.Kiss;
 using Xunit;
 
 namespace Packet.Ax25.Tests.Session;
 
 /// <summary>
-/// Unit tests for <see cref="Ax25Listener"/> — the first-class inbound
-/// session acceptor. Each test wires a <see cref="LoopbackModem"/> in
-/// place of a real KISS modem so the test owns both ends of the wire.
-/// Inbound SABM/UA/DISC sequences are injected by writing the bytes
-/// the peer would send; the listener parses, classifies, and dispatches
-/// them, and the test observes the listener's events + the modem's
-/// outbound queue.
+/// Baseline unit tests for <see cref="Ax25Listener"/> — the first-class
+/// inbound session acceptor. Each test wires a <see cref="LoopbackModem"/>
+/// in place of a real KISS modem so the test owns both ends of the wire.
+/// Inbound SABM/UA/DISC sequences are injected by writing the bytes the
+/// peer would send; the listener parses, classifies, and dispatches them,
+/// and the test observes the listener's events + the modem's outbound
+/// queue.
 /// </summary>
+/// <remarks>
+/// These five tests are the "happy-path" smoke tests that landed alongside
+/// the listener itself. Concurrency, multi-peer, cache lifecycle, reject
+/// path, spec edge-cases, and hostile event-handler coverage live in
+/// sibling files (<c>Ax25ListenerConcurrencyTests</c>,
+/// <c>Ax25ListenerMultiPeerTests</c>, <c>Ax25ListenerRejectAndEdgeTests</c>).
+/// </remarks>
 public class Ax25ListenerTests
 {
     private static readonly Callsign LocalCall  = new("M0LTE", 0);
@@ -93,7 +96,7 @@ public class Ax25ListenerTests
         // Peer disconnects: inject DISC + expect listener's UA, then
         // re-SABM. The cached session should be re-used.
         modem.InjectInbound(Ax25Frame.Disc(LocalCall, PeerCallA));
-        await WaitFor(() => first.CurrentState == "Disconnected", TimeSpan.FromSeconds(2));
+        await ListenerTestSupport.WaitFor(() => first.CurrentState == "Disconnected", TimeSpan.FromSeconds(2));
 
         // Mark a context field that's preserved across disconnect so we
         // can spot the reused session. (T1V smoothing isn't easy to
@@ -188,7 +191,7 @@ public class Ax25ListenerTests
             MyCall = LocalCall,
         });
 
-        var traced = new List<(Packet.Ax25.Session.FrameDirection Dir, Ax25Frame Frame)>();
+        var traced = new List<(FrameDirection Dir, Ax25Frame Frame)>();
         var gate = new object();
         listener.FrameTraced += (_, e) =>
         {
@@ -204,7 +207,7 @@ public class Ax25ListenerTests
         await modem.SentFrames.WaitForCountAsync(2, TimeSpan.FromSeconds(2));
 
         // Brief settle so the second TX-trace lands.
-        await WaitFor(() =>
+        await ListenerTestSupport.WaitFor(() =>
         {
             lock (gate) return traced.Count >= 4;
         }, TimeSpan.FromSeconds(2));
@@ -212,145 +215,8 @@ public class Ax25ListenerTests
         lock (gate)
         {
             traced.Count.Should().BeGreaterThanOrEqualTo(4);
-            traced.Count(t => t.Dir == Packet.Ax25.Session.FrameDirection.Received).Should().BeGreaterThanOrEqualTo(2);
-            traced.Count(t => t.Dir == Packet.Ax25.Session.FrameDirection.Transmitted).Should().BeGreaterThanOrEqualTo(2);
+            traced.Count(t => t.Dir == FrameDirection.Received).Should().BeGreaterThanOrEqualTo(2);
+            traced.Count(t => t.Dir == FrameDirection.Transmitted).Should().BeGreaterThanOrEqualTo(2);
         }
-    }
-
-    // ─── Helpers ────────────────────────────────────────────────────
-
-    private static async Task WaitFor(Func<bool> condition, TimeSpan budget)
-    {
-        var deadline = DateTimeOffset.UtcNow + budget;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (condition()) return;
-            await Task.Delay(20);
-        }
-        throw new TimeoutException($"condition did not become true within {budget}");
-    }
-
-    /// <summary>
-    /// In-memory <see cref="IKissModem"/> whose inbound stream is a
-    /// channel the test writes <see cref="KissFrame"/>s into. Outbound
-    /// <c>SendFrameAsync</c> appends to <see cref="SentFrames"/> for the
-    /// test to assert against.
-    /// </summary>
-    private sealed class LoopbackModem : IKissModem
-    {
-        private readonly Channel<KissFrame> rx = Channel.CreateUnbounded<KissFrame>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-        });
-        public ObservableList<ReadOnlyMemory<byte>> SentFrames { get; } = new();
-
-        public void InjectInbound(Ax25Frame frame)
-        {
-            var kf = new KissFrame((byte)0, KissCommand.Data, frame.ToBytes().ToArray());
-            rx.Writer.TryWrite(kf);
-        }
-
-        public Task SendFrameAsync(ReadOnlyMemory<byte> ax25Bytes, CancellationToken cancellationToken = default)
-        {
-            SentFrames.Add(ax25Bytes);
-            return Task.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<KissFrame> ReadFramesAsync(
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            while (await rx.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                while (rx.Reader.TryRead(out var f))
-                {
-                    yield return f;
-                }
-            }
-        }
-
-        public Task<AckModeReceipt> SendFrameWithAckAsync(
-            ReadOnlyMemory<byte> ax25Bytes, TimeSpan? timeout = null, ushort? sequenceTag = null,
-            CancellationToken cancellationToken = default) => throw new NotImplementedException();
-        public Task SetTxDelayAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
-        public Task SetPersistenceAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
-        public Task SetSlotTimeAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
-        public Task SetTxTailAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Tiny thread-safe list with a "wait until count reaches N" helper.
-    /// Lets tests block deterministically on the modem's outbound queue
-    /// without polling sleeps littered through the assertions.
-    /// </summary>
-    private sealed class ObservableList<T>
-    {
-        private readonly List<T> items = new();
-        private readonly object gate = new();
-        private readonly List<TaskCompletionSource<bool>> waiters = new();
-
-        public void Add(T item)
-        {
-            List<TaskCompletionSource<bool>> toComplete;
-            lock (gate)
-            {
-                items.Add(item);
-                toComplete = waiters.ToList();
-                waiters.Clear();
-            }
-            foreach (var w in toComplete) w.TrySetResult(true);
-        }
-
-        public int Count
-        {
-            get { lock (gate) return items.Count; }
-        }
-
-        public T this[int i]
-        {
-            get { lock (gate) return items[i]; }
-        }
-
-        public List<T> SnapshotList()
-        {
-            lock (gate) return items.ToList();
-        }
-
-        public async Task WaitForCountAsync(int target, TimeSpan budget)
-        {
-            var deadline = DateTimeOffset.UtcNow + budget;
-            while (true)
-            {
-                Task wait;
-                lock (gate)
-                {
-                    if (items.Count >= target) return;
-                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    waiters.Add(tcs);
-                    wait = tcs.Task;
-                }
-                var remaining = deadline - DateTimeOffset.UtcNow;
-                if (remaining <= TimeSpan.Zero) throw new TimeoutException($"only {Count}/{target} items after {budget}");
-                var done = await Task.WhenAny(wait, Task.Delay(remaining));
-                if (done != wait) throw new TimeoutException($"only {Count}/{target} items after {budget}");
-            }
-        }
-    }
-}
-
-internal static class ListenerTestTaskExtensions
-{
-    public static async Task<T> WithTimeout<T>(this Task<T> task, TimeSpan budget)
-    {
-        var done = await Task.WhenAny(task, Task.Delay(budget));
-        if (done != task) throw new TimeoutException($"task did not complete within {budget}");
-        return await task;
-    }
-
-    public static async Task WithTimeout(this Task task, TimeSpan budget)
-    {
-        var done = await Task.WhenAny(task, Task.Delay(budget));
-        if (done != task) throw new TimeoutException($"task did not complete within {budget}");
-        await task;
     }
 }
