@@ -1,0 +1,95 @@
+# Worked-example conformance scenario. See README.md in this directory
+# for the format reference; see docs/runtime-capability-strategy.md §6
+# for the strategy.
+#
+# This scenario is the simplest non-trivial happy path the C# runtime
+# exercises in interop CI against LinBPQ / XRouter / rax25 — outbound
+# connect followed by outbound disconnect, both with cooperating peer.
+# Walks figc4.1 t01 → figc4.2 t05 → figc4.4 t01 → figc4.3 t05.
+
+name: connect_sabm_ua_disc
+
+description: |
+  Outbound connect from M0LTE-1 to G1AAA, then disconnect. Asserts the
+  externally-observable contract on both ends:
+
+    - the session emits a SABM command frame with P=1 in response to
+      DL_CONNECT_request (figc4.1 t01 — Disconnected on
+      DL_CONNECT_request);
+    - on receiving the peer's UA response with F=1, the session
+      transitions to Connected and signals DL_CONNECT_confirm upward
+      (figc4.2 t05 — AwaitingConnection on UA_received with F=1);
+    - on DL_DISCONNECT_request the session emits a DISC command frame
+      with P=1 (figc4.4 t01 — Connected on DL_DISCONNECT_request);
+    - on receiving UA with F=1 the session transitions to Disconnected
+      and signals DL_DISCONNECT_confirm upward (figc4.3 t05).
+
+  Cross-references implementation evidence:
+
+    - C# happy path: tests/Packet.Ax25.Tests/Session/Ax25SessionTests.cs
+      "Outbound SABM then UA closes Connected".
+    - C# interop: tests/Packet.Interop.Tests/Linbpq/
+      LinbpqViaNetsimConnectedMode.cs.
+    - TS happy path: web/ax25/tests/session.test.ts "connects and
+      disconnects against scripted peer".
+    - TS interop: web/ax25/tests/integration/linbpq-via-netsim.test.ts.
+
+setup:
+  myCall: M0LTE-1
+  remote: G1AAA
+  initialState: Disconnected
+  t1Ms: 3000
+  t3Ms: 30000
+  n2: 10
+  k: 1
+  version_2_2: false
+
+steps:
+  # figc4.1 t01 — Disconnected on DL_CONNECT_request.
+  - post_event:
+      name: DL_CONNECT_request
+  - expect_tx:
+      kind: SABM
+      command: true
+      pollFinal: true
+  - expect_state: AwaitingConnection
+  - expect_timer:
+      name: T1
+      state: running
+
+  # figc4.2 t05 — AwaitingConnection on UA_received with F=1.
+  - post_event:
+      name: UA_received
+      command: false
+      pollFinal: true
+  - expect_state: Connected
+  - expect_upward: DL_CONNECT_confirm
+  - expect_timer:
+      name: T1
+      state: stopped
+  - expect_timer:
+      name: T3
+      state: running
+
+  # figc4.4 t01 — Connected on DL_DISCONNECT_request.
+  - post_event:
+      name: DL_DISCONNECT_request
+  - expect_tx:
+      kind: DISC
+      command: true
+      pollFinal: true
+  - expect_state: AwaitingRelease
+  - expect_timer:
+      name: T1
+      state: running
+
+  # figc4.3 t05 — AwaitingRelease on UA_received with F=1.
+  - post_event:
+      name: UA_received
+      command: false
+      pollFinal: true
+  - expect_state: Disconnected
+  - expect_upward: DL_DISCONNECT_confirm
+  - expect_timer:
+      name: T1
+      state: stopped

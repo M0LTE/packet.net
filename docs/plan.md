@@ -4,9 +4,9 @@
 >
 > If you are reading this for the first time: start with [Why Packet.NET?](#1-why-packetnet) and [Working agreements](#2-working-agreements). If you are looking for *what to build next*, jump to [Roadmap](#5-phased-roadmap). If you are an agent: read [Working agreements](#2-working-agreements) carefully — those are the operating instructions that take precedence over your defaults.
 
-**As of:** 2026-05-14
+**As of:** 2026-05-16
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
-**Latest amendment:** [§17 entry 2026-05-16 Ax25Listener + AcceptIncoming context property](#17-amendment-log)
+**Latest amendment:** [§17 entry 2026-05-16 — runtime capability strategy + matrix](#17-amendment-log)
 
 ---
 
@@ -829,6 +829,25 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-16 — runtime capability strategy + matrix
+
+Packet.NET delivers the AX.25 spec multiple times in multiple languages — C# today (`src/Packet.Ax25/`), TypeScript today (`web/ax25/`), and Go / Rust / Python / C / JSON emitters from the codegen that don't yet have runtimes hanging off them. Drift between any pair of runtimes shows up as wire-compatible-but-subtly-different bugs that only surface at cross-runtime interop time. The codegen-time lints in `spec-sdl/lint-targets.yaml` catch the cheapest version of drift automatically (every predicate name in the SDL must bind in each runtime; every action verb must dispatch) but they don't see the bigger structural gaps — subroutines wired one place and stubbed another, transports that exist on one runtime and not the other, lifecycle features (listener, dynamic T1V, FRMR generation) that are present here and missing there. The pain scales with role — a packet *node* (server) inherits the bug surface of every peer that connects to it, so node-side gaps hurt much more than client-side gaps.
+
+This PR sets up the framework to track those gaps explicitly:
+
+- **[`docs/runtime-capability-strategy.md`](runtime-capability-strategy.md)** — the strategy doc. Categorises the AX.25 capability surface into 11 row-groups (frame codec / KISS / callsign / state pages / figc4.7 subroutines / bindings / dispatcher / subroutine walker / session lifecycle / transports / roles). Defines a 4-level conformance scale (Absent / Stub / Partial / Conformant) and the rules for when to use `?`. Sketches a forward-looking shared conformance suite (language-neutral YAML scenarios + per-runtime executors + CI heatmap rollup) that doesn't exist yet but the framework's shape needs to be agreed before any of it is built. Describes the cross-runtime interop pattern that already exists in C# (LinBPQ / XRouter / rax25 over net-sim) and prescribes the same shape for every new runtime.
+
+- **[`docs/runtime-capability-matrix.md`](runtime-capability-matrix.md)** — the current-state snapshot. ~50 rows × 2 runtime columns (C# + TS). Each cell carries a `C`/`P`/`S`/`-`/`?` level with footnotes for context and TODO lines beneath the matrix for rows that need a desk-check before a defensible level can land. Format is deliberately scan-friendly so capability PRs can update one row at a time. The matrix doc is just the table; the strategy is the discipline.
+
+- **[`tests/conformance/`](../tests/conformance/)** — skeleton for the shared conformance suite sketched in the strategy doc. One worked-example scenario (`connect-sabm-ua-disc.yaml`) covering SABM/UA/DISC/UA happy path with `expect_tx` / `expect_state` / `expect_upward` / `expect_timer` assertions, plus a README explaining the format. No executors yet — that's a follow-up PR (probably one per runtime).
+
+- **Cross-references** — `ts-spec/README.md` and `web/ax25/README.md` both gain a pointer to the matrix as the canonical multi-runtime view. The per-runtime READMEs stay narrative-shaped for their respective audiences; the matrix is for "I want to see the whole surface across all runtimes" — a different reader.
+
+Today's snapshot: C# is the reference runtime — full frame codec (all 13 frame types), KISS encode/decode + ACKMODE, all five transcribed state pages walked, every figc4.7 subroutine routed through `DefaultSubroutineRegistry.Wire(...)`, transports for TCP / USB-serial / AGW / AXUDP. TS is feature-narrower — frame codec covers 9 of 13 (no SABME / FRMR / XID / TEST / SREJ), KISS without ACKMODE, same SDL state-page coverage as C#, four figc4.7 subroutines inlined and the other nine stubbed to no-op, transports for Web Serial + Node TCP. Neither runtime has an inbound listener today (the C# one is in flight on `feat/ax25-listener`); both register `TimerRecovery` as an allow-listed empty state because figc4.5 isn't transcribed.
+
+Discipline going forward: matrix updates land in the **same PR** as capability changes — same shape as the existing rule for `docs/plan.md` amendments (§18). The codegen lints stay the automated backstop for predicate-binding / action-verb / state-target / catchall completeness; the matrix is the human-readable backstop for everything that's structural rather than name-matching (subroutine wiring, transport surfaces, lifecycle features). PR descriptions that touch capabilities call out the matrix row(s) in their Plan-changes section.
+
+Follow-ups deliberately not in this PR: per-runtime conformance executors (one PR per runtime), CI rollup script for the conformance heatmap, the C# inbound listener (already in flight on `feat/ax25-listener`), the TS subroutine walker port (matrix lists it explicitly). Filed-or-to-be-filed issues are linked from the matrix's `## Follow-ups` section.
 ### 2026-05-16 — Ax25Listener + AcceptIncoming context property
 
 First-class inbound-acceptance API at `src/Packet.Ax25/Session/Ax25Listener.cs`. The Listener is the foundational piece for packet.net as a *node* — a station that exists to accept inbound connections rather than only making outbound ones. Every node-style consumer (BBS, gateway, automated forwarder, the TUI) now goes through it instead of reinventing the inbound-pump / session-rebuild loop the TUI's `SessionRunner` originally carried.
