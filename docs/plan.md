@@ -833,6 +833,35 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-17 — drop SDL codegen + spec sources from packet.net (extracted to m0lte/ax25sdl)
+
+Fourth step of the 5-repo split. The SDL transcriptions, codegen tools, multi-language artefacts (`go-spec/`), codegen tests, and SDL documentation all live at `m0lte/ax25sdl` now. `packet.net` consumes `Packet.Ax25.Sdl 0.3.0` from nuget.org (set up in #155). This PR removes the local source.
+
+**Deleted.**
+
+- `spec-sdl/` — entire tree (YAML transcriptions, JSON schema, graphml sources, events.yaml, actions.yaml).
+- `tools/Packet.Sdl.IR/`, `tools/Packet.Sdl.CodeGen/`, `tools/Packet.Sdl.CodeGen.Csharp/`, `.Go/`, `.Ts/`, `.Json/`, `.Rust/`, `.C/`, `.Python/`, `tools/Packet.Sdl.Lint/` — 10 codegen tool projects.
+- `tests/Packet.Sdl.CodeGen.Tests/` — codegen test project.
+- `go-spec/` — Go module (publishes from m0lte/ax25sdl now).
+- `docs/sdl-primer.md`, `docs/sdl-transcription-runbook.md`, `docs/sdl-verb-catalogue.md`, `docs/adr/0001-sdl-dsl.md` — SDL-specific documentation.
+- `.github/workflows/npm-publish.yml` — obsolete. `ax25sdl` publishes from m0lte/ax25sdl now; `@packet-net/ax25` has no pending publishes from this repo (next iteration moves to a future `m0lte/ax25-ts`).
+
+**Updated.**
+
+- `Packet.NET.slnx` — removed 10 codegen tool entries + the codegen tests entry.
+- `Directory.Packages.props` — dropped `Scriban`, `Microsoft.CodeAnalysis.CSharp`, `YamlDotNet`, `JsonSchema.Net` (only the codegen used them). `CommandLineParser` stays — `Packet.Term` consumes it (Packet.Term moves to `m0lte/packet-term-tui` in a sibling PR; the version pin can be dropped once that lands).
+- `.github/workflows/ci.yml` — slimmed dramatically. Removed all seven codegen-drift jobs (C# / Go / TS / JSON / Rust / C / Python). The TS job's `ts-spec build` + `web/ax25 build/test` lifts into a fresh `ts-build-test` job (those still need to run while `ts-spec/` + `web/ax25/` stay in this repo — until the npm publish path from `m0lte/ax25sdl` is resolved).
+- `.gitignore` — removes the `src/Packet.Ax25.Sdl/` entry that was added in #155 (no longer relevant; codegen is gone).
+- `docs/web-ax25/README.md` — drops the broken link to the deleted `publishing.md`, adds a note that publishing is on hold pending extraction to the future `m0lte/ax25-ts` repo.
+
+**What stays (still here pending the npm publish auth resolution).**
+
+- `web/ax25/` — the `@packet-net/ax25` TS library source. Will move to `m0lte/ax25-ts` once the publish path is unblocked.
+- `ts-spec/` — pre-generated `*.g.ts` matching `ax25sdl@0.2.1` on npm. Still file-linked from `web/ax25/`. Will move (or be replaced by the npm dep) when that's possible.
+- Top-level SDL-related rules in `CLAUDE.md` will need a cleanup pass — deferred to a follow-up.
+
+**Verification.** `dotnet build` clean (0 errors; 61 pre-existing warnings in Spike projects unrelated). `dotnet test --filter "Category!=HardwareLoop&Category!=Interop"` green across the remaining 12 test projects.
+
 ### 2026-05-17 — drop Packet.Term from packet.net (extracted to m0lte/packet-term-tui)
 
 Third extraction step of the 5-repo split — `Packet.Term` (the C# Terminal.Gui v2 TUI for AX.25 sessions) lives at `m0lte/packet-term-tui` now and consumes the Packet.NET libraries (`Packet.Core 0.1.0` / `Packet.Ax25 0.1.0` / `Packet.Kiss 0.1.0`) from nuget.org. This PR removes the local source.
@@ -847,7 +876,6 @@ Third extraction step of the 5-repo split — `Packet.Term` (the C# Terminal.Gui
 **Extraction record.** Done via `git filter-repo --path src/Packet.Term/ --path tests/Packet.Term.Tests/ --path LICENSE --path .gitignore --path Directory.Build.props --path Directory.Packages.props --path global.json` against a clone of this repo earlier on 2026-05-17. 18 commits of history survived in the new repo; `Directory.Packages.props` was trimmed to just what the TUI consumes; `Packet.Term.csproj`'s ProjectReferences to Packet.Core / Packet.Ax25 / Packet.Kiss became PackageReferences against nuget.org.
 
 **Verification.** `dotnet build` clean (61 pre-existing warnings in Spike projects unrelated). `dotnet test --filter "Category!=HardwareLoop&Category!=Interop"` green across the remaining 12 test projects.
-
 
 ### 2026-05-17 — extract packet-terminal demo to m0lte/packet-term-web
 

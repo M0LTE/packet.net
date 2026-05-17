@@ -6,9 +6,10 @@ Documentation for the browser-targeted TypeScript AX.25 library that lives at [`
 
 - **Library README** — [`web/ax25/README.md`](../../web/ax25/README.md). The 30-second elevator pitch + scope table.
 - **API reference** — [`api/`](api/). Generated from JSDoc by [TypeDoc](https://typedoc.org/) — regenerate with `npm run docs` from `web/ax25/`.
-- **Worked examples** — [`web/ax25/examples/`](../../web/ax25/examples/). Three self-contained TypeScript files (Web Serial, Node TCP, in-memory mock) that all typecheck against the public API surface.
-- **Publishing to npm** — [`publishing.md`](publishing.md). Step-by-step distribution guide for someone whose package-management muscle memory is NuGet, not npm. Covers npm account setup, scope creation, automation tokens, manual `npm publish` walkthrough, and the GitHub Actions release workflow.
+- **Worked examples** — [`web/ax25/examples/`](../../web/ax25/examples/). Self-contained TypeScript files (Web Serial, Node TCP, in-memory mock) that all typecheck against the public API surface.
 - **Changelog** — [`web/ax25/CHANGELOG.md`](../../web/ax25/CHANGELOG.md). Keep-a-Changelog format.
+
+> Publishing this library is on hold pending its extraction to a dedicated repo (planned `m0lte/ax25-ts`). The previous packet.net-based publish workflow was removed when the SDL codegen moved out to [`m0lte/ax25sdl`](https://github.com/m0lte/ax25sdl); `@packet-net/ax25@0.2.1` is the last release shipped from this repo.
 
 ## API reference entry points
 
