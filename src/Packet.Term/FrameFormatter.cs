@@ -20,8 +20,8 @@ public enum FrameDirection
 /// <summary>
 /// Format <see cref="Ax25Frame"/>s for the BPQ-monitor-style frame log
 /// the TUI's top pane renders. Format mirrors the web packet-terminal's
-/// <c>fmtFrame</c> sans VT100 colour codes: the colouring is Spectre's
-/// job at render time.
+/// <c>fmtFrame</c> sans VT100 colour codes — colouring is the rendering
+/// layer's job (Terminal.Gui colour schemes at render time).
 /// </summary>
 public static class FrameFormatter
 {

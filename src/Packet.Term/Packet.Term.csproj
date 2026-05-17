@@ -3,16 +3,15 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
-    <!-- Event / state names mirror the AX.25 spec's vocabulary verbatim;
-         Spectre.Console types pulled into our namespace include Color etc.
-         that trip a couple of stylistic-name rules. -->
+    <!-- Event / state names mirror the AX.25 spec's vocabulary verbatim; a
+         few rule classes don't add value for the TUI surface. -->
     <NoWarn>$(NoWarn);CA1711;CA1303;CA2007</NoWarn>
     <RootNamespace>Packet.Term</RootNamespace>
     <AssemblyName>Packet.Term</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Terminal.Gui" />
     <PackageReference Include="CommandLineParser" />
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />

@@ -1,18 +1,24 @@
 using System.IO.Ports;
 using CommandLine;
 using Packet.Core;
-using Spectre.Console;
+using Packet.Term.Tui;
 
 namespace Packet.Term;
 
 /// <summary>
 /// Entry point. Parses CLI, resolves MYCALL + serial port (CLI override
-/// → settings → interactive prompt), opens the modem, hands off to
-/// <see cref="TerminalUi"/>.
+/// → settings → interactive prompt), opens the modem, hands off to the
+/// Terminal.Gui v2 app shell in <see cref="PacketTermApp"/>.
 /// </summary>
+/// <remarks>
+/// All boot-time prompts happen here via plain
+/// <see cref="Console.ReadLine"/> — before the TUI takes over the screen.
+/// Once the modem is open, control transfers to <see cref="PacketTermApp.Run"/>,
+/// which owns the entire screen until the user exits.
+/// </remarks>
 public static class Program
 {
-    public static async Task<int> Main(string[] args)
+    public static int Main(string[] args)
     {
         var parsed = Parser.Default.ParseArguments<CommandLineOptions>(args);
         if (parsed is not CommandLine.Parsed<CommandLineOptions> ok)
@@ -27,13 +33,19 @@ public static class Program
         var myCallStr = opts.MyCall ?? AppContext.Settings.MyCall;
         if (string.IsNullOrWhiteSpace(myCallStr))
         {
-            myCallStr = AnsiConsole.Ask<string>("[bold]MYCALL[/] (your callsign + SSID, e.g. M0LTE-1):");
+            Console.Write("MYCALL (your callsign + SSID, e.g. M0LTE-1): ");
+            myCallStr = Console.ReadLine()?.Trim();
+            if (string.IsNullOrWhiteSpace(myCallStr))
+            {
+                Console.Error.WriteLine("MYCALL is required.");
+                return 2;
+            }
             AppContext.Settings.MyCall = myCallStr;
             AppContext.SaveSettings();
         }
         if (!Callsign.TryParse(myCallStr, out var myCall))
         {
-            AnsiConsole.MarkupLine($"[red]Invalid MYCALL[/]: {Markup.Escape(myCallStr ?? string.Empty)}");
+            Console.Error.WriteLine($"Invalid MYCALL: {myCallStr}");
             return 2;
         }
 
@@ -44,7 +56,7 @@ public static class Program
             portName = ChoosePort();
             if (portName is null)
             {
-                AnsiConsole.MarkupLine("[red]No serial ports found.[/] Re-run with --port /path/to/port once a modem is attached.");
+                Console.Error.WriteLine("No serial ports found. Re-run with --port /path/to/port once a modem is attached.");
                 return 3;
             }
             AppContext.Settings.SerialPort = portName;
@@ -58,7 +70,7 @@ public static class Program
         {
             if (!Callsign.TryParse(opts.Connect, out var ac))
             {
-                AnsiConsole.MarkupLine($"[red]Invalid --connect callsign[/]: {Markup.Escape(opts.Connect)}");
+                Console.Error.WriteLine($"Invalid --connect callsign: {opts.Connect}");
                 return 4;
             }
             autoConnect = ac;
@@ -71,26 +83,27 @@ public static class Program
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Failed to open[/] {Markup.Escape(portName)}: {Markup.Escape(ex.Message)}");
+            Console.Error.WriteLine($"Failed to open {portName}: {ex.Message}");
             return 5;
         }
 
-        AnsiConsole.MarkupLine($"[green]Packet.Term {AppInfo.Version}[/]  MYCALL=[bold]{Markup.Escape(myCall.ToString())}[/]  port=[bold]{Markup.Escape(portName)}[/] @ 57600");
-        AnsiConsole.MarkupLine("[dim]Starting TUI; press Q to quit.[/]");
+        Console.WriteLine($"Packet.Term {AppInfo.Version}  MYCALL={myCall}  port={portName} @ 57600");
+        Console.WriteLine("Starting TUI...");
 
-        await using (modem)
+        try
         {
-            var ui = new TerminalUi(myCall, portName, modem);
-            using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) =>
+            using (modem)
             {
-                e.Cancel = true;
-                cts.Cancel();
-            };
-            await ui.RunAsync(autoConnect, cts.Token).ConfigureAwait(false);
+                PacketTermApp.Run(myCall, portName, modem, autoConnect);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Packet.Term aborted: {ex.Message}");
+            return 6;
         }
 
-        AnsiConsole.MarkupLine("[dim]Goodbye.[/]");
+        Console.WriteLine("Goodbye.");
         return 0;
     }
 
@@ -100,10 +113,18 @@ public static class Program
         if (ports.Length == 0) return null;
         Array.Sort(ports, StringComparer.Ordinal);
 
-        var prompt = new SelectionPrompt<string>()
-            .Title("[bold]Pick a serial port[/]:")
-            .AddChoices(ports)
-            .PageSize(10);
-        return AnsiConsole.Prompt(prompt);
+        Console.WriteLine("Available serial ports:");
+        for (int i = 0; i < ports.Length; i++)
+        {
+            Console.WriteLine($"  [{i + 1}] {ports[i]}");
+        }
+        Console.Write($"Pick one [1-{ports.Length}], or type a path: ");
+        var raw = Console.ReadLine()?.Trim();
+        if (string.IsNullOrEmpty(raw)) return null;
+        if (int.TryParse(raw, out var idx) && idx >= 1 && idx <= ports.Length)
+        {
+            return ports[idx - 1];
+        }
+        return raw;
     }
 }
