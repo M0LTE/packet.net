@@ -831,6 +831,12 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-17 — NetsimUiFrameScenarios RxBudget bump (15s → 30s)
+
+Bumps `NetsimUiFrameScenarios.RxBudget` from 15 to 30 seconds — the follow-up the XRouter-misattribution investigation flagged (see 2026-05-16 entry just below). The AFSK1200 software sim is CPU-heavy and under host contention (four interop containers + test runner sharing a single box) round-trip latency can spike above the original 15s budget. CI's self-hosted runner has more headroom but local dev laptops were flaking 1-in-10 on `UI_Frame_With_Digipeater_Path_Round_Trips`. 30s absorbs the variance without bloating happy-path runtime (test still completes in ~3s when the host isn't loaded).
+
+The other two methods in the file using the same `RxBudget` constant get the bump too — they're sibling UI-frame scenarios that share the same AFSK pipeline, so the same flake-risk applies even though they hadn't been reported flaking.
+
 ### 2026-05-16 — interop flake investigation: XRouter tests cleared, NetsimUiFrame digi test identified as the actual culprit
 
 PRs #138 and #140 both shipped with amendment-log notes claiming "two pre-existing XRouter-via-Netsim failures" carried forward. That claim never matched CI reality (the C# interop job has reported 22/22 — or 19/19 before #140 added the listener scenarios — on every recent merge to `main`). Investigation:
