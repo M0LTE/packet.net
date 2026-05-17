@@ -2,93 +2,77 @@
 
 A modern, reusable AX.25 2.2 stack and packet-radio node, written in .NET 10.
 
-**Status:** pre-alpha — phase 0 scaffolding. No usable release yet.
+**Status:** early. Libraries are publishing to NuGet; the node host is taking shape. See [`docs/plan.md`](docs/plan.md) for the up-to-date roadmap.
 
-## What this is
+## What this repo holds
 
-Packet.NET is two things:
+After the 2026-05-17 multi-repo split, **`m0lte/packet.net` is the .NET libraries + the packet node**. Specifically:
 
-1. **A set of reusable .NET libraries** implementing AX.25 2.2, KISS (including
-   ACKMODE and multi-drop), AXUDP, and external-application protocols (RHPv2,
-   AGW). Each library is independently publishable on NuGet under the
-   `Packet.*` prefix.
+| | What | NuGet |
+| --- | --- | --- |
+| `src/Packet.Core/` | Shared primitives (Callsign, Ax25Address, KissFrame) | [`Packet.Core`](https://www.nuget.org/packages/Packet.Core) |
+| `src/Packet.Ax25/` | AX.25 v2.2 frame codec + connected-mode session machine + `Ax25Listener` | [`Packet.Ax25`](https://www.nuget.org/packages/Packet.Ax25) |
+| `src/Packet.Kiss.Abstractions/` | KISS modem interface contract | [`Packet.Kiss.Abstractions`](https://www.nuget.org/packages/Packet.Kiss.Abstractions) |
+| `src/Packet.Kiss/` | KISS framing, ACKMODE, multi-drop, TCP transport | [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) |
+| `src/Packet.Aprs/` | APRS frame codec | not yet published |
+| `src/Packet.Agw/` | AGW (SV2AGW) client | not yet published |
+| `src/Packet.Axudp/` | AXUDP transport | not yet published |
+| `src/Packet.Kiss.NinoTnc/` | NinoTNC-specific KISS transport | not yet published |
+| `src/Packet.Mcp/` | MCP server scaffolding | not yet published |
+| `src/Packet.Rhp2/` + `.Server/` | RHP v2 protocol | not yet published |
+| `src/Packet.Node/` + `.Extensions/` | The packet node host (web UI, REST, MCP, plugin shim) | n/a — application |
 
-2. **A packet-radio node** built on those libraries, with a modern web UI for
-   configuration and operation, a TNC2-style command prompt, REST API, MCP
-   server, and pluggable application modules (BBS, chat, DAPPS, etc. — none of
-   which ship in the core).
+The dependent SDL state-machine tables come from a sibling repo — see [the sibling repos](#sibling-repos) below.
 
-The node is designed for **real-world half-duplex, lossy, shared-medium**
-KISS+ACKMODE radio links. It's tested against LinBPQ, Xrouter, net-sim, and a
-back-to-back pair of NinoTNCs in CI.
+## Sibling repos
 
-### Spec-driven, multi-language
+Following the 5-repo split agreed 2026-05-17:
 
-The AX.25 v2.2 SDL state machines (figc4.1 / 4.2 / 4.4 / 4.6 / 4.7) are
-transcribed verbatim from the published spec into a YAML DSL under
-[`spec-sdl/`](spec-sdl/), then emitted into **seven** target languages by
-[`tools/Packet.Sdl.CodeGen`](tools/Packet.Sdl.CodeGen/):
+| Repo | What it owns |
+| --- | --- |
+| **[`m0lte/ax25sdl`](https://github.com/m0lte/ax25sdl)** *(private during prove-out)* | AX.25 v2.2 SDL transcriptions, codegen tools (seven backends), multi-language artefact publishing. Publishes `Packet.Ax25.Sdl` to NuGet, `ax25sdl` to npm. |
+| **`m0lte/packet.net`** (this repo) | .NET libraries (`Packet.Core` / `.Ax25` / `.Kiss` / …) + the packet-node host. C# conformance tests + interop CI against LinBPQ / XRouter / rax25 / NinoTNC pair. |
+| **[`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts)** *(planned)* | The `@packet-net/ax25` TypeScript library + its examples + TS conformance + TS interop. Today still here at `web/ax25/`; moves out once the npm publish path from m0lte/ax25sdl is unblocked. |
+| **[`m0lte/packet-term-tui`](https://github.com/m0lte/packet-term-tui)** *(private)* | `Packet.Term` — the C# Terminal.Gui v2 TUI for AX.25 sessions over a USB KISS modem. Consumes `Packet.Core` / `Packet.Ax25` / `Packet.Kiss` from NuGet. |
+| **[`m0lte/packet-term-web`](https://github.com/m0lte/packet-term-web)** *(public)* | The browser TNC2 emulator (single-file HTML demo). Deployed at https://packet-term.m0lte.uk. Consumes `@packet-net/ax25` from npm. |
 
-| Backend | Output | Consumer convention |
-|---|---|---|
-| C# | [`src/Packet.Ax25.Sdl/`](src/Packet.Ax25.Sdl/) | `static readonly` tables + xUnit conformance tests |
-| Go | [`go-spec/`](go-spec/) | `go` module — `var DataLinkConnected = StatePage{…}` + `_test.go` |
-| TypeScript | [`ts-spec/`](ts-spec/) | npm package, ESM, strict mode |
-| Rust | [`rust-spec/`](rust-spec/) | cargo crate — `pub static DATA_LINK_CONNECTED: StatePage` + `#[cfg(test)]` |
-| C | [`c-spec/`](c-spec/) | CMake — `const StatePage DataLinkConnected` + CTest binaries |
-| JSON | [`json-spec/`](json-spec/) | `*.g.json` files validated against `schema.json` |
-| Python | [`python-spec/`](python-spec/) | `pip install -e .` — frozen dataclasses + pytest |
+The `ax25sdl` spec repo is the longest-lived contributor surface; if you want to file a spec-side issue or contribute a new SDL page transcription, that's the home. Tom is working with the original AX.25 authors on whether `packethacking/ax25spec` becomes the canonical community home — `m0lte/ax25sdl` is the prove-out venue.
 
-Every backend is independently verified by CI (build / vet / format / test
-on its native toolchain). One YAML transcription, seven verified
-implementations, zero hand-translation drift.
+## Node goals
 
-## Goals
-
-- Zero file editing for configuration — everything is web-based.
-- One-line install: `curl … | sudo bash`, plus a Docker image.
-- Cross-platform: Linux (x64 / arm64 / armhf), Windows x64, macOS arm64 + x64.
-  systemd service on Linux (Debian / Ubuntu / Raspberry Pi OS first class).
-- A first-rate REST API with modern auth (Argon2id + WebAuthn/passkeys + JWT).
-- A built-in MCP server for ops, diagnostics, and network exploration.
-- Live packet monitoring + link troubleshooting that go beyond plain frame
-  tracing.
-- Extensive interoperability tests — every PR runs interop against LinBPQ /
-  Xrouter / net-sim, and a 72-hour soak runs nightly against a long-running
-  LinBPQ peer.
+- Zero file editing for configuration — everything web-based.
+- One-line install (`curl … | sudo bash`) plus Docker image.
+- Cross-platform: Linux (x64 / arm64 / armhf), Windows x64, macOS arm64 + x64. systemd service on Linux (Debian / Ubuntu / Raspberry Pi OS first class).
+- First-rate REST API with modern auth (Argon2id + WebAuthn/passkeys + JWT).
+- Built-in MCP server for ops, diagnostics, and network exploration.
+- Live packet monitoring + link troubleshooting that go beyond plain frame tracing.
+- Continuous interoperability against LinBPQ / XRouter / rax25 / direwolf, with a 72-hour LinBPQ soak running nightly.
 
 ## What this is NOT
 
-- A BBS, chat server, mailbox, or DAPPS implementation — those live as
-  out-of-tree plugins.
-- An HF waveform stack — Packet.NET talks to KISS modems (over TCP / serial)
-  and AXUDP only. VARA, ARDOP, and friends are out of scope for v1.
-- A drop-in LinBPQ replacement — Packet.NET aims for protocol-level
-  interoperability, not bug-for-bug feature parity.
+- A BBS, chat server, mailbox, or DAPPS implementation — those live as out-of-tree plugins.
+- An HF waveform stack — talks to KISS modems (over TCP / serial) and AXUDP only. VARA, ARDOP, and friends are out of scope for v1.
+- A drop-in LinBPQ replacement — aims for protocol-level interoperability, not bug-for-bug feature parity.
 
 ## Roadmap
 
-**[`docs/plan.md`](docs/plan.md) is the authoritative living plan for the
-project** — direction, status, working agreements, glossary, reference shelf,
-and amendment log. Read it before contributing.
+**[`docs/plan.md`](docs/plan.md) is the authoritative living plan** — direction, status, working agreements, glossary, reference shelf, and amendment log. Read it before contributing.
 
 ## Building
 
 ```sh
 dotnet build
-dotnet test
+dotnet test --filter "Category!=HardwareLoop&Category!=Interop"
 ```
 
 Requires the .NET 10 SDK (see `global.json`).
 
 ## License
 
-MIT — see `LICENSE`.
+[MIT](LICENSE).
 
 ## Acknowledgements
 
-- The [packethacking](https://github.com/packethacking) AX.25 2.2 specification
-  rewrite.
-- John Wiseman G8BPQ for LinBPQ, decades of packet work, and the multi-drop
-  KISS / ACKMODE extensions.
-- The Online Amateur Radio Community (OARC).
+- The [packethacking](https://github.com/packethacking) AX.25 2.2 specification rewrite.
+- John Wiseman G8BPQ for LinBPQ, decades of packet work, and the multi-drop KISS / ACKMODE extensions.
+- The [Online Amateur Radio Community (OARC)](https://oarc.uk).
