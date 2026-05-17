@@ -35,7 +35,12 @@ public class NetsimUiFrameScenarios
     private const int    NodeAKissPort = 8100;
     private const int    NodeBKissPort = 8101;
     private const int    NetsimWebPort = 8080;
-    private static readonly TimeSpan RxBudget = TimeSpan.FromSeconds(15);
+    // 30s, not 15s, because the AFSK1200 software sim is CPU-heavy and under
+    // host contention (four interop containers + test runner sharing a single
+    // box) round-trip latency can spike above the original 15s budget. CI's
+    // self-hosted runner has more headroom but local dev laptops flake. See
+    // docs/plan.md §17 entry "interop flake investigation" (2026-05-16).
+    private static readonly TimeSpan RxBudget = TimeSpan.FromSeconds(30);
 
     [SkippableFact]
     public async Task UI_Frame_With_Digipeater_Path_Round_Trips()
