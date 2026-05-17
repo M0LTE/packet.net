@@ -70,3 +70,10 @@ ehthumbs.db
 
 # TypeScript build artefacts for the ax25 web library
 web/ax25/dist/
+
+# Packet.Ax25.Sdl moved to m0lte/ax25sdl on 2026-05-17 — consumed via
+# NuGet now. The local SDL codegen tools (still in tools/Packet.Sdl.*)
+# would regenerate the deleted directory if run with --csharp; ignore
+# the output so a stray invocation doesn't leave untracked artefacts in
+# the working tree. C# codegen now lives in m0lte/ax25sdl.
+src/Packet.Ax25.Sdl/

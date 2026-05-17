@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Packet.Ax25\Packet.Ax25.csproj" />
-    <ProjectReference Include="..\..\src\Packet.Ax25.Sdl\Packet.Ax25.Sdl.csproj" />
+    <PackageReference Include="Packet.Ax25.Sdl" />
   </ItemGroup>
 
 </Project>

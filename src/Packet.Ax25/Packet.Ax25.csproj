@@ -9,8 +9,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Packet.Core\Packet.Core.csproj" />
-    <ProjectReference Include="..\Packet.Ax25.Sdl\Packet.Ax25.Sdl.csproj" />
     <ProjectReference Include="..\Packet.Kiss.Abstractions\Packet.Kiss.Abstractions.csproj" />
+    <!-- Packet.Ax25.Sdl moved to m0lte/ax25sdl on 2026-05-17 — consumed via NuGet. -->
+    <PackageReference Include="Packet.Ax25.Sdl" />
   </ItemGroup>
 
 </Project>
