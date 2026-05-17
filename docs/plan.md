@@ -833,6 +833,22 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-17 — drop Packet.Term from packet.net (extracted to m0lte/packet-term-tui)
+
+Third extraction step of the 5-repo split — `Packet.Term` (the C# Terminal.Gui v2 TUI for AX.25 sessions) lives at `m0lte/packet-term-tui` now and consumes the Packet.NET libraries (`Packet.Core 0.1.0` / `Packet.Ax25 0.1.0` / `Packet.Kiss 0.1.0`) from nuget.org. This PR removes the local source.
+
+**Deleted.**
+
+- `src/Packet.Term/` — 12 files (Tui/MainWindow.cs, Tui/ConnectDialog.cs, Tui/SettingsDialog.cs, Tui/PacketTermApp.cs, Tui/TuiSchemes.cs, Program.cs, AppContext.cs, AppSettings.cs, AppInfo.cs, CommandLineOptions.cs, FrameFormatter.cs, KissSerialModem.cs, RingBuffer.cs, SessionRunner.cs).
+- `tests/Packet.Term.Tests/` — 3 test files (FrameFormatterTests.cs, CommandLineOptionsTests.cs, AppSettingsTests.cs).
+- `Packet.NET.slnx` — removed both projects.
+- `Directory.Packages.props` — dropped `Terminal.Gui`, `Microsoft.Extensions.Configuration` + `.Json` + `.Binder` package version pins (only Packet.Term consumed them).
+
+**Extraction record.** Done via `git filter-repo --path src/Packet.Term/ --path tests/Packet.Term.Tests/ --path LICENSE --path .gitignore --path Directory.Build.props --path Directory.Packages.props --path global.json` against a clone of this repo earlier on 2026-05-17. 18 commits of history survived in the new repo; `Directory.Packages.props` was trimmed to just what the TUI consumes; `Packet.Term.csproj`'s ProjectReferences to Packet.Core / Packet.Ax25 / Packet.Kiss became PackageReferences against nuget.org.
+
+**Verification.** `dotnet build` clean (61 pre-existing warnings in Spike projects unrelated). `dotnet test --filter "Category!=HardwareLoop&Category!=Interop"` green across the remaining 12 test projects.
+
+
 ### 2026-05-17 — extract packet-terminal demo to m0lte/packet-term-web
 
 Second extraction step of the 5-repo split — moves the browser TNC2 emulator (single-file HTML demo, deployed at https://packet-term.m0lte.uk) out of `web/ax25/examples/packet-terminal/` into a new public repo `m0lte/packet-term-web`.
