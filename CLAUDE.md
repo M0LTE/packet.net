@@ -4,9 +4,9 @@ Operating notes for Claude Code (and other agents) working in `m0lte/packet.net`
 
 ## What this repo is
 
-The .NET libraries (`Packet.Core`, `Packet.Ax25`, `Packet.Kiss`, `Packet.Aprs`, `Packet.Agw`, `Packet.Axudp`, `Packet.Kiss.NinoTnc`, `Packet.Mcp`, `Packet.Rhp2*`) and the packet-radio node host (`Packet.Node*`). Plus C# interop CI (LinBPQ / XRouter / rax25 / netsim / NinoTNC-loop) and `web/ax25/` (the `@packet-net/ax25` TypeScript library — staying here temporarily, will move to `m0lte/ax25-ts` once the upstream `ax25sdl` publish path is unblocked).
+The .NET libraries (`Packet.Core`, `Packet.Ax25`, `Packet.Kiss`, `Packet.Aprs`, `Packet.Agw`, `Packet.Axudp`, `Packet.Kiss.NinoTnc`, `Packet.Mcp`, `Packet.Rhp2*`) and the packet-radio node host (`Packet.Node*`). Plus C# interop CI (LinBPQ / XRouter / rax25 / netsim / NinoTNC-loop) — the `interop.yml` workflow also clones [`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts) and runs its integration suite against the docker stack standing up here.
 
-After the 5-repo split on 2026-05-17, the SDL transcriptions, codegen, and multi-language artefacts live elsewhere — see [`README.md` § Sibling repos](README.md#sibling-repos). If a task is about spec-side work (transcribing a new figc4.x page, the YAML DSL, the codegen tools, the `Packet.Ax25.Sdl` package), it belongs in [`m0lte/ax25sdl`](https://github.com/m0lte/ax25sdl), not here.
+After the 5-repo split on 2026-05-17, the SDL transcriptions, codegen, and multi-language artefacts live in [`m0lte/ax25sdl`](https://github.com/m0lte/ax25sdl), and the TypeScript library lives in [`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts). See [`README.md` § Sibling repos](README.md#sibling-repos). If a task is about spec-side work (transcribing a new figc4.x page, the YAML DSL, the codegen tools, the `Packet.Ax25.Sdl` package), it belongs in `m0lte/ax25sdl`. If it's about the browser AX.25 library (`@packet-net/ax25`), it belongs in `m0lte/ax25-ts`. Not here.
 
 ## Read first
 
@@ -52,9 +52,6 @@ dotnet build
 
 # Run the normal test suite (excludes hardware-loop and interop)
 dotnet test --filter "Category!=HardwareLoop&Category!=Interop"
-
-# Run web/ax25 (TS library) unit tests
-cd web/ax25 && npm ci && npm run typecheck && npm test
 
 # Bring up the interop stack (LinBPQ + Xrouter + rax25 + net-sim)
 docker compose -f docker/compose.interop.yml up -d --wait
@@ -102,8 +99,6 @@ src/Packet.Node*                 the packet-radio node host (web SDK; the deploy
 tests/Packet.*.Tests             one test project per library
 tests/.../Hardware/              hardware-loop-only tests
 tests/Packet.Interop.Tests/      C# interop CI tests against the docker stack
-web/ax25/                        @packet-net/ax25 TS library (will move to m0lte/ax25-ts once
-                                   the ax25sdl npm publish auth is fixed at m0lte/ax25sdl)
 tools/Packet.*.Spike/            scratch experiments
 tools/Packet.Fuzz/               AFL-style fuzzer for the AX.25 / KISS parsers
 docker/                          interop compose stack (LinBPQ + XRouter + rax25 + netsim) + fixtures

@@ -605,7 +605,7 @@ CI filter convention: default jobs run with `--filter "Category!=HardwareLoop&Ca
 | 2 | SABM/UA cycle (mod-8) vs LinBPQ over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`LinbpqViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs XRouter over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`XrouterViaNetsimConnectedMode`) |
 | 2 | SABM/UA cycle (mod-8) vs rax25 (Habets, Rust) over net-sim AFSK1200 | our session reaches Connected after UA; DISC/UA returns it to Disconnected (`Rax25ViaNetsimConnectedMode`) — handshake only; REJ/SREJ + segmentation untested in rax25 |
-| 2 | ax25.ts (TypeScript, Node TCP) vs LinBPQ over net-sim AFSK1200 | `Ax25Stack` + `TcpKissTransport` reach Connected after UA, exchange I-frames (banner from BPQ + `P\r` ports-command round-trip), DISC/UA cleanly returns to Disconnected (`web/ax25/tests/integration/linbpq-via-netsim.test.ts`) |
+| 2 | ax25.ts (TypeScript, Node TCP) vs LinBPQ over net-sim AFSK1200 | `Ax25Stack` + `TcpKissTransport` reach Connected after UA, exchange I-frames (banner from BPQ + `P\r` ports-command round-trip), DISC/UA cleanly returns to Disconnected (`m0lte/ax25-ts: tests/integration/linbpq-via-netsim.test.ts`, exercised by this repo's `interop.yml` step that clones the sibling repo) |
 | 2 | 30 % scripted loss net-sim afsk1200, 10 kB transfer | completes; retries observed; no FRMR |
 | 3 | ACKMODE echo via LinBPQ | ack-bytes returned within 5 s |
 | 3 | ACKMODE via NinoTNC pair | ack-bytes correlate to RX on partner TNC |
@@ -832,6 +832,22 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-17 — drop web/ax25 from packet.net (extracted to m0lte/ax25-ts)
+
+Final extraction step of the 5-repo split. `web/ax25/` — the `@packet-net/ax25` TypeScript library — moves out to its own repo at [`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts). History was preserved via `git filter-repo --path web/ax25/ --path-rename web/ax25/:` against a fresh clone, yielding 13 commits that span the library's full life (the `feat(ax25/examples)` PR #133 that introduced it through the recent `feat(ts-ax25)` work). The new repo's `main` was scaffolded with a `CLAUDE.md` (agent notes for the new home — "consume ax25sdl from npm, never hand-edit generated tables", self-hosted-runner rule) and a `.github/workflows/ci.yml` job that runs typecheck + typecheck:examples + build + `npm test` on `[self-hosted, Linux, X64]`.
+
+**Why now.** The previous amendment-log entry (this date, but earlier) parked the `web/ax25/` extraction on the `ax25sdl` npm publish auth. That blocker resolved later the same day — the `NPM_TOKEN` on `m0lte/ax25sdl` was replaced with one carrying publish rights, and `ax25sdl@0.3.0` is now live on npm. With the publish path proven, there's no reason to keep the TS library here.
+
+**What went where in this repo (deletions).** `web/ax25/` (468 KB, 53 tracked files); `docs/web-ax25/` (57 files of typedoc-generated API docs — those rebuild from the source in the new repo, not maintained by hand); the `ts-build-test` job in `.github/workflows/ci.yml` (it was running `cd web/ax25 && npm ci && npm run typecheck && npm run build && npm test` — that suite now runs in `m0lte/ax25-ts`'s own `ci.yml`); the `web/ax25/**` paths filter in `.github/workflows/interop.yml`.
+
+**What interop.yml does now.** The `ax25.ts integration tests` step previously did `cd web/ax25 && npm ci && npm run build && npm run test:integration` against the local copy. The new version clones `m0lte/ax25-ts` (main, depth 1) into `${RUNNER_TEMP}/ax25-ts`, then `npm ci && npm run build && npm run test:integration` from there. The cloned suite still dials `127.0.0.1:8100` — the same KISS-TCP listener the C# interop tests use — so the docker stack standing up in this job remains the test bed. Pinning to a SHA instead of `main` is the obvious tightening if the API ever destabilises; tracking `main` for now keeps the new repo and this one moving together.
+
+**Other docs touched.** `README.md` § Sibling repos — flipped `m0lte/ax25-ts` from *(planned)* to *(public)* and dropped the "today still here at web/ax25/" caveat. `CLAUDE.md` — removed the "Run web/ax25 (TS library) unit tests" command, removed the `web/ax25/` row in the "What lives where" tree, rewrote the "What this repo is" lead-in so the only mention of ax25-ts is the interop-clone behaviour. `docs/runtime-capability-matrix.md` + `docs/runtime-capability-strategy.md` — rewrote in-repo backtick paths and markdown links that pointed into `web/ax25/`; they now point at GitHub blob URLs for source files in the sibling repo (`https://github.com/m0lte/ax25-ts/blob/main/...`) and to `m0lte/ax25-ts: ...` style display labels for inline code references. `tests/conformance/connect-sabm-ua-disc.yaml` — same path-rewrite treatment for its two stale test-file references.
+
+**Verification.** Build + non-interop tests still green locally. The interop matrix can only be verified end-to-end on the CI runner once this PR's `interop.yml` runs against the docker stack and clones the freshly-extracted `m0lte/ax25-ts` — that's the canonical pass criterion before merge.
+
+**What's still pending.** A runner needs to be registered against `m0lte/ax25-ts` before its own `ci.yml` will run anything (the workflow targets `[self-hosted, Linux, X64]`, same convention as the other repos). Until that's done the new repo's CI sits in queued state on every push. The integration test path here works regardless — `interop.yml` clones the new repo and runs its tests on this repo's runner.
 
 ### 2026-05-17 — drop ts-spec, flip web/ax25 to consume ax25sdl from npm
 
