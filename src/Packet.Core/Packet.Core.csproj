@@ -6,4 +6,16 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- NuGet packaging metadata. Common fields (Authors, License, repo URLs,
+         sourcelink, snupkg) come from top-level Directory.Build.props. Per-
+         package fields (Description, Title, Tags) live here. Version is set
+         at pack time by the publish workflow via -p:Version=… (from the git
+         tag). -->
+    <PackageId>Packet.Core</PackageId>
+    <Title>Packet.Core — shared primitives for the Packet.NET stack</Title>
+    <Description>Shared primitive types (Callsign, Ax25Address, KissFrame, etc.) used across the Packet.NET libraries. Depended on by Packet.Ax25 / Packet.Kiss / Packet.Aprs and downstream applications. Source: github.com/m0lte/packet.net.</Description>
+    <PackageTags>ax25;amateur-radio;packet-radio;kiss;callsign</PackageTags>
+  </PropertyGroup>
+
 </Project>
