@@ -10,7 +10,7 @@
 function rej(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:372](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L372)
+Defined in: [frame.ts:397](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L397)
 
 Build a REJ supervisory frame.
 

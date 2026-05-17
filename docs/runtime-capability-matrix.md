@@ -2,7 +2,7 @@
 
 > Cross-runtime current-state snapshot. The strategy doc explaining the taxonomy, the levels, and the update discipline lives at [`runtime-capability-strategy.md`](runtime-capability-strategy.md).
 
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-16 (TS `Ax25Listener` port — lifecycle row + role row updates)
 
 **Legend:** `C` Conformant · `P` Partial · `S` Stub · `-` Absent · `?` Undetermined (see TODO below)
 
@@ -93,7 +93,7 @@ C# routes every subroutine call through `DefaultSubroutineRegistry.Wire(...)` �
 | Capability | C# | TS | Notes |
 | --- | :-: | :-: | --- |
 | [Outbound connect](runtime-capability-strategy.md#cap-lifecycle-outbound-connect) | C | C | both runtimes — SABM → UA → Connected, exercised in interop CI against LinBPQ + XRouter + rax25 (C#) and LinBPQ (TS) |
-| [Inbound listener](runtime-capability-strategy.md#cap-lifecycle-inbound-listener) | - | - | C# in flight on `feat/ax25-listener` (no PR open at time of writing; see [follow-ups](#follow-ups)). TS has no listener; a SABM addressed to us with no matching outbound session is silently dropped |
+| [Inbound listener](runtime-capability-strategy.md#cap-lifecycle-inbound-listener) | C | P | C# `Ax25Listener` (merged 2026-05-16; PRs #140 / #141 / #143). TS `Ax25Listener` (this PR, 2026-05-16) — port mirrors the C# class line-for-line plus the three carried-over bug fixes; integration coverage includes a BPQ-initiates-against-our-listener scenario (passes locally against the docker stack). `P` until the same coverage runs in a CI job — promote to `C` once the LinBPQ-initiates interop test is green in CI |
 | [Per-peer session reuse](runtime-capability-strategy.md#cap-lifecycle-per-peer-reuse) | P | P | C# `Ax25Adapter` keys sessions by (local, remote) but rebinds on reconnect; TS `Ax25Stack` exposes one session per outbound `connect()` call. Multi-session-per-stack works in both but neither runtime exercises it in a test. TODO: write a multi-session smoke test in each runtime |
 | [T1V dynamic](runtime-capability-strategy.md#cap-lifecycle-t1v-dynamic) | P | S | C# walks `Select_T1_Value` via subroutine Wire; TS stub. Neither runtime has a peer-driven test |
 | [N2 retry budget](runtime-capability-strategy.md#cap-lifecycle-n2-retry) | C | C | both runtimes — `RC_eq_N2` guard wires through. TS test `session.test.ts` covers; C# covered by `Ax25Session.Tests` |
@@ -121,7 +121,7 @@ C# routes every subroutine call through `DefaultSubroutineRegistry.Wire(...)` �
 | Capability | C# | TS | Notes |
 | --- | :-: | :-: | --- |
 | [Pure-client role](runtime-capability-strategy.md#cap-role-client) | C | C | both runtimes are usable as outbound clients today |
-| [Pure-listener-node role](runtime-capability-strategy.md#cap-role-listener-node) | - | - | gated on the inbound-listener row; neither runtime has a listener yet. C# `Packet.Node/` exists as a scaffold but doesn't yet accept inbound AX.25 connections (it's an empty `Program.cs` template) |
+| [Pure-listener-node role](runtime-capability-strategy.md#cap-role-listener-node) | P | P | both runtimes now have `Ax25Listener` (C# from 2026-05-16; TS from this PR). Promoted from `-` once a node-shape consumer (BBS, gateway) is built on top — listener alone is the necessary-but-not-sufficient piece |
 | [Monitor role](runtime-capability-strategy.md#cap-role-monitor) | P | - | C# `Packet.Mcp` + `Packet.Term` (the TUI from #134) can render decoded frames passively. TS has no monitor-only surface; the SDL driver always opens a session per frame stream |
 
 ---
@@ -150,8 +150,8 @@ C# routes every subroutine call through `DefaultSubroutineRegistry.Wire(...)` �
 
 These are tracked-but-not-yet-filed issues. When Tom files them, link the issue numbers back here.
 
-- **C# inbound listener** — in flight on the `feat/ax25-listener` branch (no PR open at time of writing; the branch is at `main` HEAD). Will provide the `Ax25Listener` API + `Packet.Node` integration. Promotes [`cap-lifecycle-inbound-listener`](runtime-capability-strategy.md#cap-lifecycle-inbound-listener) C# from `-` to `P` or `C`.
-- **TS inbound listener** — parallel port of whatever the C# listener becomes. New issue worth filing once the C# shape stabilises.
+- ~~**C# inbound listener**~~ — landed 2026-05-16 (PRs #140 / #141 / #143). `Ax25Listener` API + per-peer session cache + handler-exception isolation + via-chain reversal + cache-miss DM fallthrough. Marked `C` on the lifecycle row.
+- ~~**TS inbound listener**~~ — landed 2026-05-16 (this PR). Mirrors the C# API; same three bug fixes carried over. Marked `P` until the LinBPQ-initiates interop test runs green in CI on the live stack.
 - **TS figc4.7 subroutine walker** — port `DefaultSubroutineRegistry.Wire(...)` from C# so the nine currently-stubbed subroutines route through generated `SubroutineSpec.Paths` instead of `onUnknown`. Promotes nine TS rows in [§figc4.7 subroutines](#figc47-subroutines) from `S`.
 - **TS XID negotiation, FRMR generation, SABME / SREJ / TEST codec** — small per-frame-type PRs. None blocked; each gated on a concrete use-case. Mod-128-dependent ones (SABME, SREJ) also need the `version_2_2` predicate to be flippable from the public API.
 - **TS AGW client port** — port `Packet.Agw.AgwClient` to TypeScript for Node-side use against existing AGW servers.

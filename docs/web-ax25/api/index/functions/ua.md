@@ -10,7 +10,7 @@
 function ua(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:284](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L284)
+Defined in: [frame.ts:309](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L309)
 
 Build a UA response frame.
 

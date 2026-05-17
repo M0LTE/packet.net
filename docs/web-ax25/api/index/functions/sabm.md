@@ -10,7 +10,7 @@
 function sabm(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:260](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L260)
+Defined in: [frame.ts:264](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L264)
 
 Build a SABM (Set Async Balanced Mode, mod-8) command frame.
 

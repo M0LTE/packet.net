@@ -10,7 +10,7 @@
 function ui(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:310](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L310)
+Defined in: [frame.ts:335](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L335)
 
 Build a UI frame. Command/response per `isCommand`.
 

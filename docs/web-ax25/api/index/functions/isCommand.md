@@ -10,7 +10,7 @@
 function isCommand(frame): boolean;
 ```
 
-Defined in: [frame.ts:72](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L72)
+Defined in: [frame.ts:74](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L74)
 
 True if address C-bits encode a command per §6.1.2 (dest C=1, src C=0).
 

@@ -10,6 +10,8 @@
 
 | Class | Description |
 | ------ | ------ |
+| [Ax25Listener](classes/Ax25Listener.md) | First-class AX.25 inbound-acceptance coordinator. Owns one [Ax25Transport](interfaces/Ax25Transport.md), address-filters inbound frames against [Ax25Listener.myCall](classes/Ax25Listener.md#mycall), dispatches to the per-peer [Ax25ListenerSession](classes/Ax25ListenerSession.md) (creating one on first contact — inbound SABM or outbound [Ax25Listener.connect](classes/Ax25Listener.md#connect)), and surfaces per-frame TX/RX events so monitor / promiscuous-capture UIs can tap the channel. |
+| [Ax25ListenerSession](classes/Ax25ListenerSession.md) | One AX.25 session managed by a listener — built on top of the SDL session driver, identical in shape to a session inside `Ax25Stack` (except the listener owns the inbound pump rather than the outbound-only `connect()` factory). |
 | [Ax25Session](classes/Ax25Session.md) | One connected-mode AX.25 session. Created via [Ax25Stack.connect](classes/Ax25Stack.md#connect). Callers register data/disconnect listeners, push outbound bytes via [Ax25Session.write](classes/Ax25Session.md#write), and tear down the link via [Ax25Session.disconnect](classes/Ax25Session.md#disconnect). |
 | [Ax25Stack](classes/Ax25Stack.md) | Holds the transport, runs the inbound demux loop, and is the factory for new [Ax25Session](classes/Ax25Session.md)s. |
 | [Callsign](classes/Callsign.md) | AX.25 amateur-radio callsign with optional Secondary Station Identifier (SSID, 0-15). The base is 0-6 uppercase ASCII alphanumerics; `Parse` requires at least one character. |
@@ -22,6 +24,8 @@
 | ------ | ------ |
 | [Ax25Address](interfaces/Ax25Address.md) | One 7-octet address slot in an AX.25 frame header (AX.25 v2.2 §3.12). |
 | [Ax25Frame](interfaces/Ax25Frame.md) | One AX.25 frame as delivered by KISS — no opening / closing flag, no FCS (the TNC handles HDLC framing and the FCS). |
+| [Ax25FrameTracedEvent](interfaces/Ax25FrameTracedEvent.md) | Payload for the `frameTraced` event. |
+| [Ax25ListenerOptions](interfaces/Ax25ListenerOptions.md) | Options for [Ax25Listener](classes/Ax25Listener.md). `myCall` is required; everything else has a sensible default that matches the AX.25 v2.2 spec. |
 | [Ax25SessionOptions](interfaces/Ax25SessionOptions.md) | - |
 | [Ax25Transport](interfaces/Ax25Transport.md) | Transport-layer abstraction: send and receive raw AX.25 frame bytes (no KISS framing — that's the transport's job). |
 | [FrameFactoryOpts](interfaces/FrameFactoryOpts.md) | - |
@@ -33,6 +37,7 @@
 
 | Type Alias | Description |
 | ------ | ------ |
+| [FrameDirection](type-aliases/FrameDirection.md) | Direction tag for a frame as it crosses the listener-transport boundary. |
 | [FrameKind](type-aliases/FrameKind.md) | The high-level frame kind, after classification of the control byte. Information mod-128 is NOT supported in v1 — only mod-8. |
 | [KissCommand](type-aliases/KissCommand.md) | - |
 
@@ -72,6 +77,7 @@
 | [rnr](functions/rnr.md) | Build a Receive Not Ready (RNR) supervisory frame. |
 | [rr](functions/rr.md) | Build a Receive Ready (RR) supervisory frame. |
 | [sabm](functions/sabm.md) | Build a SABM (Set Async Balanced Mode, mod-8) command frame. |
+| [sabme](functions/sabme.md) | Build a SABME (Set Async Balanced Mode Extended, mod-128) command frame. |
 | [ua](functions/ua.md) | Build a UA response frame. |
 | [ui](functions/ui.md) | Build a UI frame. Command/response per `isCommand`. |
 | [writeAddress](functions/writeAddress.md) | Encode this address slot into 7 bytes at `offset`. |

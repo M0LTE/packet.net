@@ -10,7 +10,7 @@
 function disc(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:272](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L272)
+Defined in: [frame.ts:297](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L297)
 
 Build a DISC command frame.
 

@@ -10,7 +10,7 @@
 function rr(opts): Ax25Frame;
 ```
 
-Defined in: [frame.ts:330](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L330)
+Defined in: [frame.ts:355](https://github.com/M0LTE/packet.net/blob/main/web/ax25/src/frame.ts#L355)
 
 Build a Receive Ready (RR) supervisory frame.
 

@@ -830,6 +830,35 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-16 — TS Ax25Listener port (closes TS inbound-listener follow-up)
+
+Ports the C# `Ax25Listener` (and the three associated bug-fix PRs #140 / #141 / #143) to the TypeScript runtime, so `@packet-net/ax25` can act as an inbound-accepting node, not just an outbound client. This is the single most valuable parity gap that was still open between the two runtimes — packet.net's identity is to be a node, and a node accepts incoming connections.
+
+**API parity.** New `Ax25Listener` class in `web/ax25/src/listener.ts` mirrors `Packet.Ax25.Session.Ax25Listener`'s public surface. Constructor takes `Ax25ListenerOptions` (`myCall` + optional `t1Ms`/`t2Ms`/`t3Ms`/`n2`/`k`/`maxCachedPeers`/`configureSession`/`onHandlerError`). Public surface: `myCall`, `isRunning`, `acceptIncoming` toggle, `onSessionAccepted` + `onFrameTraced` (idiomatic-TS callback-set pattern with paired `off*` unsubscribe), `start()` / `connect(remote)` / `stop()` / `dispose()`. The listener-owned session is exported as `Ax25ListenerSession` to avoid name-collision with the existing `Ax25Session` from `Ax25Stack` (the outbound-only facade kept untouched as the brief required).
+
+**Three carried-over bug fixes.**
+- **#140 carry-over: handler-exception isolation.** Every `sessionAccepted` / `frameTraced` subscriber dispatch is wrapped in try/catch; exceptions route to a configurable `onHandlerError` sink (default `console.error`) and never escape the inbound pump. The matching unit tests (`survives a sessionAccepted handler that throws`, `survives a frameTraced handler that throws`) pin the behaviour.
+- **#141 carry-over: via-chain reversal.** The dispatcher's frame builders in `action-dispatcher.ts` now extract the trigger's inbound digipeater chain reversed and apply it to the outbound response (UA / DM / RR / RNR / REJ / I / UI). Per AX.25 v2.2 §C.2 (Path Construction): inbound SABM via `[digi1, digi2]` → outbound UA via `[digi2, digi1]`. Unit test in `ActionDispatcherViaChain.test.ts`, integration via `Ax25ListenerRejectAndEdge.test.ts` ("handles SABM with a digipeater path").
+- **#143 carry-over: cache-miss DM fall-through.** Unknown-peer non-SABM frames (DISC / RR / I / etc.) build a transient Disconnected session, post the event so the SDL's per-event arm fires (DISC → t13 → DM; everything else → t05 all_other_commands → DM), then drop the transient session without caching it. Unit tests cover the DISC, RR, and I-frame variants plus the cache-clean-after invariant.
+
+**Test count.** 30 new unit tests across 5 files: 5 baseline (`Ax25Listener.test.ts`), 7 concurrency + hostile handlers (`Ax25ListenerConcurrency.test.ts`), 7 multi-peer + cache lifecycle (`Ax25ListenerMultiPeer.test.ts`), 10 reject + spec edge cases (`Ax25ListenerRejectAndEdge.test.ts`), and 1 direct dispatcher unit test for the via-chain reversal (`ActionDispatcherViaChain.test.ts`). 1:1 mirror of the 30 C# listener tests (5+7+7+11 in the C# files — the brief's count of 27 was an undercount; the 11th in `Ax25ListenerRejectAndEdgeTests.cs` is the post-#141/#143 cluster). Plus 3 new integration tests: 2 in `tests/integration/listener-netsim-multi-peer.test.ts` (two-peer multi-session, listener-accepts-and-initiates-concurrently) and 1 in `tests/integration/listener-linbpq-initiates.test.ts` (BPQ initiates → our TS listener accepts).
+
+**Spec-tangent changes.** Added a `sabme(...)` factory to `web/ax25/src/frame.ts` plus a `SABME` branch in `classify(...)` (control byte 0x6F) so listener tests can inject SABME and exercise figc4.1's t16 / t17 transitions. mod-128 sequence-number machinery remains gated on `version_2_2`; no behavioural change to outbound paths. Added an `acceptIncoming` field to `Ax25SessionContext` and re-bound `able_to_establish` in `session-bindings.ts` to read from context (default true). Mirrors the C# context's `AcceptIncoming` flag — listener flips it on transient reject-path sessions so the SDL's t15 branch emits DM.
+
+**Behavioural differences vs C#** (low-impact, documented in the listener source):
+- C# `ConnectAsync` polls a `ConcurrentQueue<DataLinkSignal>` with `Task.Delay(25)`. TS `connect()` uses promise-based subscription on the session's signal stream — same observable behaviour (resolve on DL_CONNECT_confirm, reject on DL_DISCONNECT_*), zero polling latency.
+- C# `SafeInvoke` walks `EventHandler<T>.GetInvocationList()`. TS uses a `Set<callback>` and iterates with per-callback try/catch — same outcome (one throwing handler doesn't suppress siblings).
+- C# session class is `Ax25Session` (shared with `Ax25Stack`). TS keeps the two distinct: existing `Ax25Session` (outbound-only with `connect`/`write`/`disconnect`) stays on its current shape per the brief; new `Ax25ListenerSession` exposes the raw `postEvent` + `onDataLinkSignal` API the listener consumer needs.
+
+**Version bump.** `web/ax25/package.json` and `ts-spec/package.json` both bump from `0.1.1` to `0.2.0` (lockstep release). Not published — Tom controls the npm publish workflow.
+
+**Verification.** Full TS unit suite green: 94/94 (was 64; +30 new). Integration tests against the live docker stack: my 3 new tests all pass (2 netsim multi-peer + 1 LinBPQ-initiates). The pre-existing `linbpq-via-netsim > IFrame_RoundTrip_Against_Linbpq_Node_Prompt` flakes today — unchanged from before this PR.
+
+**Capability matrix updates** (`docs/runtime-capability-matrix.md`):
+- `Inbound listener` row: `-` / `-` → `C` / `P` (C# from this morning's merge, TS from this PR; P pending live-CI confirmation).
+- `Pure-listener-node role` row: `-` / `-` → `P` / `P` (both runtimes now have the necessary primitive).
+- Follow-up notes: TS inbound-listener task marked done.
+
 ### 2026-05-16 — ActionDispatcher property tests
 
 Broadened test coverage of `src/Packet.Ax25/Session/ActionDispatcher.cs` with FsCheck-driven property tests in `tests/Packet.Ax25.Properties/ActionDispatcherProperties.cs`. The dispatcher's 140-odd-verb switch had at-best one example case per verb in `tests/Packet.Ax25.Tests/Session/ActionDispatcherTests.cs`; the new properties exercise each verb category across arbitrary starting `Ax25SessionContext` states + arbitrary input values, catching the class of regression that a single pinned example can't.
