@@ -34,14 +34,9 @@
     <!-- MQTT (SP-001 spike — LinBPQ feed ingestion) -->
     <PackageVersion Include="MQTTnet" Version="4.3.7.1207" />
 
-    <!-- YAML for SDL DSL -->
-    <PackageVersion Include="YamlDotNet" Version="16.3.0" />
-    <PackageVersion Include="JsonSchema.Net" Version="7.3.0" />
-
-    <!-- SDL codegen: Scriban for templating, Roslyn for parse-back validation,
-         CommandLineParser for the codegen tool's CLI. -->
-    <PackageVersion Include="Scriban" Version="7.1.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <!-- CommandLineParser — used by the Packet.Term TUI's CLI. (NB: Packet.Term
+         itself moves to m0lte/packet-term-tui in a sibling PR; once that lands
+         this can be dropped.) -->
     <PackageVersion Include="CommandLineParser" Version="2.9.1" />
 
     <!-- AX.25 SDL state machines — consumed from m0lte/ax25sdl as a NuGet

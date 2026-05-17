@@ -28,22 +28,16 @@
     <Project Path="tests/Packet.Kiss.Tests/Packet.Kiss.Tests.csproj" />
     <Project Path="tests/Packet.Node.Tests/Packet.Node.Tests.csproj" />
     <Project Path="tests/Packet.Rhp2.Tests/Packet.Rhp2.Tests.csproj" />
+<<<<<<< HEAD
     <Project Path="tests/Packet.Sdl.CodeGen.Tests/Packet.Sdl.CodeGen.Tests.csproj" />
+=======
+    <Project Path="tests/Packet.Term.Tests/Packet.Term.Tests.csproj" />
+>>>>>>> e76e222 (chore: drop SDL codegen + spec sources (extracted to m0lte/ax25sdl))
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Packet.AprsIs.Spike/Packet.AprsIs.Spike.csproj" />
     <Project Path="tools/Packet.Fuzz/Packet.Fuzz.csproj" />
     <Project Path="tools/Packet.Mqtt.Spike/Packet.Mqtt.Spike.csproj" />
     <Project Path="tools/Packet.NinoTnc.Spike/Packet.NinoTnc.Spike.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen/Packet.Sdl.CodeGen.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.C/Packet.Sdl.CodeGen.C.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Csharp/Packet.Sdl.CodeGen.Csharp.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Go/Packet.Sdl.CodeGen.Go.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Json/Packet.Sdl.CodeGen.Json.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Python/Packet.Sdl.CodeGen.Python.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Rust/Packet.Sdl.CodeGen.Rust.csproj" />
-    <Project Path="tools/Packet.Sdl.CodeGen.Ts/Packet.Sdl.CodeGen.Ts.csproj" />
-    <Project Path="tools/Packet.Sdl.IR/Packet.Sdl.IR.csproj" />
-    <Project Path="tools/Packet.Sdl.Lint/Packet.Sdl.Lint.csproj" />
   </Folder>
 </Solution>

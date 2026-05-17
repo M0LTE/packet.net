@@ -27,8 +27,6 @@ jobs:
     name: test (${{ matrix.project }})
     runs-on: [self-hosted, Linux, X64]
     # Self-hosted Linux runners — zero GitHub Actions minutes consumed.
-    # With 4 runners registered on the 16-core box, the 13 matrix
-    # entries land in 4 rounds (or so) instead of one long serial run.
     strategy:
       fail-fast: false
       matrix:
@@ -45,15 +43,11 @@ jobs:
           - Packet.Kiss.Tests
           - Packet.Node.Tests
           - Packet.Rhp2.Tests
-          - Packet.Sdl.CodeGen.Tests
     steps:
       - uses: actions/checkout@v6
 
       - name: report .NET
         run: dotnet --version
-        # .NET 10 SDK is pre-installed system-wide on the self-hosted
-        # runner. We skip actions/setup-dotnet because it would try to
-        # re-install per-job into a path the `gh` user can't write to.
 
       - name: test
         run: |
@@ -63,10 +57,6 @@ jobs:
             --filter "Category!=HardwareLoop&Category!=Interop"
 
       - name: upload test results
-        # Only upload on failure to spare the account's artifact-storage
-        # quota — green-run artifacts are noise. `continue-on-error` keeps
-        # the job's overall outcome reflecting the test step, not whether
-        # the upload itself succeeded.
         if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
@@ -75,100 +65,16 @@ jobs:
           path: 'tests/${{ matrix.project }}/TestResults/*.trx'
           retention-days: 7
 
-  # ─── SDL codegen discipline ────────────────────────────────────────
-  #
-  # Seven parallel jobs, one per backend (C#, Go, TypeScript, JSON,
-  # Rust, C, Python). Each runs the codegen with `--<lang>` to opt
-  # into only that backend (opt-in-by-presence — see
-  # `Packet.Sdl.CodeGen/Program.cs` for the CLI contract) so the job
-  # only needs its own language toolchain. The price is that the
-  # codegen runs 7× per CI invocation; the generator is ~5 seconds so
-  # the wallclock saving easily wins.
-  #
-  # All seven assert "no drift on the files in scope", proving the
-  # checked-in generated output matches what the orchestrator would
-  # produce right now. The backends with a runtime (Go, TS, Rust, C,
-  # Python) additionally run their respective build / test / format
-  # checks against the regenerated output. JSON validates structurally
-  # at codegen time in C# against `json-spec/schema.json`, so its
-  # discipline job is just the drift assert.
-
-  sdl-codegen-csharp:
-    name: SDL codegen — C# drift
+  ts-build-test:
+    name: TS — ts-spec + web/ax25 build + test
     runs-on: [self-hosted, Linux, X64]
+    # ts-spec carries pre-generated *.g.ts (sourced from m0lte/ax25sdl);
+    # web/ax25 consumes it via `file:../../ts-spec`. Both stay in this
+    # repo while the npm publish path from m0lte/ax25sdl is parked. Once
+    # that's resolved, ts-spec drops out (sourced from npm) and web/ax25
+    # moves to its own repo.
     steps:
       - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: run codegen (C# only)
-        # --csharp opts in to the C# backend with its default output paths.
-        # No --go / --ts means only C# emits (opt-in-by-presence — see
-        # Packet.Sdl.CodeGen/Program.cs for the CLI contract).
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --csharp
-        continue-on-error: true # Phase 0: codegen exists but is still a stub
-
-      - name: assert no drift
-        run: |
-          if ! git diff --exit-code -- src/Packet.Ax25.Sdl tests/Packet.Ax25.Conformance.Tests spec-sdl/'**/*.g.mmd'; then
-            echo "::error::SDL codegen produced uncommitted C# output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-  sdl-codegen-go:
-    name: SDL codegen — Go drift + build/vet/test/gofmt
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.22'
-          # No external Go dependencies in go-spec (no go.sum) so the
-          # default cache step warns "Dependencies file is not found".
-          # Disable cache rather than carry a useless warning.
-          cache: false
-
-      - name: run codegen (Go only)
-        # --go opts in to the Go backend only. No --csharp / --ts means
-        # the C# + TS backends are skipped — this job only needs .NET +
-        # Go installed.
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --go
-        continue-on-error: true
-
-      - name: assert no drift in go-spec
-        run: |
-          if ! git diff --exit-code -- go-spec/ax25sdl; then
-            echo "::error::SDL codegen produced uncommitted Go output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-      - name: go-spec build + vet + test + gofmt
-        run: |
-          cd go-spec
-          go build ./...
-          go vet ./...
-          go test ./...
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::go-spec files are not gofmt-canonical:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-  sdl-codegen-ts:
-    name: SDL codegen — TS drift + typecheck/test
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
 
       - name: setup Node
         uses: actions/setup-node@v6
@@ -177,231 +83,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ts-spec/package-lock.json
 
-      - name: run codegen (TS only)
-        # --ts opts in to the TS backend only. No --csharp / --go means
-        # the C# + Go backends are skipped — this job only needs .NET +
-        # Node installed.
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --ts
-        continue-on-error: true
-
-      - name: assert no drift in ts-spec
-        run: |
-          if ! git diff --exit-code -- ts-spec/src/ax25sdl; then
-            echo "::error::SDL codegen produced uncommitted TS output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-      - name: ts-spec typecheck + test
+      - name: ts-spec typecheck + test + build
         run: |
           cd ts-spec
           npm ci
           npm run typecheck
           npm test
-
-      - name: "ts-spec build (so file: deps in web/ax25 resolve)"
-        # web/ax25 depends on ts-spec via `file:../../ts-spec`, which
-        # copies the files listed in ts-spec/package.json's `files`
-        # array — that's `dist/**`. tsc must run first or the copy is
-        # empty and the consumer's import fails to resolve.
-        run: |
-          cd ts-spec
           npm run build
 
       - name: web/ax25 build + test
-        # Browser-targeted library that consumes ts-spec's generated
-        # tables. Build before the test step so tsc-emit and vitest
-        # don't fight over the dist/ directory.
         run: |
           cd web/ax25
           npm ci
           npm run build
           npm test
-
-  sdl-codegen-json:
-    name: SDL codegen — JSON drift + schema validation
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: run codegen (JSON only)
-        # --json opts in to the JSON backend only. The C# emitter
-        # validates every emission against json-spec/schema.json at
-        # codegen time (JsonSchema.Net) before writing, so a failed
-        # validation surfaces as a non-zero exit here, not as silent
-        # drift downstream.
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --json
-        continue-on-error: true
-
-      - name: assert no drift in json-spec
-        run: |
-          if ! git diff --exit-code -- json-spec; then
-            echo "::error::SDL codegen produced uncommitted JSON output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-  sdl-codegen-rust:
-    name: SDL codegen — Rust drift + cargo build/test/fmt
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: run codegen (Rust only)
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --rust
-        continue-on-error: true
-
-      - name: assert no drift in rust-spec
-        run: |
-          if ! git diff --exit-code -- rust-spec; then
-            echo "::error::SDL codegen produced uncommitted Rust output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-      - name: rust-spec check + fmt
-        run: |
-          cd rust-spec
-          # `cargo check` does syntax + type checking without linking.
-          # `cargo build/test` would need a C linker (`cc`) on the runner;
-          # see the note in `rust-spec/README.md` about installing
-          # `build-essential` if you want full verification locally.
-          cargo check --quiet
-          cargo fmt -- --check
-
-      - name: rust-spec build + test (skipped if no C linker)
-        run: |
-          if which cc >/dev/null 2>&1; then
-            cd rust-spec
-            cargo build --quiet
-            cargo test --quiet
-          else
-            echo "::warning::Skipping cargo build/test — the self-hosted runner has no C linker (cc not on PATH). cargo check + cargo fmt --check passed in the previous step."
-          fi
-
-  sdl-codegen-c:
-    name: SDL codegen — C drift + cmake build/ctest/clang-format
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: probe C toolchain
-        # The self-hosted `gh` user can't sudo non-interactively, so we
-        # rely on whatever's installed on the runner. Required:
-        # gcc + cmake (for build/ctest), clang-format (for format check).
-        # Missing tools degrade the matching check from "verified" to
-        # "skipped with a warning" — the drift assert always runs.
-        id: probe
-        run: |
-          {
-            echo "have_cc=$(which gcc >/dev/null 2>&1 && echo true || echo false)"
-            echo "have_cmake=$(which cmake >/dev/null 2>&1 && echo true || echo false)"
-            echo "have_clang_format=$(which clang-format >/dev/null 2>&1 && echo true || echo false)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: run codegen (C only)
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --emit-c
-        continue-on-error: true
-
-      - name: assert no drift in c-spec
-        run: |
-          if ! git diff --exit-code -- c-spec/src c-spec/test c-spec/include; then
-            echo "::error::SDL codegen produced uncommitted C output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-      - name: c-spec build + ctest (skipped if no gcc/cmake)
-        if: steps.probe.outputs.have_cc == 'true' && steps.probe.outputs.have_cmake == 'true'
-        run: |
-          cd c-spec
-          mkdir -p build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release > /tmp/cmake.log 2>&1 || (cat /tmp/cmake.log && exit 1)
-          make
-          ctest --output-on-failure
-
-      - name: c-spec clang-format check (skipped if clang-format missing)
-        if: steps.probe.outputs.have_clang_format == 'true'
-        run: |
-          cd c-spec
-          find src test -name "*.c" -o -name "*.h" | xargs clang-format --dry-run --Werror
-
-      - name: warn on missing C tooling
-        if: steps.probe.outputs.have_cc != 'true' || steps.probe.outputs.have_cmake != 'true' || steps.probe.outputs.have_clang_format != 'true'
-        run: |
-          echo "::warning::Self-hosted runner missing C toolchain — install build-essential + cmake + clang-format to enable full verification. cc=${{ steps.probe.outputs.have_cc }} cmake=${{ steps.probe.outputs.have_cmake }} clang-format=${{ steps.probe.outputs.have_clang_format }}"
-
-  sdl-codegen-python:
-    name: SDL codegen — Python drift + pytest/ruff
-    runs-on: [self-hosted, Linux, X64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: probe Python
-        # We need python3 + a working `python3 -m venv`. On Debian/Ubuntu
-        # the venv module needs ensurepip, shipped in the version-pinned
-        # apt package (e.g. `python3.14-venv` for Python 3.14 — the meta
-        # `python3-venv` doesn't always track the system default cleanly
-        # on bleeding-edge Ubuntu releases).
-        #
-        # Probe by actually creating a throwaway venv. `import venv`
-        # succeeds even when ensurepip is missing, so an importable
-        # check is misleading.
-        id: probe
-        run: |
-          have_python=false
-          have_venv=false
-          if which python3 >/dev/null 2>&1; then
-            have_python=true
-            python3 --version
-            if python3 -m venv /tmp/probe-venv 2>/dev/null; then
-              have_venv=true
-              rm -rf /tmp/probe-venv
-            fi
-          fi
-          {
-            echo "have_python=$have_python"
-            echo "have_venv=$have_venv"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: run codegen (Python only)
-        run: dotnet run --project tools/Packet.Sdl.CodeGen --configuration Release -- --python
-        continue-on-error: true
-
-      - name: assert no drift in python-spec
-        run: |
-          if ! git diff --exit-code -- python-spec/ax25sdl python-spec/tests; then
-            echo "::error::SDL codegen produced uncommitted Python output. Run the codegen tool locally and commit the regenerated files."
-            exit 1
-          fi
-
-      - name: python-spec install + pytest
-        if: steps.probe.outputs.have_python == 'true' && steps.probe.outputs.have_venv == 'true'
-        run: |
-          cd python-spec
-          # Standard venv-isolated install — proper environment hygiene.
-          # Requires python3-venv apt package on the runner (e.g.
-          # `apt install python3.14-venv`).
-          python3 -m venv .ci-venv
-          .ci-venv/bin/pip install --upgrade --quiet pip pytest
-          .ci-venv/bin/pip install --quiet -e .
-          .ci-venv/bin/pytest -q
-
-      - name: warn on missing Python tooling
-        if: steps.probe.outputs.have_python != 'true' || steps.probe.outputs.have_venv != 'true'
-        run: |
-          echo "::warning::Self-hosted runner missing Python tooling (python3=${{ steps.probe.outputs.have_python }} workable-venv=${{ steps.probe.outputs.have_venv }}). pytest skipped. Install the version-pinned venv package matching the system python (e.g. python3.14-venv) — the meta python3-venv may not pull in the right one on bleeding-edge Ubuntu."
