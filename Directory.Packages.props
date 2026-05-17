@@ -44,6 +44,10 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="CommandLineParser" Version="2.9.1" />
 
+    <!-- AX.25 SDL state machines — consumed from m0lte/ax25sdl as a NuGet
+         package. Source repo: github.com/m0lte/ax25sdl. -->
+    <PackageVersion Include="Packet.Ax25.Sdl" Version="0.3.0" />
+
     <!-- Packet.Term: Terminal.Gui v2 (Turbo Vision-style full-window TUI) +
          Microsoft.Extensions.Configuration for the JSON settings file. -->
     <PackageVersion Include="Terminal.Gui" Version="2.1.0" />

@@ -833,6 +833,24 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-17 — consume Packet.Ax25.Sdl from m0lte/ax25sdl via NuGet
+
+First downstream-consumption step of the [5-repo split plan](https://github.com/m0lte/packet.net/issues/<future>) — drops the local `src/Packet.Ax25.Sdl/` project and pulls `Packet.Ax25.Sdl 0.3.0` from nuget.org instead. The package is built and published by `m0lte/ax25sdl` (extracted from this repo on 2026-05-17, history-preserving via `git filter-repo`).
+
+**Changes.**
+
+- `Directory.Packages.props` — adds `<PackageVersion Include="Packet.Ax25.Sdl" Version="0.3.0" />` under the SDL section.
+- `src/Packet.Ax25/Packet.Ax25.csproj` — `ProjectReference` → `PackageReference`. Same for the two test projects that `using Packet.Ax25.Sdl;` directly: `tests/Packet.Ax25.Conformance.Tests/` and `tests/Packet.Ax25.Properties/`. `src/Packet.Term/Packet.Term.csproj` drops its direct ref — it didn't use Sdl types itself, only consumed transitively via Packet.Ax25.
+- `Packet.NET.slnx` — removes `src/Packet.Ax25.Sdl/Packet.Ax25.Sdl.csproj`.
+- `src/Packet.Ax25.Sdl/` — deleted.
+- `.gitignore` — adds `src/Packet.Ax25.Sdl/` so a stray `dotnet run --project tools/Packet.Sdl.CodeGen -- --csharp` doesn't leave untracked artefacts in the working tree (the local codegen tools still exist for now; they'll go in a follow-up).
+
+**What stays for now.** `spec-sdl/`, `tools/Packet.Sdl.*` (all seven codegen emitters + orchestrator + IR + lint), `tests/Packet.Sdl.CodeGen.Tests/`, `ts-spec/`, `go-spec/`, the four SDL docs, and ADR-0001 are all duplicated between `m0lte/packet.net` and `m0lte/ax25sdl` while the npm publish path is parked. The TS library (`web/ax25/`) still consumes `ax25sdl` via `file:../../ts-spec`; switching to npm requires the publish-auth issue resolved at `m0lte/ax25sdl`.
+
+**Verification.** `dotnet build` clean (0 errors; 61 pre-existing warnings in Spike projects unrelated). `dotnet test --filter "Category!=HardwareLoop&Category!=Interop"` 1186/1186 green across 13 test projects, including `Packet.Ax25.Conformance.Tests` (165/165) which `using Packet.Ax25.Sdl` heavily — proves the NuGet package and the previously-local project reference are behaviour-equivalent. Package was published from `m0lte/ax25sdl` tag `v0.3.0` via the new `publish.yml` workflow on 2026-05-17 (NuGet side succeeded; npm side failed with a 404 auth-scope mismatch on the `ax25sdl` package and is parked pending Tom).
+
+**Reproducing.** From a clean checkout: `dotnet restore` pulls `Packet.Ax25.Sdl 0.3.0` from nuget.org; `dotnet build` produces a working solution without `src/Packet.Ax25.Sdl/` ever existing locally.
+
 ### 2026-05-17 — Packet.Term: hot-swap MYCALL/port, Esc-to-quit, CLI-ephemeral
 
 Three follow-ups on #152 (Terminal.Gui v2 refactor), driven by Tom needing to run two parallel Packet.Term instances in one directory and have each one's MYCALL configurable at runtime.

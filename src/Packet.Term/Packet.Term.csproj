@@ -22,8 +22,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Packet.Core\Packet.Core.csproj" />
     <ProjectReference Include="..\Packet.Ax25\Packet.Ax25.csproj" />
-    <ProjectReference Include="..\Packet.Ax25.Sdl\Packet.Ax25.Sdl.csproj" />
     <ProjectReference Include="..\Packet.Kiss\Packet.Kiss.csproj" />
+    <!-- Packet.Ax25.Sdl is pulled transitively via Packet.Ax25 (NuGet
+         consumed from m0lte/ax25sdl since 2026-05-17). No direct ref
+         needed — Packet.Term doesn't `using` it. -->
   </ItemGroup>
 
 </Project>
