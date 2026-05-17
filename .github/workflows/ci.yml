@@ -64,28 +64,3 @@ jobs:
           name: test-results-${{ matrix.project }}
           path: 'tests/${{ matrix.project }}/TestResults/*.trx'
           retention-days: 7
-
-  ts-build-test:
-    name: TS — web/ax25 build + test
-    runs-on: [self-hosted, Linux, X64]
-    # web/ax25 consumes ax25sdl (the SDL tables) from npmjs.com since
-    # 2026-05-17. The library itself will move to m0lte/ax25-ts once the
-    # npm publish path from m0lte/ax25sdl is unblocked; until then it
-    # lives here.
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: web/ax25/package-lock.json
-
-      - name: web/ax25 install + typecheck + build + test
-        run: |
-          cd web/ax25
-          npm ci
-          npm run typecheck
-          npm run build
-          npm test

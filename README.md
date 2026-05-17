@@ -32,7 +32,7 @@ Following the 5-repo split agreed 2026-05-17:
 | --- | --- |
 | **[`m0lte/ax25sdl`](https://github.com/m0lte/ax25sdl)** *(private during prove-out)* | AX.25 v2.2 SDL transcriptions, codegen tools (seven backends), multi-language artefact publishing. Publishes `Packet.Ax25.Sdl` to NuGet, `ax25sdl` to npm. |
 | **`m0lte/packet.net`** (this repo) | .NET libraries (`Packet.Core` / `.Ax25` / `.Kiss` / …) + the packet-node host. C# conformance tests + interop CI against LinBPQ / XRouter / rax25 / NinoTNC pair. |
-| **[`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts)** *(planned)* | The `@packet-net/ax25` TypeScript library + its examples + TS conformance + TS interop. Today still here at `web/ax25/`; moves out once the npm publish path from m0lte/ax25sdl is unblocked. |
+| **[`m0lte/ax25-ts`](https://github.com/m0lte/ax25-ts)** *(public)* | The `@packet-net/ax25` TypeScript library + its examples + TS conformance + TS interop. Extracted from `web/ax25/` here on 2026-05-17 with history preserved; this repo's `interop.yml` clones it for the integration-test step. |
 | **[`m0lte/packet-term-tui`](https://github.com/m0lte/packet-term-tui)** *(private)* | `Packet.Term` — the C# Terminal.Gui v2 TUI for AX.25 sessions over a USB KISS modem. Consumes `Packet.Core` / `Packet.Ax25` / `Packet.Kiss` from NuGet. |
 | **[`m0lte/packet-term-web`](https://github.com/m0lte/packet-term-web)** *(public)* | The browser TNC2 emulator (single-file HTML demo). Deployed at https://packet-term.m0lte.uk. Consumes `@packet-net/ax25` from npm. |
 

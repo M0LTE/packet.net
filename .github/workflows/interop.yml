@@ -13,7 +13,6 @@ on:
       - 'src/Packet.Agw/**'
       - 'src/Packet.Node/**'
       - 'tests/Packet.Interop.Tests/**'
-      - 'web/ax25/**'
       - 'docker/**'
       - '.github/workflows/interop.yml'
   push:
@@ -75,26 +74,28 @@ jobs:
       - name: interop tests (C#)
         run: dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop"
 
-      # ax25.ts ships its own integration test against LinBPQ via net-sim
-      # (`tests/integration/linbpq-via-netsim.test.ts`). It dials the same
-      # 127.0.0.1:8100 KISS-TCP listener the C# tests use; the describe
-      # block self-skips if the listener is unreachable, but we're inside
-      # the interop job so it should always be up by the time this step
-      # runs. web/ax25 consumes ax25sdl from npmjs.com (no local ts-spec
-      # dep) so no pre-build is needed.
-      - name: setup Node (for ax25.ts integration tests)
+      # ax25-ts ships its own integration test against LinBPQ via
+      # net-sim (`tests/integration/linbpq-via-netsim.test.ts`). The
+      # library itself lives at m0lte/ax25-ts; we clone main and run
+      # its integration suite against the docker stack standing up
+      # in this job. Pin to a SHA once the API stabilises; for now
+      # we track main so spec changes flow end-to-end.
+      - name: setup Node (for ax25-ts integration tests)
         uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: web/ax25/package-lock.json
 
-      - name: ax25.ts integration tests
-        # `npm test` runs unit tests only (excludes tests/integration/).
-        # `npm run test:integration` uses the integration vitest config,
-        # which includes only tests/integration/**.
+      - name: clone m0lte/ax25-ts
         run: |
-          cd web/ax25
+          rm -rf "${RUNNER_TEMP}/ax25-ts"
+          git clone --depth=1 --branch main https://github.com/m0lte/ax25-ts.git "${RUNNER_TEMP}/ax25-ts"
+
+      - name: ax25-ts integration tests
+        # `npm run test:integration` uses the integration vitest config,
+        # which targets tests/integration/** and dials 127.0.0.1:8100
+        # (the KISS-TCP listener the C# interop tests also use).
+        run: |
+          cd "${RUNNER_TEMP}/ax25-ts"
           npm ci
           npm run build
           npm run test:integration
