@@ -101,6 +101,19 @@ public sealed class SessionRunner : IDisposable
     }
 
     /// <summary>
+    /// Whether the underlying listener accepts inbound SABMs at this
+    /// moment. Mirrors <see cref="Ax25Listener.AcceptIncoming"/>; the
+    /// runner toggles this internally during outbound connect/disconnect,
+    /// but the TUI also exposes a "Session → Accept incoming" menu entry
+    /// that flips the idle-state default while disconnected.
+    /// </summary>
+    public bool AcceptIncoming
+    {
+        get => listener.AcceptIncoming;
+        set => listener.AcceptIncoming = value;
+    }
+
+    /// <summary>
     /// Start the listener's inbound pump. Returns immediately; the pump
     /// runs in the background until <see cref="Dispose"/>.
     /// </summary>
