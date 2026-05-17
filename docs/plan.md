@@ -6,6 +6,7 @@
 
 **As of:** 2026-05-16
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-05-16 — interop flake investigation: XRouter tests cleared](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-16 Ax25Listener: broad test coverage](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-16 — runtime capability strategy + matrix](#17-amendment-log)
 
@@ -830,6 +831,21 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-16 — interop flake investigation: XRouter tests cleared, NetsimUiFrame digi test identified as the actual culprit
+
+PRs #138 and #140 both shipped with amendment-log notes claiming "two pre-existing XRouter-via-Netsim failures" carried forward. That claim never matched CI reality (the C# interop job has reported 22/22 — or 19/19 before #140 added the listener scenarios — on every recent merge to `main`). Investigation:
+
+**Method.** Brought the interop stack up locally, ran `dotnet test tests/Packet.Interop.Tests --filter "Category=Interop"` repeatedly (10 full-suite iterations + 5 XRouter-only iterations) against the pinned image digests in `docker/compose.interop.yml`. Captured per-test pass/fail with `console;verbosity=normal` so the failing test name would surface.
+
+**Findings.**
+- Both XRouter tests (`Connect_Then_Disconnect_Against_Xrouter_Across_Netsim`, `Connected_IFrame_RoundTrip_Against_Xrouter_Node_Prompt`) pass in every observed run — 10/10 full-suite, 5/5 XRouter-only, plus every recent CI run on `main` (PRs #138, #139, #140, #145 all 22/22 in the C# interop job).
+- The actual local flake — observed in 1 of 10 full-suite runs (a separate earlier 7-iteration informal probe saw 2 in 7) — is `NetsimUiFrameScenarios.UI_Frame_With_Digipeater_Path_Round_Trips`. Failure mode is `OperationCanceledException` thrown out of `KissTcpClient.ReceiveAsync` after the 15-second `RxBudget` expires before the UI frame reaches node B. Stack trace lands inside the netsim-side AFSK1200 transmit path; root cause is CPU contention on the test host (four interop containers + the test runner + dotnet build artefacts share a single host), not anything XRouter-specific.
+- The amendment-log claim was misattribution: an author saw a 21/22 result locally, glanced at the failure, and wrote it up as "the XRouter flake" without verifying the test name. The bad attribution then propagated across two more PRs.
+
+**Disposition.** XRouter tests are not broken — no fix required. The misleading "pre-existing XRouter" claims in this section's entries for [Ax25Listener (2026-05-16)](#2026-05-16--ax25listener--acceptincoming-context-property) and [Ax25Listener: broad test coverage (2026-05-16)](#2026-05-16--ax25listener-broad-test-coverage) are now annotated inline with a strikethrough correction pointing back here.
+
+**Out of scope but noted.** The `NetsimUiFrameScenarios.UI_Frame_With_Digipeater_Path_Round_Trips` 15-second `RxBudget` is tight under host-CPU contention. CI doesn't see this — the self-hosted runner has more headroom — but local laptops do. Worth a follow-up to bump the budget (say to 30 s) so local dev runs don't flake. Not changed in this PR; the test brief said "don't grow scope past these two tests."
+
 ### 2026-05-16 — TS Ax25Listener port (closes TS inbound-listener follow-up)
 
 Ports the C# `Ax25Listener` (and the three associated bug-fix PRs #140 / #141 / #143) to the TypeScript runtime, so `@packet-net/ax25` can act as an inbound-accepting node, not just an outbound client. This is the single most valuable parity gap that was still open between the two runtimes — packet.net's identity is to be a node, and a node accepts incoming connections.
@@ -889,6 +905,7 @@ Walk-through of the documentation surface to align it with today's landings — 
 - **API reference regen** ([`docs/web-ax25/api/`](web-ax25/api/)): re-ran `npm run docs` so the markdown reflects the current public surface; the TS listener hasn't shipped yet so the surface is identical to the 0.1.1 publish.
 
 Single PR `docs/post-listener-alignment`. Issues #135 / #136 / #137 / #141 / #143 are closed by their respective PRs; #142 and #144 remain open (both are SDL-side spec re-reads, not in-engine fixes).
+
 ### 2026-05-16 — fix(ax25): #141 via-chain reversal + #143 listener cache-miss DM
 
 Two implementation bugs surfaced by PR #140's coverage-broadening sweep. Both are in-engine, no SDL / spec interpretation needed — the issues' fixed behaviour matches AX.25 v2.2 §C.2 (Path Construction) and figc4.1 t05 / t13 (the catch-all that emits DM for unrecognised events in Disconnected).
@@ -928,7 +945,7 @@ Six new test groups + a real-bug fix surfaced by them. The Listener landed yeste
 
 **Shared test helpers extracted to `tests/Packet.Ax25.Tests/Session/ListenerTestSupport.cs`.** `LoopbackModem`, `ObservableList<T>`, `WithTimeout` / `WaitFor` helpers were previously private nested in `Ax25ListenerTests`; lifted to an `internal` file in the test assembly so the new tests share them. `LoopbackModem` extended with `DropOutbound` (counted-but-discarded transmits, for "peer lost our UA" scenarios) and `SendDelay` (latency injection, for the slow-handler test). No public-API change.
 
-**Verification.** Unit suite: 1141 tests pass (was 1119; +22 new listener tests). Listener-specific filter: 27/27. Full unit-suite filter `Category!=HardwareLoop&Category!=Interop` is clean. Interop suite: the new listener scenarios all pass (4/4 listener-related, plus the pre-existing 1); the only failures in the interop run are the two pre-existing XRouter-via-Netsim failures, unchanged from before this PR.
+**Verification.** Unit suite: 1141 tests pass (was 1119; +22 new listener tests). Listener-specific filter: 27/27. Full unit-suite filter `Category!=HardwareLoop&Category!=Interop` is clean. Interop suite: the new listener scenarios all pass (4/4 listener-related, plus the pre-existing 1). ~~The only failures in the interop run are the two pre-existing XRouter-via-Netsim failures, unchanged from before this PR.~~ — **correction 2026-05-16**: this claim was wrong (see [§17 entry "Interop flake investigation"](#17-amendment-log)). The XRouter tests do not fail in CI or under stress locally; the actual flake observed at the time was `NetsimUiFrameScenarios.UI_Frame_With_Digipeater_Path_Round_Trips`, an AFSK1200-sim timing wobble unrelated to the XRouter stack.
 
 ### 2026-05-16 — runtime capability strategy + matrix
 
@@ -971,7 +988,7 @@ First-class inbound-acceptance API at `src/Packet.Ax25/Session/Ax25Listener.cs`.
 
 **Tests added.** Five new unit tests in `tests/Packet.Ax25.Tests/Session/Ax25ListenerTests.cs` covering accept-inbound-SABM, session reuse across sequential disconnects (same `Ax25Session` instance returned), DM-reject when `AcceptIncoming=false`, two concurrent peers (independent sessions), and FrameTraced firing for both TX and RX. One new netsim interop test in `tests/Packet.Interop.Tests/Netsim/NetsimListenerScenarios.cs` mirroring `NetsimConnectedModeScenarios` but driving both ends through `Ax25Listener`. The pre-listener netsim test is preserved as the canonical low-level rig reference.
 
-**Verification**: 1119 unit tests pass (was 1114; +5 new Listener tests). The Netsim interop suite passes including the new listener scenario; LinBPQ interop passes (7/7); the two pre-existing XRouter-via-Netsim failures (unrelated to this PR — same failures on `main` with this branch's changes stashed) remain. SessionRunner trims by 169 LOC. Build is clean.
+**Verification**: 1119 unit tests pass (was 1114; +5 new Listener tests). The Netsim interop suite passes including the new listener scenario; LinBPQ interop passes. ~~The two pre-existing XRouter-via-Netsim failures (unrelated to this PR — same failures on `main` with this branch's changes stashed) remain.~~ — **correction 2026-05-16**: this attribution was wrong (see [§17 entry "Interop flake investigation"](#17-amendment-log)). XRouter-via-Netsim is reliable; the flake the author observed was `NetsimUiFrameScenarios.UI_Frame_With_Digipeater_Path_Round_Trips`, a netsim AFSK1200 timing issue. SessionRunner trims by 169 LOC. Build is clean.
 
 ### 2026-05-16 — Packet.Term: Spectre.Console TUI for AX.25 sessions
 
