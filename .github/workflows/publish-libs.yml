@@ -1,0 +1,119 @@
+name: publish-libs
+
+# Publishes the .NET libraries that downstream consumers (e.g. the
+# upcoming m0lte/packet-term-tui) need from nuget.org. Triggered by
+# tags matching `lib-v*` (e.g. `lib-v0.1.0`). The distinct prefix
+# avoids colliding with the existing `npm-publish.yml` workflow's
+# `v*` trigger.
+#
+# Today's publish set:
+#   Packet.Core
+#   Packet.Kiss.Abstractions
+#   Packet.Kiss
+#   Packet.Ax25
+#
+# Add more by appending to the `projects:` array below and giving
+# each csproj the same PackageId / Title / Description / Tags shape
+# as the four already configured.
+
+on:
+  push:
+    tags:
+      - 'lib-v*'
+  workflow_dispatch:
+    inputs:
+      override_version:
+        description: 'Override version (only used for workflow_dispatch; tag wins for push events)'
+        required: false
+        default: ''
+
+concurrency:
+  group: publish-libs-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve-version:
+    name: resolve version from tag
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - id: parse
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # github.ref is refs/tags/lib-v0.1.0 — strip prefix.
+            tag="${GITHUB_REF#refs/tags/}"
+            version="${tag#lib-v}"
+          else
+            version="${{ inputs.override_version }}"
+          fi
+          if [ -z "$version" ]; then
+            echo "::error::No version resolved (tag was '${GITHUB_REF}', input was empty)."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing libraries at version: ${version}"
+
+  publish:
+    name: pack + push ${{ matrix.project }}
+    needs: resolve-version
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - Packet.Core
+          - Packet.Kiss.Abstractions
+          - Packet.Kiss
+          - Packet.Ax25
+    env:
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      VERSION: ${{ needs.resolve-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: dotnet --version
+        run: dotnet --version
+
+      - name: build
+        run: |
+          dotnet build "src/${{ matrix.project }}/${{ matrix.project }}.csproj" \
+            --configuration Release \
+            -p:Version=${{ env.VERSION }}
+
+      - name: pack
+        run: |
+          dotnet pack "src/${{ matrix.project }}/${{ matrix.project }}.csproj" \
+            --configuration Release \
+            --no-build \
+            --output ./artifacts \
+            -p:Version=${{ env.VERSION }}
+
+      - name: list artifacts
+        run: ls -la ./artifacts/
+
+      - name: push to nuget.org
+        if: env.NUGET_API_KEY != ''
+        run: |
+          dotnet nuget push "./artifacts/${{ matrix.project }}.${VERSION}.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "${NUGET_API_KEY}" \
+            --skip-duplicate
+          if [ -f "./artifacts/${{ matrix.project }}.${VERSION}.snupkg" ]; then
+            dotnet nuget push "./artifacts/${{ matrix.project }}.${VERSION}.snupkg" \
+              --source https://api.nuget.org/v3/index.json \
+              --api-key "${NUGET_API_KEY}" \
+              --skip-duplicate || \
+              echo "::warning::snupkg push for ${{ matrix.project }} failed; main nupkg still uploaded."
+          fi
+
+      - name: warn if NUGET_API_KEY missing
+        if: env.NUGET_API_KEY == ''
+        run: |
+          echo "::warning::NUGET_API_KEY secret is not set — nuget push for ${{ matrix.project }} was skipped."

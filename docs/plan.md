@@ -833,6 +833,20 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-17 — set up NuGet publishing for the Packet.NET libraries
+
+Phase 2.5 of the 5-repo split — sets up `m0lte/packet.net` itself as a NuGet publisher for the .NET libraries downstream apps (the upcoming `m0lte/packet-term-tui` being the first) will consume. Matches the pattern proven by `m0lte/ax25sdl`'s `Packet.Ax25.Sdl` publish.
+
+**Scope.** First-publish set is the four libraries `Packet.Term` depends on: `Packet.Core`, `Packet.Kiss.Abstractions`, `Packet.Kiss`, `Packet.Ax25`. Other libraries under `src/` (`Packet.Aprs`, `Packet.Agw`, `Packet.Axudp`, `Packet.Kiss.NinoTnc`, `Packet.Mcp`, `Packet.Rhp2`, etc.) stay unconfigured until they have a concrete external consumer.
+
+**Per-csproj additions.** Each of the four libraries gets `<PackageId>` / `<Title>` / `<Description>` / `<PackageTags>` in a new `<PropertyGroup>`. Everything else (Authors, Copyright, MIT license, repo URLs, sourcelink, snupkg, IncludeSymbols) already inherits from the top-level `Directory.Build.props` that's been there since the early days. `<IsPackable>` defaults to `true` for class libraries; `Packet.Term` already had it explicitly `false`, and `Packet.Node` uses `Microsoft.NET.Sdk.Web` which defaults to non-packable.
+
+**Workflow.** `.github/workflows/publish-libs.yml` fires on `lib-v*` tags (distinct prefix to avoid colliding with the existing `npm-publish.yml`'s `v*` trigger). Resolves the version from the tag, then runs a 4-way matrix building / packing / pushing each project. Same `dotnet pack -p:Version=…` + `dotnet nuget push --skip-duplicate` shape as `m0lte/ax25sdl`'s `publish.yml`. Symbol packages (.snupkg) ship alongside the main nupkgs.
+
+**Verification.** Local `dotnet pack` on all four produced clean nupkgs (~one warning per package — "missing a readme" — a follow-up will add per-package READMEs; non-blocking for publish). The Packet.Ax25 nuspec correctly declares dependencies on `Packet.Core` + `Packet.Kiss.Abstractions` (at the same matrix version) + `Packet.Ax25.Sdl 0.3.0` (from the existing nuget.org publish).
+
+**Operationally.** Once this PR merges, the first publish is triggered by `git tag lib-v0.1.0 && git push origin lib-v0.1.0`. Requires `NUGET_API_KEY` to be configured on this repo's secrets (same one set on `m0lte/ax25sdl`).
+
 ### 2026-05-17 — consume Packet.Ax25.Sdl from m0lte/ax25sdl via NuGet
 
 First downstream-consumption step of the [5-repo split plan](https://github.com/m0lte/packet.net/issues/<future>) — drops the local `src/Packet.Ax25.Sdl/` project and pulls `Packet.Ax25.Sdl 0.3.0` from nuget.org instead. The package is built and published by `m0lte/ax25sdl` (extracted from this repo on 2026-05-17, history-preserving via `git filter-repo`).
