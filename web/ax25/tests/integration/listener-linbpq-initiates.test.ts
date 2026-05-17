@@ -134,7 +134,7 @@ describe.skipIf(!stackReachable)(
         await waitUntil(() => session.state === "Disconnected", 10_000);
         expect(session.state).toBe("Disconnected");
       },
-      90_000,
+      180_000,
     );
   },
 );

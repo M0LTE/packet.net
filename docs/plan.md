@@ -831,11 +831,15 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
-### 2026-05-17 — NetsimUiFrameScenarios RxBudget bump (15s → 30s)
+### 2026-05-17 — Interop budget bumps (C# RxBudget + TS waitForNext) for AFSK-sim flake
 
-Bumps `NetsimUiFrameScenarios.RxBudget` from 15 to 30 seconds — the follow-up the XRouter-misattribution investigation flagged (see 2026-05-16 entry just below). The AFSK1200 software sim is CPU-heavy and under host contention (four interop containers + test runner sharing a single box) round-trip latency can spike above the original 15s budget. CI's self-hosted runner has more headroom but local dev laptops were flaking 1-in-10 on `UI_Frame_With_Digipeater_Path_Round_Trips`. 30s absorbs the variance without bloating happy-path runtime (test still completes in ~3s when the host isn't loaded).
+Bumps the interop-test budgets that were timing out under host-CPU contention from the AFSK1200 software sim. The XRouter-misattribution investigation (see 2026-05-16 entry just below) identified this as the actual flake — when the interop runner is loaded, the AFSK round-trip latency spikes above the original budgets and tests cancel before frames arrive. CI's self-hosted runner has more headroom than local laptops but isn't immune; on the post-#149 run both #150 and #151 hit it on every interop run.
 
-The other two methods in the file using the same `RxBudget` constant get the bump too — they're sibling UI-frame scenarios that share the same AFSK pipeline, so the same flake-risk applies even though they hadn't been reported flaking.
+**C# (`tests/Packet.Interop.Tests/Netsim/NetsimUiFrameScenarios.cs`).** Bumps `RxBudget` 15s → 30s. The constant is shared across `UI_Frame_With_Digipeater_Path_Round_Trips` (the locally-flaky one), `UI_Frame_With_NetRom_Pid_Preserves_Payload`, and `UI_Frame_With_Aprs_Position_Survives_RF_Round_Trip` — sibling scenarios sharing the same AFSK pipeline get the same headroom.
+
+**TS (`web/ax25/tests/integration/linbpq-via-netsim.test.ts` + `listener-linbpq-initiates.test.ts`).** Same root cause, same kind of fix. `linbpq-via-netsim`: the two hardcoded `waitForNext(15_000)` calls (banner-from-BPQ + response-to-`P\r`) bump to `30_000`. `listener-linbpq-initiates`: the outer test timeout bumps from `90_000` to `180_000` — the test orchestrates a multi-stage BPQ telnet session + outbound L2 connect, so the per-stage timing variance compounds.
+
+No happy-path runtime impact — tests still complete in ~3s when the host isn't loaded. The bumps just stop cancelling early under contention.
 
 ### 2026-05-16 — interop flake investigation: XRouter tests cleared, NetsimUiFrame digi test identified as the actual culprit
 
