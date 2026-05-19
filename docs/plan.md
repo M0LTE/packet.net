@@ -239,6 +239,8 @@ Plugins attach at `Packet.L3` (for AX.25 sessions) and at ASP.NET Core (for REST
 
 ## 5. Phased roadmap
 
+> **Tracking convention (2026-05-19).** Phases, spikes, the hardware-arrival playbook, and open questions are each tracked as a GitHub issue from this date onward. The sections below stay as the **narrative anchor** — they explain the *shape* of each piece of work — but the **status / claim / discussion** lives in the linked issue. The status emoji in each heading is a coarse summary; the issue is authoritative. See §17 amendment-log entry for the rationale.
+
 Effort key: S ≤ 3 days, M ≤ 2 weeks, L ≤ 1 month, XL > 1 month. Status: ⬜ not started · 🟡 in progress · ✅ complete.
 
 | Phase | Title | Effort | Status |
@@ -317,7 +319,7 @@ Goal: send and receive AX.25 UI frames over KISS-over-TCP and AXUDP. No state ma
 - The KISS encoder escapes the command byte too, deviating from the spec text. See [§17 entry 2026-05-11 KISS command-byte escape](#17-amendment-log) for the why.
 - LinBPQ doesn't natively host a KISS-TCP listener — needs Direwolf / UZ7HO bridged in. Phase 1 KISS-TCP interop therefore moves to net-sim. See amendment log.
 
-### 5.2 Phase 2 — AX.25 v2.2 Data-Link state machine ⬜
+### 5.2 Phase 2 — AX.25 v2.2 Data-Link state machine ⬜ ([#168](https://github.com/m0lte/packet.net/issues/168))
 
 Goal: full AX.25 connected-mode operation against LinBPQ — connect, send, retry, disconnect, mod-8 and mod-128.
 
@@ -338,35 +340,35 @@ Goal: full AX.25 connected-mode operation against LinBPQ — connect, send, retr
 - FsCheck property tests prove window invariants (`V(A) ≤ V(S) ≤ V(A)+k`, no orphan transitions, no stuck Timer Recovery).
 - Hardware loop sustains 10 kB transfer across NinoTNCs with 0–30 % scripted loss.
 
-### 5.3 Phase 3 — KISS hardening ⬜
+### 5.3 Phase 3 — KISS hardening ⬜ ([#169](https://github.com/m0lte/packet.net/issues/169))
 
 ACKMODE round-trip, multi-drop, NinoTNC mode catalog (0–15) + SETHW byte (mode + 16 for non-persist), TX-Test frame parser, ParameterSendInterval. Verified against both LinBPQ container and the back-to-back NinoTNC pair.
 
-### 5.4 Phase 4 — Node host ⬜
+### 5.4 Phase 4 — Node host ⬜ ([#167](https://github.com/m0lte/packet.net/issues/167))
 
 ASP.NET Core 10 minimal-API host. `Konscious.Security.Cryptography` Argon2id + `Fido2NetLib` WebAuthn + `Microsoft.IdentityModel.JsonWebTokens` JWT. SQLite via `Microsoft.Data.Sqlite` + `Dapper`. First-start bootstrap: random admin password + one-time `/setup?token=…` URL.
 
-### 5.5 Phase 5 — Web UI ⬜
+### 5.5 Phase 5 — Web UI ⬜ ([#170](https://github.com/m0lte/packet.net/issues/170))
 
 Vite + React + TS + Tailwind + shadcn/ui. Routes: Ports, Sessions, Live Monitor, TNC2 Prompt, Users, Link Troubleshoot. OpenAPI client via `openapi-typescript` + `@tanstack/react-query`.
 
-### 5.6 Phase 6 — RHPv2 + AGW ⬜
+### 5.6 Phase 6 — RHPv2 + AGW ⬜ ([#171](https://github.com/m0lte/packet.net/issues/171))
 
 Mirror RHPv2 framing from `/home/tf/src/rhp2lib-net/src/RhpV2.Client/Protocol/`. TCP + WS listeners. `--linbpq-compat` flag for the WS subset. AGW server **127.0.0.1 only** by default; `--listen-public --i-understand-agw-is-unauthenticated` required to expose.
 
-### 5.7 Phase 7 — Packaging + one-click update ⬜
+### 5.7 Phase 7 — Packaging + one-click update ⬜ ([#172](https://github.com/m0lte/packet.net/issues/172))
 
 Self-contained `dotnet publish` matrix for linux-x64/arm64/arm (v7), win-x64, osx-arm64/x64. Multi-arch Docker via `buildx`. `installers/install.sh` with cosign verification. In-app `POST /api/system/update` with watchdog rollback.
 
-### 5.8 Phase 8 — MCP + live monitor v2 + link troubleshooting ⬜
+### 5.8 Phase 8 — MCP + live monitor v2 + link troubleshooting ⬜ ([#173](https://github.com/m0lte/packet.net/issues/173))
 
 `Packet.Mcp` over stdio + SSE. Read tools: `list_ports`, `list_sessions`, `recent_frames(filter)`, `link_quality(remote)`, `network_topology`, `decode_frame(hex)`. Write tools: `send_ui_frame`, `reset_port`, `disconnect_session`, `set_kiss_param` — require separate `mcp:invoke` scope token and audit-logged. Link troubleshoot view: per-link RTT, retries, REJ/SREJ counts, T1/T3 graphs.
 
-### 5.9 Phase 9 — Plugin API + NET/ROM + hardening ⬜ (post-v1)
+### 5.9 Phase 9 — Plugin API + NET/ROM + hardening ⬜ (post-v1) ([#174](https://github.com/m0lte/packet.net/issues/174))
 
 `Packet.Node.Extensions/IApplicationModule.cs` — REST routes, MCP tools, frontend bundle, AX.25 session handler. Loaded from `/var/lib/packetnet/plugins/*.dll` in isolated `AssemblyLoadContext`. DAPPS validates the API design. `Packet.NetRom` ships as a separate package. SharpFuzz harnesses + 72 h soak vs LinBPQ.
 
-### 5.10 Phase 10 — Hardware ecosystem & adaptive RF ⬜ (post-v1)
+### 5.10 Phase 10 — Hardware ecosystem & adaptive RF ⬜ (post-v1) ([#175](https://github.com/m0lte/packet.net/issues/175))
 
 The differentiator no other TNC stack does well: treat the radio + modem as first-class telemetry sources, and use their signals to drive AX.25's parameter knobs in real time. Unlocks a class of "you can see your link degrading and recover before it dies" UX that doesn't exist today.
 
@@ -394,13 +396,13 @@ The differentiator no other TNC stack does well: treat the radio + modem as firs
 - NinoTNC mode-change demonstrated end-to-end (manual trigger, no auto-negotiation needed for exit).
 - `packetnet ctl flash-tnc` working from CLI; web UI integration optional.
 
-### 5.X Spike backlog ⬜
+### 5.X Spike backlog ⬜ (issues [#176](https://github.com/m0lte/packet.net/issues/176)–[#184](https://github.com/m0lte/packet.net/issues/184))
 
 Smaller, time-boxed exploration tasks. Not phase-sequenced — each can land
 whenever it's the highest-leverage next thing. Listed in approximate order
 of leverage-per-effort.
 
-**SP-001 — LinBPQ MQTT frame feed ingestion** (high leverage, low effort).
+**SP-001 — LinBPQ MQTT frame feed ingestion** ([#176](https://github.com/m0lte/packet.net/issues/176)) (high leverage, low effort).
 Tom operates a live LinBPQ node with four real RF ports and is willing to
 expose an MQTT feed of every AX.25 frame sent/received (with or without KISS
 wrapper). Build a `Packet.Replay.MqttIngest` tool that subscribes to the
@@ -411,7 +413,7 @@ channels — vastly richer than synthetic test traffic. Specifically catches
 parser edge cases that property-tests won't generate. Feeds the regression
 corpus in SP-003.
 
-**SP-002 — Direwolf-as-reference end-to-end harness** (high leverage, medium
+**SP-002 — Direwolf-as-reference end-to-end harness** ([#177](https://github.com/m0lte/packet.net/issues/177)) (high leverage, medium
 effort). Docker-containerise direwolf, expose KISS-TCP, point Packet.NET at
 it. For every transcribed transition, A/B our orchestrator's behaviour
 against direwolf's actual output. Direwolf is the closest-to-figure
@@ -419,7 +421,7 @@ implementation (see SI-* triangulation in [`docs/spec-issues.md`](spec-issues.md
 so behavioural equivalence with direwolf is a strong correctness signal.
 Strongest force multiplier on the SDL transcription work.
 
-**SP-003 — Replay/record harness** (high leverage, medium effort). pcap-
+**SP-003 — Replay/record harness** ([#178](https://github.com/m0lte/packet.net/issues/178)) (high leverage, medium effort). pcap-
 style timestamped capture of KISS + AX.25 wire bytes with per-frame direction
 + port + source labels. Replay later to repro bugs, build a regression
 library of weird-frames-seen-in-the-wild, and A/B real on-air behaviour
@@ -427,33 +429,33 @@ against the orchestrator's projection. Foundation for SP-001's persistence
 + for future "I saw a strange frame, replay this against the state machine"
 debugging. Storage as JSON-lines or capnproto; both fine.
 
-**SP-004 — AX.25 wire-format fuzzer (SharpFuzz)** (medium leverage, low
+**SP-004 — AX.25 wire-format fuzzer (SharpFuzz)** ([#179](https://github.com/m0lte/packet.net/issues/179)) (medium leverage, low
 effort). Plan §7 already promises this for nightly. Frame parser as target.
 Mostly mechanical: a fuzz harness against `Ax25Frame.TryParse`, plus
 `KissFrame.TryParse`. Likely surfaces real bugs in edge cases (oversized
 fields, weird PIDs, malformed addresses). Cheap and overdue.
 
-**SP-005 — Multi-Packet.NET-instance interop via net-sim** (medium leverage,
+**SP-005 — Multi-Packet.NET-instance interop via net-sim** ([#180](https://github.com/m0lte/packet.net/issues/180)) (medium leverage,
 low effort). Net-sim already in the interop stack. Spin up 2-3 Packet.NET
 instances and let them talk to each other through net-sim's lossy channel.
 Any drift between identical implementations exposes a state-machine bug
 cheaper than against LinBPQ — and complements interop tests against
 heterogeneous peers.
 
-**SP-006 — Spec-prose-to-stub-test extractor** (higher effort, payoff after
+**SP-006 — Spec-prose-to-stub-test extractor** ([#181](https://github.com/m0lte/packet.net/issues/181)) (higher effort, payoff after
 Phase 2). Parse the AX.25 v2.2 spec markdown, pull every "shall" sentence
 into a stub xUnit test (initially `[Skip]`). Surfaces gaps where the SDL
 transcription doesn't cover a prose mandate. Lower priority — the SDL
 transcription itself already does most of the work, but this acts as a
 backstop.
 
-**SP-007 — NinoTNC KISS-side SNR proxy** (low leverage but useful fallback).
+**SP-007 — NinoTNC KISS-side SNR proxy** ([#182](https://github.com/m0lte/packet.net/issues/182)) (low leverage but useful fallback).
 Even without Tait integration, can we infer link quality from frame-quality
 bits / retry rates / error counts alone? If yes, gives `IRadioControl`'s
 quality signal a fallback path for users without CAT-capable radios.
 Investigate after SP-001 has produced enough real-world data to baseline.
 
-**SP-008 — Full APRS encoding/decoding library** (large scope; significant
+**SP-008 — Full APRS encoding/decoding library** ([#183](https://github.com/m0lte/packet.net/issues/183)) (large scope; significant
 ecosystem value). The SDL transcription work covers AX.25's link layer; APRS
 is the application-layer protocol that rides on UI frames. A native
 `Packet.Aprs` library covering position/weather/mic-E/messages/status/
@@ -482,9 +484,9 @@ to support APRS Messaging end-to-end (would need state for acks +
 retries) or strictly the parsing/encoding surface? Decide before
 starting.
 
-**SP-009 — Visual state-machine display** (medium leverage, low effort for the static rung). Two rungs of increasing scope. **Static rung (near-term):** add a Mermaid emitter to the SDL codegen pipeline (`tools/Packet.Sdl.CodeGen.Mermaid/`) that walks the IR and produces one `stateDiagram-v2` per page, with transitions labelled by trigger + guard. Outputs land next to the existing AX.25 figures in `docs/`, render directly in GitHub markdown, and slot naturally into the existing 7-backend codegen pattern. ~1–2 hours. **Live rung (deferred):** expose a "transition occurred" event on `Ax25Session`, render the same graph in a small UI (Avalonia desktop, or the browser-terminal track if/when SP-N lands) and highlight the current state + flash the firing edge. ~2–3 days plus whatever UI host we pick. Pay the live rung's cost only when there's a concrete demo or debug-of-live-link need driving it; the static rung pays for itself immediately as documentation. The mermaid emitter is also the natural baseline for any future graph-style export (Graphviz dot, PlantUML), so even if a different live UI is chosen later the documentation track stands alone.
+**SP-009 — Visual state-machine display** ([#184](https://github.com/m0lte/packet.net/issues/184)) (medium leverage, low effort for the static rung). Two rungs of increasing scope. **Static rung (near-term):** add a Mermaid emitter to the SDL codegen pipeline (`tools/Packet.Sdl.CodeGen.Mermaid/`) that walks the IR and produces one `stateDiagram-v2` per page, with transitions labelled by trigger + guard. Outputs land next to the existing AX.25 figures in `docs/`, render directly in GitHub markdown, and slot naturally into the existing 7-backend codegen pattern. ~1–2 hours. **Live rung (deferred):** expose a "transition occurred" event on `Ax25Session`, render the same graph in a small UI (Avalonia desktop, or the browser-terminal track if/when SP-N lands) and highlight the current state + flash the firing edge. ~2–3 days plus whatever UI host we pick. Pay the live rung's cost only when there's a concrete demo or debug-of-live-link need driving it; the static rung pays for itself immediately as documentation. The mermaid emitter is also the natural baseline for any future graph-style export (Graphviz dot, PlantUML), so even if a different live UI is chosen later the documentation track stands alone.
 
-### 5.Y Hardware-arrival probe playbook ⬜
+### 5.Y Hardware-arrival probe playbook ⬜ ([#185](https://github.com/m0lte/packet.net/issues/185))
 
 Concrete first-day actions for when the 2× NinoTNC + 2× Tait rig lands on
 the bench. Listed so the autonomous agent has a ready playbook the moment
@@ -562,6 +564,8 @@ A transition entry looks like:
 7. Any `verification_pending` note added to the YAML must also be added to [`docs/spec-issues.md`](spec-issues.md) — the central tracker for candidate upstream-spec issues. Cross-link in both directions (YAML transition notes reference the SI-NN id; the tracker cites the YAML transition id).
 
 ### 6.4 SDL inventory & status
+
+> Non-figc4 transcription work (Simplex Physical, Duplex Physical, Link Multiplexer, Management Data-Link, Segmenter, Reassembler — 18 pages) tracked at [`m0lte/ax25sdl#14`](https://github.com/m0lte/ax25sdl/issues/14). The figc4.x redraw effort lives at [`m0lte/ax25sdl#13`](https://github.com/m0lte/ax25sdl/issues/13).
 
 Source: `https://github.com/packethacking/ax25spec/blob/main/doc/ax.25.2.2.4_Oct_25.md`.
 
@@ -796,17 +800,17 @@ Tracked here so they don't get lost. Once resolved, move the resolution into the
 
 | ID | Question | Stage | Owner |
 |---|---|---|---|
-| OQ-001 | Provenance / spec-deviation field — promote `notes:` prefix to a structured `verification:` block? Deferred until we have ≥3 examples to validate the schema against. | Open | Tom |
-| OQ-002 | Hardware-loop runner — should we expose it via GitHub Actions self-hosted runner labels (`hardware-loop-runner`)? Tom is providing the rig. Will sort once kit lands on the bench. | Open | Tom |
-| OQ-003 | Cosign key management for one-click update — where does the trusted public key live in the installer? Probably `installers/sigstore-pubkey.pem` baked into the install script, but needs a key-rotation story. | Open | Phase 7 |
-| OQ-004 | NuGet org name — is `Packet.*` claimable on nuget.org or do we need `PacketNET.*` / `Packethacking.*`? Tom to check before first NuGet publish (Phase 6+). | Open | Tom |
-| OQ-005 | OIDC pluggability — what's the abstraction shape so we don't paint ourselves into a corner? Affects Phase 4 user model. | Open | Phase 4 |
-| OQ-006 | yEd / GraphML SDL workflow — Tom tried Mermaid and reported the rendering looks too unlike the original SDL to be useful for visual comparison. Mermaid output is shipped anyway (cheap, catches transcription bugs the YAML diff might miss) but does NOT solve the input-side problem. yEd spike (one figure, agreed shape mapping, parse the .graphml back to our YAML) still on the table whenever Tom has big-screen time. | Open | Tom |
+| OQ-001 ([#186](https://github.com/m0lte/packet.net/issues/186)) | Provenance / spec-deviation field — promote `notes:` prefix to a structured `verification:` block? Deferred until we have ≥3 examples to validate the schema against. | Open | Tom |
+| OQ-002 ([#187](https://github.com/m0lte/packet.net/issues/187)) | Hardware-loop runner — should we expose it via GitHub Actions self-hosted runner labels (`hardware-loop-runner`)? Tom is providing the rig. Will sort once kit lands on the bench. | Open | Tom |
+| OQ-003 ([#188](https://github.com/m0lte/packet.net/issues/188)) | Cosign key management for one-click update — where does the trusted public key live in the installer? Probably `installers/sigstore-pubkey.pem` baked into the install script, but needs a key-rotation story. | Open | Phase 7 |
+| OQ-004 ([#189](https://github.com/m0lte/packet.net/issues/189)) | NuGet org name — is `Packet.*` claimable on nuget.org or do we need `PacketNET.*` / `Packethacking.*`? Tom to check before first NuGet publish (Phase 6+). | Open | Tom |
+| OQ-005 ([#190](https://github.com/m0lte/packet.net/issues/190)) | OIDC pluggability — what's the abstraction shape so we don't paint ourselves into a corner? Affects Phase 4 user model. | Open | Phase 4 |
+| OQ-006 ([#191](https://github.com/m0lte/packet.net/issues/191)) | yEd / GraphML SDL workflow — Tom tried Mermaid and reported the rendering looks too unlike the original SDL to be useful for visual comparison. Mermaid output is shipped anyway (cheap, catches transcription bugs the YAML diff might miss) but does NOT solve the input-side problem. yEd spike (one figure, agreed shape mapping, parse the .graphml back to our YAML) still on the table whenever Tom has big-screen time. | Open | Tom |
 | ~~OQ-007~~ | ~~Stryker mutation score for `Packet.Kiss` is dragged below 70 % by `KissTcpClient`…~~ | ✅ Resolved 2026-05-12 — excluded via `stryker-config.json`; score 67.07→73.33. Fake-socket harness left for whenever Phase 6/7 wants tighter coverage. |
-| OQ-008 | Publish `/spec-sdl/` as a community-canonical AX.25 v2.2 state-machine artifact, separate from this repo? The YAML is language-agnostic by design — a Rust/Python/Go/TS codegen against the same files would produce the same transitions, and our C# codegen becomes the reference implementation rather than the source of truth. Three things would need to firm up before "authoritative" is defensible: (a) the guard mini-DSL needs a real grammar (today `GuardEvaluator` parses by ad-hoc string splitting — fine for one consumer, not for many); (b) action verbs need a stable catalog with documented semantics (today they're free-form strings like `"RNR response"`, `"start_T1"`); (c) the schema + events catalog need semver. Realistic move: finish the 27 pages, stabilise the schema, then split `/spec-sdl/` + schema + events into a sibling repo (likely under `packethacking/`). What makes this credibly authoritative rather than just *another* transcription is the encode-then-verify discipline + collaboration with the spec author — both already in place. Revisit at the end of Phase 2. | Open | Tom |
-| OQ-009 | NinoTNC mode-change handshake — does the firmware support runtime mode switching without a write-to-flash cycle? `SETHW(mode + 16)` is the "don't write to flash" form; is the actual mode change immediate, or does it require power-cycle? Affects feasibility of Phase 10's mode-agility workstream. Probe once hardware is on the bench. | Open | Phase 10 / hardware-arrival |
-| OQ-010 | NinoTNC bootloader / firmware-update protocol — `flashtnc` is the canonical tool; what's the wire protocol? Best to read [`ninocarrillo/flashtnc`](https://github.com/ninocarrillo/flashtnc) source rather than reinvent. Affects feasibility + risk of `packetnet ctl flash-tnc`. | Open | Phase 10 |
-| OQ-011 | Radio-control abstraction shape — what's the right `IRadioControl` API? Tait CCDI gives us SNR / RSSI / busy / channel / TX-keying. Yaesu CAT and ICOM CI-V have different feature sets. Common subset is probably {frequency-set, frequency-get, RSSI-get, busy-get, PTT-set} — anything radio-specific (Tait's SNR is unusually rich) goes behind a feature-probe. Decide before locking the Tait implementation. | Open | Phase 10 |
+| OQ-008 ([`m0lte/ax25sdl#15`](https://github.com/m0lte/ax25sdl/issues/15)) | Publish `/spec-sdl/` as a community-canonical AX.25 v2.2 state-machine artifact, separate from this repo? The YAML is language-agnostic by design — a Rust/Python/Go/TS codegen against the same files would produce the same transitions, and our C# codegen becomes the reference implementation rather than the source of truth. Three things would need to firm up before "authoritative" is defensible: (a) the guard mini-DSL needs a real grammar (today `GuardEvaluator` parses by ad-hoc string splitting — fine for one consumer, not for many); (b) action verbs need a stable catalog with documented semantics (today they're free-form strings like `"RNR response"`, `"start_T1"`); (c) the schema + events catalog need semver. Realistic move: finish the 27 pages, stabilise the schema, then split `/spec-sdl/` + schema + events into a sibling repo (likely under `packethacking/`). What makes this credibly authoritative rather than just *another* transcription is the encode-then-verify discipline + collaboration with the spec author — both already in place. Revisit at the end of Phase 2. | Open | Tom |
+| OQ-009 ([#192](https://github.com/m0lte/packet.net/issues/192)) | NinoTNC mode-change handshake — does the firmware support runtime mode switching without a write-to-flash cycle? `SETHW(mode + 16)` is the "don't write to flash" form; is the actual mode change immediate, or does it require power-cycle? Affects feasibility of Phase 10's mode-agility workstream. Probe once hardware is on the bench. | Open | Phase 10 / hardware-arrival |
+| OQ-010 ([#193](https://github.com/m0lte/packet.net/issues/193)) | NinoTNC bootloader / firmware-update protocol — `flashtnc` is the canonical tool; what's the wire protocol? Best to read [`ninocarrillo/flashtnc`](https://github.com/ninocarrillo/flashtnc) source rather than reinvent. Affects feasibility + risk of `packetnet ctl flash-tnc`. | Open | Phase 10 |
+| OQ-011 ([#194](https://github.com/m0lte/packet.net/issues/194)) | Radio-control abstraction shape — what's the right `IRadioControl` API? Tait CCDI gives us SNR / RSSI / busy / channel / TX-keying. Yaesu CAT and ICOM CI-V have different feature sets. Common subset is probably {frequency-set, frequency-get, RSSI-get, busy-get, PTT-set} — anything radio-specific (Tait's SNR is unusually rich) goes behind a feature-probe. Decide before locking the Tait implementation. | Open | Phase 10 |
 
 ---
 
@@ -832,6 +836,24 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-19 — adopt GitHub Issues as the open-work tracker; plan.md becomes the narrative anchor
+
+Open work that used to live as paragraphs inside `plan.md` (phases 2–10, the spike backlog SP-001 through SP-009, the hardware-arrival playbook §5.Y, and the open-questions table §15) is now mirrored as GitHub Issues — one per trackable item. The plan keeps the narrative shape, the issues hold day-to-day status / claim / discussion.
+
+**Why.** Tom prompted on 2026-05-19: *"What do you think about the idea of transferring the original vision / roadmap for packet.net itself into its issue tracker? Or better as a doc?"* The answer landed at hybrid: the plan is good at narrative coherence (working agreements, phases-with-exit-criteria, glossary, risks, amendment log) but bad at "what's left to do?" rolldown. Issues are the inverse — flat list, assignable, claimable, auto-closable from PRs, discoverable for drive-by contributors. Keep both, with each doing what it's good at.
+
+**What changed in this PR.** Issue numbers added as `([#N](…))` annotations:
+
+- §5.2–§5.10 phase headings → [#168](https://github.com/m0lte/packet.net/issues/168), [#169](https://github.com/m0lte/packet.net/issues/169), [#167](https://github.com/m0lte/packet.net/issues/167) (Phase 4 filed earlier), [#170](https://github.com/m0lte/packet.net/issues/170), [#171](https://github.com/m0lte/packet.net/issues/171), [#172](https://github.com/m0lte/packet.net/issues/172), [#173](https://github.com/m0lte/packet.net/issues/173), [#174](https://github.com/m0lte/packet.net/issues/174), [#175](https://github.com/m0lte/packet.net/issues/175).
+- §5.X spike backlog SP-001 through SP-009 → [#176](https://github.com/m0lte/packet.net/issues/176) – [#184](https://github.com/m0lte/packet.net/issues/184).
+- §5.Y hardware-arrival playbook → [#185](https://github.com/m0lte/packet.net/issues/185).
+- §15 open questions (skipping resolved OQ-007) → [#186](https://github.com/m0lte/packet.net/issues/186) – [#194](https://github.com/m0lte/packet.net/issues/194). OQ-008 (publish `/spec-sdl/` as canonical) lives at [`m0lte/ax25sdl#15`](https://github.com/m0lte/ax25sdl/issues/15) because the topic moved with the spec-sdl extraction.
+- §6.4 SDL inventory — added a pointer to [`m0lte/ax25sdl#14`](https://github.com/m0lte/ax25sdl/issues/14) (the non-figc4 transcription work) + [`m0lte/ax25sdl#13`](https://github.com/m0lte/ax25sdl/issues/13) (the figc4.x redraw).
+
+Risks (§16) and locked decisions (§3) are **not** mirrored as issues — those are reference material, not work items.
+
+**What this doesn't change.** The working-agreement that `plan.md` §17 is updated in the same PR as the work that triggers it (§2.6, "Keep this document current"). When a phase / spike / OQ resolves, the relevant section here still gets a status flip + an amendment-log entry as today; the issue separately gets closed (with `Closes #N` in the resolving PR).
 
 ### 2026-05-17 — drop web/ax25 from packet.net (extracted to m0lte/ax25-ts)
 
