@@ -106,6 +106,80 @@ public class NetsimConnectedModeScenarios
         try { await Task.WhenAll(pumps); } catch (OperationCanceledException) { }
     }
 
+    [Fact]
+    public async Task IFrame_Round_Trip_Across_AFSK1200_Sim()
+    {
+        // Connected-mode data round-trip between two of our sessions over
+        // the netsim RF channel. Closes the gap left by the connect/disconnect
+        // test above — that asserts the handshake state machine; this asserts
+        // I-frame TX/RX with V(s)/V(r)/V(a) bookkeeping flowing end-to-end.
+        //
+        // SP-005 force-multiplier: any divergence between V(s) on the sender
+        // and V(r) on the receiver across a real RF channel surfaces a state-
+        // machine bug we'd miss with single-session tests.
+        var nodeA = new Callsign("PNIFRA", 1);
+        var nodeB = new Callsign("PNIFRB", 2);
+
+        var dataBudget = TimeSpan.FromSeconds(20);
+        using var cts = new CancellationTokenSource(
+            ConnectBudget + dataBudget + DisconnectBudget + TimeSpan.FromSeconds(15));
+
+        await using var kissA = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var kissB = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
+
+        var rigA = BuildRig(local: nodeA, remote: nodeB, kiss: kissA);
+        var rigB = BuildRig(local: nodeB, remote: nodeA, kiss: kissB);
+
+        var pumps = new[]
+        {
+            Task.Run(() => InboundPump(rigA, cts.Token), cts.Token),
+            Task.Run(() => InboundPump(rigB, cts.Token), cts.Token),
+        };
+
+        await Task.Delay(200, cts.Token);
+
+        // ─── Connect ────────────────────────────────────────────────
+        rigA.Session.PostEvent(new DlConnectRequest());
+        (await WaitForSignal<DataLinkConnectConfirm>(rigA.Signals, ConnectBudget, pumps, cts.Token))
+            .Should().NotBeNull("connect handshake should complete");
+        await WaitUntil(() => rigB.Session.CurrentState == "Connected",
+            TimeSpan.FromSeconds(5), pumps, cts.Token);
+
+        // ─── I-frame A → B ──────────────────────────────────────────
+        // Drain any signals queued during connect (e.g. DL-CONNECT-indication
+        // on rigB) so the WaitForSignal<DataLinkDataIndication> below isn't
+        // satisfied by an unrelated leftover.
+        while (rigB.Signals.TryDequeue(out _)) { }
+
+        var payloadAB = System.Text.Encoding.ASCII.GetBytes("hello from A");
+        rigA.Session.PostEvent(new DlDataRequest(payloadAB, Pid: Ax25Frame.PidNoLayer3));
+
+        var indicationAB = await WaitForSignal<DataLinkDataIndication>(rigB.Signals, dataBudget, pumps, cts.Token);
+        indicationAB.Should().NotBeNull("node B must observe the I-frame from node A as DL-DATA-indication");
+        indicationAB!.Info.ToArray().Should().Equal(payloadAB);
+        indicationAB.Pid.Should().Be(Ax25Frame.PidNoLayer3);
+
+        // ─── I-frame B → A ──────────────────────────────────────────
+        while (rigA.Signals.TryDequeue(out _)) { }
+
+        var payloadBA = System.Text.Encoding.ASCII.GetBytes("ack from B");
+        rigB.Session.PostEvent(new DlDataRequest(payloadBA, Pid: Ax25Frame.PidNoLayer3));
+
+        var indicationBA = await WaitForSignal<DataLinkDataIndication>(rigA.Signals, dataBudget, pumps, cts.Token);
+        indicationBA.Should().NotBeNull("node A must observe the I-frame from node B");
+        indicationBA!.Info.ToArray().Should().Equal(payloadBA);
+
+        // ─── Disconnect ─────────────────────────────────────────────
+        rigA.Session.PostEvent(new DlDisconnectRequest());
+        (await WaitForSignal<DataLinkDisconnectConfirm>(rigA.Signals, DisconnectBudget, pumps, cts.Token))
+            .Should().NotBeNull("disconnect handshake should complete");
+        await WaitUntil(() => rigB.Session.CurrentState == "Disconnected",
+            TimeSpan.FromSeconds(5), pumps, cts.Token);
+
+        cts.Cancel();
+        try { await Task.WhenAll(pumps); } catch (OperationCanceledException) { }
+    }
+
     // ─── Rig ────────────────────────────────────────────────────────
 
     private sealed record Rig(
