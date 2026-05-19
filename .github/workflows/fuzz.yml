@@ -70,10 +70,10 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       - name: upload smoke log
-        if: always()
-        # Successes also worth keeping — gives Tom a baseline of how long
-        # a clean run takes and how broad the input space was each night.
-        # Failures get the same log with the per-finding diagnostics.
+        if: failure()
+        # Only on a finding — successful runs are summarised in the
+        # workflow stdout (clean: N inputs, no throws), no artifact needed.
+        # Saves org-wide artifact storage quota for the runs that matter.
         uses: actions/upload-artifact@v7
         with:
           name: fuzz-smoke-log-${{ github.run_number }}
