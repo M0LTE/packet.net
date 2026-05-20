@@ -36,7 +36,7 @@ public class DataLinkAwaitingReleaseSmokeTests
         }
     }
 
-    private static (Ax25Session session, RecordingActionDispatcher recorder) NewSession(
+    private static (Ax25Session session, RecordingActionDispatcher recorder, GuardEvaluator guards) NewSession(
         bool pEq1 = false,
         bool fEq1 = false,
         bool rcEqN2 = false)
@@ -64,7 +64,7 @@ public class DataLinkAwaitingReleaseSmokeTests
                 ["Disconnected"]    = DataLink_Disconnected.Transitions,
             },
             initialState: "AwaitingRelease");
-        return (session, recorder);
+        return (session, recorder, guards);
     }
 
     private static Ax25Frame Frame() => Ax25Frame.Ui(
@@ -72,83 +72,87 @@ public class DataLinkAwaitingReleaseSmokeTests
         source:      new Callsign("G7XYZ", 7),
         info:        "x"u8);
 
-    private static void AssertTransitionFires(
-        string transitionId,
-        Ax25Event evt,
+    private static void AssertTransitionFires(Ax25Event evt,
         bool pEq1 = false,
         bool fEq1 = false,
         bool rcEqN2 = false)
     {
-        var (s, r) = NewSession(pEq1: pEq1, fEq1: fEq1, rcEqN2: rcEqN2);
-        var expected = DataLink_AwaitingRelease.Transitions.Single(x => x.Id == transitionId);
+        var (s, r, guards) = NewSession(pEq1: pEq1, fEq1: fEq1, rcEqN2: rcEqN2);
+        
+        var matching = DataLink_AwaitingRelease.Transitions
+            .Where(x => x.On == evt.Name)
+            .Where(x => guards.Evaluate(x.Guard))
+            .ToList();
+        matching.Should().ContainSingle($"event '{evt.Name}' with the supplied guards should match exactly one transition in DataLink_AwaitingRelease");
+        var expected = matching[0];
 
         s.PostEvent(evt);
 
-        s.CurrentState.Should().Be(expected.Next, $"transition '{transitionId}' should land on '{expected.Next}'");
+        s.CurrentState.Should().Be(expected.Next, $"transition '{expected.Id}' should land on '{expected.Next}'");
         r.Recorded.Should().Equal(
             expected.Actions.Select(a => (a.Verb, a.Kind)).ToArray(),
-            $"transition '{transitionId}' actions should fire in order");
+            $"transition '{expected.Id}' actions should fire in order");
     }
 
     // ─── Tests, one per transition (20 total) ──────────────────────────
 
     [Fact] public void t01_dl_disconnect_request() =>
-        AssertTransitionFires("t01_dl_disconnect_request", new DlDisconnectRequest());
+        AssertTransitionFires(new DlDisconnectRequest());
 
     [Fact] public void t02_t1_expiry_rc_eq_n2() =>
-        AssertTransitionFires("t02_t1_expiry_rc_eq_n2", new T1Expiry(), rcEqN2: true);
+        AssertTransitionFires(new T1Expiry(), rcEqN2: true);
 
     [Fact] public void t03_t1_expiry_rc_neq_n2() =>
-        AssertTransitionFires("t03_t1_expiry_rc_neq_n2", new T1Expiry(), rcEqN2: false);
+        AssertTransitionFires(new T1Expiry(), rcEqN2: false);
 
     [Fact] public void t04_ua_received_f_eq_1() =>
-        AssertTransitionFires("t04_ua_received_f_eq_1", new UaReceived(Frame()), fEq1: true);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: true);
 
     [Fact] public void t05_ua_received_not_f_eq_1() =>
-        AssertTransitionFires("t05_ua_received_not_f_eq_1", new UaReceived(Frame()), fEq1: false);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: false);
 
     [Fact] public void t06_all_other_primitives_from_upper_layer() =>
-        AssertTransitionFires("t06_all_other_primitives_from_upper_layer", new AllOtherPrimitivesFromUpperLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromUpperLayer());
 
     [Fact] public void t07_dl_unit_data_request() =>
-        AssertTransitionFires("t07_dl_unit_data_request", new DlUnitDataRequest("x"u8.ToArray()));
+        AssertTransitionFires(new DlUnitDataRequest("x"u8.ToArray()));
 
     [Fact] public void t08_all_other_primitives_from_lower_layer() =>
-        AssertTransitionFires("t08_all_other_primitives_from_lower_layer", new AllOtherPrimitivesFromLowerLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromLowerLayer());
 
     [Fact] public void t09_control_field_error() =>
-        AssertTransitionFires("t09_control_field_error", new ControlFieldError());
+        AssertTransitionFires(new ControlFieldError());
 
     [Fact] public void t10_info_not_permitted_in_frame() =>
-        AssertTransitionFires("t10_info_not_permitted_in_frame", new InfoNotPermittedInFrame());
+        AssertTransitionFires(new InfoNotPermittedInFrame());
 
     [Fact] public void t11_u_or_s_frame_length_error() =>
-        AssertTransitionFires("t11_u_or_s_frame_length_error", new UOrSFrameLengthError());
+        AssertTransitionFires(new UOrSFrameLengthError());
 
     [Fact] public void t12_sabm_received() =>
-        AssertTransitionFires("t12_sabm_received", new SabmReceived(Frame()));
+        AssertTransitionFires(new SabmReceived(Frame()));
 
     [Fact] public void t13_sabme_received() =>
-        AssertTransitionFires("t13_sabme_received", new SabmeReceived(Frame()));
+        AssertTransitionFires(new SabmeReceived(Frame()));
 
     [Fact] public void t14_disc_received() =>
-        AssertTransitionFires("t14_disc_received", new DiscReceived(Frame()));
+        AssertTransitionFires(new DiscReceived(Frame()));
 
     [Fact] public void t15_dm_received_f_eq_1() =>
-        AssertTransitionFires("t15_dm_received_f_eq_1", new DmReceived(Frame()), fEq1: true);
+        AssertTransitionFires(new DmReceived(Frame()), fEq1: true);
 
     [Fact] public void t16_dm_received_not_f_eq_1() =>
-        AssertTransitionFires("t16_dm_received_not_f_eq_1", new DmReceived(Frame()), fEq1: false);
+        AssertTransitionFires(new DmReceived(Frame()), fEq1: false);
 
     [Fact] public void t17_ui_received_p_eq_1() =>
-        AssertTransitionFires("t17_ui_received_p_eq_1", new UiReceived(Frame()), pEq1: true);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: true);
 
     [Fact] public void t18_ui_received_not_p_eq_1() =>
-        AssertTransitionFires("t18_ui_received_not_p_eq_1", new UiReceived(Frame()), pEq1: false);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: false);
 
     [Fact] public void t19_i_or_s_command_p_eq_1() =>
-        AssertTransitionFires("t19_i_or_s_command_p_eq_1", new IOrSCommandReceived(Frame()), pEq1: true);
+        AssertTransitionFires(new IOrSCommandReceived(Frame()), pEq1: true);
 
     [Fact] public void t20_i_or_s_command_not_p_eq_1() =>
-        AssertTransitionFires("t20_i_or_s_command_not_p_eq_1", new IOrSCommandReceived(Frame()), pEq1: false);
+        AssertTransitionFires(new IOrSCommandReceived(Frame()), pEq1: false);
 }

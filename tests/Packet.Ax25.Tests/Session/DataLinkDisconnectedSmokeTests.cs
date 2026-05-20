@@ -43,7 +43,7 @@ public class DataLinkDisconnectedSmokeTests
         }
     }
 
-    private static (Ax25Session session, RecordingActionDispatcher recorder) NewSession(
+    private static (Ax25Session session, RecordingActionDispatcher recorder, GuardEvaluator guards) NewSession(
         bool pEq1 = false,
         bool ableToEstablish = false)
     {
@@ -70,7 +70,7 @@ public class DataLinkDisconnectedSmokeTests
                 ["Connected"]           = DataLink_Connected.Transitions,
             },
             initialState: "Disconnected");
-        return (session, recorder);
+        return (session, recorder, guards);
     }
 
     /// <summary>Stand-in frame for received-frame events; orchestrator routes by event name, not by frame contents.</summary>
@@ -84,73 +84,77 @@ public class DataLinkDisconnectedSmokeTests
     /// declared next-state of <paramref name="transitionId"/>, and the
     /// recorded actions equal the declared action sequence exactly.
     /// </summary>
-    private static void AssertTransitionFires(
-        string transitionId,
-        Ax25Event evt,
+    private static void AssertTransitionFires(Ax25Event evt,
         bool pEq1 = false,
         bool ableToEstablish = false)
     {
-        var (s, r) = NewSession(pEq1: pEq1, ableToEstablish: ableToEstablish);
-        var expected = DataLink_Disconnected.Transitions.Single(x => x.Id == transitionId);
+        var (s, r, guards) = NewSession(pEq1: pEq1, ableToEstablish: ableToEstablish);
+        
+        var matching = DataLink_Disconnected.Transitions
+            .Where(x => x.On == evt.Name)
+            .Where(x => guards.Evaluate(x.Guard))
+            .ToList();
+        matching.Should().ContainSingle($"event '{evt.Name}' with the supplied guards should match exactly one transition in DataLink_Disconnected");
+        var expected = matching[0];
 
         s.PostEvent(evt);
 
-        s.CurrentState.Should().Be(expected.Next, $"transition '{transitionId}' should land on '{expected.Next}'");
+        s.CurrentState.Should().Be(expected.Next, $"transition '{expected.Id}' should land on '{expected.Next}'");
         r.Recorded.Should().Equal(
             expected.Actions.Select(a => (a.Verb, a.Kind)).ToArray(),
-            $"transition '{transitionId}' actions should fire in order");
+            $"transition '{expected.Id}' actions should fire in order");
     }
 
     // ─── Tests, one per transition (17 total) ──────────────────────────
 
     [Fact] public void t01_dl_disconnect_request() =>
-        AssertTransitionFires("t01_dl_disconnect_request", new DlDisconnectRequest());
+        AssertTransitionFires(new DlDisconnectRequest());
 
     [Fact] public void t02_dl_unit_data_request() =>
-        AssertTransitionFires("t02_dl_unit_data_request", new DlUnitDataRequest("x"u8.ToArray()));
+        AssertTransitionFires(new DlUnitDataRequest("x"u8.ToArray()));
 
     [Fact] public void t03_dl_connect_request() =>
-        AssertTransitionFires("t03_dl_connect_request", new DlConnectRequest());
+        AssertTransitionFires(new DlConnectRequest());
 
     [Fact] public void t04_all_other_primitives_from_lower_layer() =>
-        AssertTransitionFires("t04_all_other_primitives_from_lower_layer", new AllOtherPrimitivesFromLowerLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromLowerLayer());
 
     [Fact] public void t05_all_other_commands() =>
-        AssertTransitionFires("t05_all_other_commands", new AllOtherCommands(Frame()));
+        AssertTransitionFires(new AllOtherCommands(Frame()));
 
     [Fact] public void t06_all_other_primitives_from_upper_layer() =>
-        AssertTransitionFires("t06_all_other_primitives_from_upper_layer", new AllOtherPrimitivesFromUpperLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromUpperLayer());
 
     [Fact] public void t07_control_field_error() =>
-        AssertTransitionFires("t07_control_field_error", new ControlFieldError());
+        AssertTransitionFires(new ControlFieldError());
 
     [Fact] public void t08_info_not_permitted_in_frame() =>
-        AssertTransitionFires("t08_info_not_permitted_in_frame", new InfoNotPermittedInFrame());
+        AssertTransitionFires(new InfoNotPermittedInFrame());
 
     [Fact] public void t09_u_or_s_frame_length_error() =>
-        AssertTransitionFires("t09_u_or_s_frame_length_error", new UOrSFrameLengthError());
+        AssertTransitionFires(new UOrSFrameLengthError());
 
     [Fact] public void t10_ua_received() =>
-        AssertTransitionFires("t10_ua_received", new UaReceived(Frame()));
+        AssertTransitionFires(new UaReceived(Frame()));
 
     [Fact] public void t11_ui_received_p_eq_1() =>
-        AssertTransitionFires("t11_ui_received_p_eq_1", new UiReceived(Frame()), pEq1: true);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: true);
 
     [Fact] public void t12_ui_received_p_eq_0() =>
-        AssertTransitionFires("t12_ui_received_p_eq_0", new UiReceived(Frame()), pEq1: false);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: false);
 
     [Fact] public void t13_disc_received() =>
-        AssertTransitionFires("t13_disc_received", new DiscReceived(Frame()));
+        AssertTransitionFires(new DiscReceived(Frame()));
 
     [Fact] public void t14_sabm_received_able() =>
-        AssertTransitionFires("t14_sabm_received_able", new SabmReceived(Frame()), ableToEstablish: true);
+        AssertTransitionFires(new SabmReceived(Frame()), ableToEstablish: true);
 
     [Fact] public void t15_sabm_received_unable() =>
-        AssertTransitionFires("t15_sabm_received_unable", new SabmReceived(Frame()), ableToEstablish: false);
+        AssertTransitionFires(new SabmReceived(Frame()), ableToEstablish: false);
 
     [Fact] public void t16_sabme_received_able() =>
-        AssertTransitionFires("t16_sabme_received_able", new SabmeReceived(Frame()), ableToEstablish: true);
+        AssertTransitionFires(new SabmeReceived(Frame()), ableToEstablish: true);
 
     [Fact] public void t17_sabme_received_unable() =>
-        AssertTransitionFires("t17_sabme_received_unable", new SabmeReceived(Frame()), ableToEstablish: false);
+        AssertTransitionFires(new SabmeReceived(Frame()), ableToEstablish: false);
 }
