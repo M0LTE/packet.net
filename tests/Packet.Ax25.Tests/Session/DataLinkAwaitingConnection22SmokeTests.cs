@@ -45,7 +45,7 @@ public class DataLinkAwaitingConnection22SmokeTests
         }
     }
 
-    private static (Ax25Session session, RecordingActionDispatcher recorder) NewSession(
+    private static (Ax25Session session, RecordingActionDispatcher recorder, GuardEvaluator guards) NewSession(
         bool pEq1 = false,
         bool fEq1 = false,
         bool vsEqVa = false,
@@ -79,7 +79,7 @@ public class DataLinkAwaitingConnection22SmokeTests
                 ["Connected"]            = DataLink_Connected.Transitions,
             },
             initialState: "AwaitingConnection22");
-        return (session, recorder);
+        return (session, recorder, guards);
     }
 
     private static Ax25Frame Frame() => Ax25Frame.Ui(
@@ -87,107 +87,104 @@ public class DataLinkAwaitingConnection22SmokeTests
         source:      new Callsign("G7XYZ", 7),
         info:        "x"u8);
 
-    private static void AssertTransitionFires(
-        string transitionId,
-        Ax25Event evt,
+    private static void AssertTransitionFires(Ax25Event evt,
         bool pEq1 = false,
         bool fEq1 = false,
         bool vsEqVa = false,
         bool rcEqN2 = false,
         bool layer3Initiated = false)
     {
-        var (s, r) = NewSession(pEq1: pEq1, fEq1: fEq1, vsEqVa: vsEqVa, rcEqN2: rcEqN2, layer3Initiated: layer3Initiated);
-        var expected = DataLink_AwaitingConnection22.Transitions.Single(x => x.Id == transitionId);
+        var (s, r, guards) = NewSession(pEq1: pEq1, fEq1: fEq1, vsEqVa: vsEqVa, rcEqN2: rcEqN2, layer3Initiated: layer3Initiated);
+        
+        var matching = DataLink_AwaitingConnection22.Transitions
+            .Where(x => x.On == evt.Name)
+            .Where(x => guards.Evaluate(x.Guard))
+            .ToList();
+        matching.Should().ContainSingle($"event '{evt.Name}' with the supplied guards should match exactly one transition in DataLink_AwaitingConnection22");
+        var expected = matching[0];
 
         s.PostEvent(evt);
 
-        s.CurrentState.Should().Be(expected.Next, $"transition '{transitionId}' should land on '{expected.Next}'");
+        s.CurrentState.Should().Be(expected.Next, $"transition '{expected.Id}' should land on '{expected.Next}'");
         r.Recorded.Should().Equal(
             expected.Actions.Select(a => (a.Verb, a.Kind)).ToArray(),
-            $"transition '{transitionId}' actions should fire in order");
+            $"transition '{expected.Id}' actions should fire in order");
     }
 
     // ─── Tests, one per transition (25 total) ──────────────────────────
 
     [Fact] public void t01_dl_connect_request() =>
-        AssertTransitionFires("t01_dl_connect_request", new DlConnectRequest());
+        AssertTransitionFires(new DlConnectRequest());
 
     [Fact] public void t02_dl_unit_data_request() =>
-        AssertTransitionFires("t02_dl_unit_data_request", new DlUnitDataRequest("x"u8.ToArray()));
+        AssertTransitionFires(new DlUnitDataRequest("x"u8.ToArray()));
 
     [Fact] public void t03_dl_data_request_layer_3_initiated() =>
-        AssertTransitionFires("t03_dl_data_request_layer_3_initiated",
-            new DlDataRequest("x"u8.ToArray()), layer3Initiated: true);
+        AssertTransitionFires(new DlDataRequest("x"u8.ToArray()), layer3Initiated: true);
 
     [Fact] public void t04_dl_data_request_not_layer_3_initiated() =>
-        AssertTransitionFires("t04_dl_data_request_not_layer_3_initiated",
-            new DlDataRequest("x"u8.ToArray()), layer3Initiated: false);
+        AssertTransitionFires(new DlDataRequest("x"u8.ToArray()), layer3Initiated: false);
 
     [Fact] public void t05_i_frame_pops_off_queue_layer_3_initiated() =>
-        AssertTransitionFires("t05_i_frame_pops_off_queue_layer_3_initiated",
-            new IFramePopsOffQueue(ReadOnlyMemory<byte>.Empty), layer3Initiated: true);
+        AssertTransitionFires(new IFramePopsOffQueue(ReadOnlyMemory<byte>.Empty), layer3Initiated: true);
 
     [Fact] public void t06_i_frame_pops_off_queue_not_layer_3_initiated() =>
-        AssertTransitionFires("t06_i_frame_pops_off_queue_not_layer_3_initiated",
-            new IFramePopsOffQueue(ReadOnlyMemory<byte>.Empty), layer3Initiated: false);
+        AssertTransitionFires(new IFramePopsOffQueue(ReadOnlyMemory<byte>.Empty), layer3Initiated: false);
 
     [Fact] public void t07_all_other_primitives_from_lower_layer() =>
-        AssertTransitionFires("t07_all_other_primitives_from_lower_layer", new AllOtherPrimitivesFromLowerLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromLowerLayer());
 
     [Fact] public void t08_control_field_error() =>
-        AssertTransitionFires("t08_control_field_error", new ControlFieldError());
+        AssertTransitionFires(new ControlFieldError());
 
     [Fact] public void t09_info_not_permitted_in_frame() =>
-        AssertTransitionFires("t09_info_not_permitted_in_frame", new InfoNotPermittedInFrame());
+        AssertTransitionFires(new InfoNotPermittedInFrame());
 
     [Fact] public void t10_u_or_s_frame_length_error() =>
-        AssertTransitionFires("t10_u_or_s_frame_length_error", new UOrSFrameLengthError());
+        AssertTransitionFires(new UOrSFrameLengthError());
 
     [Fact] public void t11_ui_received_p_eq_1() =>
-        AssertTransitionFires("t11_ui_received_p_eq_1", new UiReceived(Frame()), pEq1: true);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: true);
 
     [Fact] public void t12_ui_received_not_p_eq_1() =>
-        AssertTransitionFires("t12_ui_received_not_p_eq_1", new UiReceived(Frame()), pEq1: false);
+        AssertTransitionFires(new UiReceived(Frame()), pEq1: false);
 
     [Fact] public void t13_dm_received_f_eq_1() =>
-        AssertTransitionFires("t13_dm_received_f_eq_1", new DmReceived(Frame()), fEq1: true);
+        AssertTransitionFires(new DmReceived(Frame()), fEq1: true);
 
     [Fact] public void t14_dm_received_not_f_eq_1() =>
-        AssertTransitionFires("t14_dm_received_not_f_eq_1", new DmReceived(Frame()), fEq1: false);
+        AssertTransitionFires(new DmReceived(Frame()), fEq1: false);
 
     [Fact] public void t15_ua_received_not_f_eq_1() =>
-        AssertTransitionFires("t15_ua_received_not_f_eq_1", new UaReceived(Frame()), fEq1: false);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: false);
 
     [Fact] public void t16_ua_received_f_eq_1_layer_3_initiated() =>
-        AssertTransitionFires("t16_ua_received_f_eq_1_layer_3_initiated",
-            new UaReceived(Frame()), fEq1: true, layer3Initiated: true);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: true, layer3Initiated: true);
 
     [Fact] public void t17_ua_received_f_eq_1_not_layer_3_initiated_vs_eq_va() =>
-        AssertTransitionFires("t17_ua_received_f_eq_1_not_layer_3_initiated_vs_eq_va",
-            new UaReceived(Frame()), fEq1: true, layer3Initiated: false, vsEqVa: true);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: true, layer3Initiated: false, vsEqVa: true);
 
     [Fact] public void t18_ua_received_f_eq_1_not_layer_3_initiated_vs_neq_va() =>
-        AssertTransitionFires("t18_ua_received_f_eq_1_not_layer_3_initiated_vs_neq_va",
-            new UaReceived(Frame()), fEq1: true, layer3Initiated: false, vsEqVa: false);
+        AssertTransitionFires(new UaReceived(Frame()), fEq1: true, layer3Initiated: false, vsEqVa: false);
 
     [Fact] public void t19_t1_expiry_rc_eq_n2() =>
-        AssertTransitionFires("t19_t1_expiry_rc_eq_n2", new T1Expiry(), rcEqN2: true);
+        AssertTransitionFires(new T1Expiry(), rcEqN2: true);
 
     [Fact] public void t20_t1_expiry_rc_neq_n2() =>
-        AssertTransitionFires("t20_t1_expiry_rc_neq_n2", new T1Expiry(), rcEqN2: false);
+        AssertTransitionFires(new T1Expiry(), rcEqN2: false);
 
     [Fact] public void t21_frmr_received() =>
-        AssertTransitionFires("t21_frmr_received", new FrmrReceived(Frame()));
+        AssertTransitionFires(new FrmrReceived(Frame()));
 
     [Fact] public void t22_sabme_received() =>
-        AssertTransitionFires("t22_sabme_received", new SabmeReceived(Frame()));
+        AssertTransitionFires(new SabmeReceived(Frame()));
 
     [Fact] public void t23_sabm_received() =>
-        AssertTransitionFires("t23_sabm_received", new SabmReceived(Frame()));
+        AssertTransitionFires(new SabmReceived(Frame()));
 
     [Fact] public void t24_disc_received() =>
-        AssertTransitionFires("t24_disc_received", new DiscReceived(Frame()));
+        AssertTransitionFires(new DiscReceived(Frame()));
 
     [Fact] public void t25_all_other_primitives_from_upper_layer() =>
-        AssertTransitionFires("t25_all_other_primitives_from_upper_layer", new AllOtherPrimitivesFromUpperLayer());
+        AssertTransitionFires(new AllOtherPrimitivesFromUpperLayer());
 }
