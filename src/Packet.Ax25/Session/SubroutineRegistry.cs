@@ -164,7 +164,11 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         // by figc4.6's t08 / t09 transitions where mod-128 is already the
         // chosen path). Both follow the §C4.7 spec body: clear exception
         // conditions, RC := 0, send SABM/SABME(P=1), stop T3, start T1.
-        subroutines["Establish_Data_Link"]          = tx => EstablishDataLink(tx, extended: EvaluateMod128(tx));
+        subroutines["Establish_Data_Link"] = tx =>
+        {
+            if (!TryEvaluateMod128(tx, out var extended)) return;
+            EstablishDataLink(tx, extended);
+        };
         subroutines["Establish_Extended_Data_Link"] = tx => EstablishDataLink(tx, extended: true);
     }
 
@@ -174,15 +178,28 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
     /// <see cref="Ax25SessionContext.IsExtended"/> if the registry hasn't
     /// been wired. Used by the hand-coded Establish_Data_Link to choose
     /// SABM vs SABME at runtime — mirrors the figc4.7 redraw's first
-    /// decision diamond. Wraps in try / catch so tests passing a guard
-    /// evaluator that throws on unbound predicates degrade gracefully
-    /// (no-match → false → SABM path).
+    /// decision diamond. Returns <c>false</c> from the out-parameter when
+    /// the guard evaluator throws (e.g. tests that bind no predicates) so
+    /// the caller no-ops, matching pre-redraw walker semantics where a
+    /// guarded path with an unbound predicate just doesn't fire.
     /// </summary>
-    private bool EvaluateMod128(TransitionContext tx)
+    private bool TryEvaluateMod128(TransitionContext tx, out bool extended)
     {
-        if (wiredGuards is null) return tx.Session.IsExtended;
-        try { return wiredGuards.Evaluate("mod_128"); }
-        catch (GuardEvaluationException) { return false; }
+        if (wiredGuards is null)
+        {
+            extended = tx.Session.IsExtended;
+            return true;
+        }
+        try
+        {
+            extended = wiredGuards.Evaluate("mod_128");
+            return true;
+        }
+        catch (GuardEvaluationException)
+        {
+            extended = false;
+            return false;
+        }
     }
 
     private void EstablishDataLink(TransitionContext tx, bool extended)

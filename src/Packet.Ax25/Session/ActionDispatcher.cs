@@ -523,6 +523,14 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "F := 0":                         tx.Pending.PfBit = false; break;
             case "F := 1":                         tx.Pending.PfBit = true;  break;
             case "F := P":                         tx.Pending.PfBit = ExtractPollFinal(tx); break;
+            // figc4.5 outbound-frame paths use `P := 0` / `P := 1` for the
+            // poll-bit on the *frame being sent* — semantically the same
+            // operation as `F := 0` / `F := 1` because the runtime stores
+            // both bits in the single PfBit field on Pending. (Inbound
+            // frames distinguish P vs F via IsCommand; outbound frames
+            // set the bit unilaterally regardless of nomenclature.)
+            case "P := 0":                         tx.Pending.PfBit = false; break;
+            case "P := 1":                         tx.Pending.PfBit = true;  break;
             case "p := 0":                         tx.Pending.PfBit = false; break;
 
             // ─── figc4.7 processing verbs (subroutine bodies) ──────────────
