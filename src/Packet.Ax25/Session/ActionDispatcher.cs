@@ -362,11 +362,14 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "DL_ERROR_indication_E":          sendUpward(new DataLinkErrorIndication("E"));   break;
             case "DL_ERROR_indication_F":          sendUpward(new DataLinkErrorIndication("F"));   break;
             case "DL_ERROR_indication_G":          sendUpward(new DataLinkErrorIndication("G"));   break;
+            case "DL_ERROR_indication_I":          sendUpward(new DataLinkErrorIndication("I"));   break;
             case "DL_ERROR_indication_K":          sendUpward(new DataLinkErrorIndication("K"));   break;
             case "DL_ERROR_indication_L":          sendUpward(new DataLinkErrorIndication("L"));   break;
             case "DL_ERROR_indication_M":          sendUpward(new DataLinkErrorIndication("M"));   break;
             case "DL_ERROR_indication_N":          sendUpward(new DataLinkErrorIndication("N"));   break;
             case "DL_ERROR_indication_O":          sendUpward(new DataLinkErrorIndication("O"));   break;
+            case "DL_ERROR_indication_T":          sendUpward(new DataLinkErrorIndication("T"));   break;
+            case "DL_ERROR_indication_U":          sendUpward(new DataLinkErrorIndication("U"));   break;
 
             // ─── Link-multiplexer signals (signal_lower) ──────────────
             //

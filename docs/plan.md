@@ -836,6 +836,19 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-21 — TimerRecovery end-to-end scenarios under simulated loss
+
+Follow-up to the same-day wire-up (#207): an in-process two-session integration test (`DataLinkTimerRecoveryIntegrationTests.cs`) drives both endpoints through the §C4.5 entry-and-disconnect cycle under controlled loss, with `FakeTimeProvider` advancing T1 deterministically. Two facts cover the canonical cycle:
+
+- **Entry** — Connected session sends I-frame, loss drops it, T1 expires → state transitions to TimerRecovery, RC reaches 1.
+- **Disconnect** — sustained loss for N2+1 T1 cycles → DL-DISCONNECT-indication surfaces upstream and state transitions to Disconnected (figc4.5 t21_t1_expiry_yes_*).
+
+The pair is wired in-process (frame-bytes → Ax25Frame.TryParse → Ax25FrameClassifier → other-session.PostEvent), with a `Link.LossActive` flag controlling the bidirectional drop. A `Settle` helper drains both endpoints' inbound queues until quiescent, avoiding the re-entrancy problem that a direct `PostEvent` chain would hit.
+
+Also added the missing `DL_ERROR_indication_I` / `_T` / `_U` cases in `ActionDispatcher` — the disconnect path emits one of these letters depending on `V(s)/V(a)/peer_busy` state; figc4.5 t21_t1_expiry_yes_* paths previously hit "unknown SDL action" for the I/T/U variants until now.
+
+Recovery-from-loss-via-RR-poll is the third scenario from the Phase 2 exit criterion ("100 % loss for (T1−1)·N2 *then recovery*"); it requires uni-directional loss simulation (lose only the response back) which the current `Link` doesn't support. Deferred — the entry + disconnect cases give first-class coverage of the cycle's edges.
+
 ### 2026-05-21 — wire figc4.5 TimerRecovery into the runtime; 90-transition smoke test
 
 `Ax25Listener`'s state-map had `["TimerRecovery"] = Array.Empty<TransitionSpec>()` since the figc4.5 spec resolutions hadn't shipped — events posted while in TimerRecovery silently dropped. The same stub appeared in seven test/interop state-maps. The stub became removable when Packet.Ax25.Sdl 0.5.3 landed (figc4.5: 90 transitions / 45 decisions, `coverage: complete`).
