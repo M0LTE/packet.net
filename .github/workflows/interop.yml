@@ -23,8 +23,16 @@ on:
     - cron: '17 2 * * *'
 
 concurrency:
-  group: interop-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Workflow-level singleton. The docker stack at docker/compose.interop.yml
+  # uses fixed container names (`pn-linbpq`, `pn-xrouter`, `pn-netsim`,
+  # `pn-rax25`) and binds fixed host ports (8008, 8010, 8023, 8080, 8086,
+  # 8093, 8095, 8100, 8101) — two concurrent runs collide on docker
+  # resources and either fail to `compose up` ("rax25 is missing dependency
+  # netsim") or fail mid-test with connection-refused / banner-missing
+  # symptoms. Serialise instead. Cost is ~90 s of queue time per PR; gain
+  # is interop reliability.
+  group: interop
+  cancel-in-progress: false
 
 permissions:
   contents: read

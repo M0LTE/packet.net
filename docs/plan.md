@@ -836,6 +836,14 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-05-21 — interop workflow: serialise via workflow-level concurrency singleton
+
+The interop matrix had been red across multiple PRs in a row (#209 rej-srej, #210 segmenter) despite #210 touching no runtime code. Investigation traced it to concurrent runs of the interop workflow on the same self-hosted-runner pool: the docker stack at `docker/compose.interop.yml` uses fixed container names and binds fixed host ports, so two parallel runs collide on docker resources. Symptoms were "rax25 is missing dependency netsim" (compose-up failing because containers from the other run were in the way) and downstream connection-refused / banner-missing / timeout cascades.
+
+Confirmation from `gh run list` timing: every failed interop run overlapped with another interop run; every isolated run succeeded.
+
+Fix: change `interop.yml`'s `concurrency.group` from `interop-${{ github.ref }}` (per-ref, so PRs and main pushes had independent groups) to bare `interop` (workflow-level singleton) with `cancel-in-progress: false` (queue instead of clobber). Cost is ~90 s extra queue time per PR; gain is interop reliability.
+
 ### 2026-05-21 — AX.25 §6.6 Segmenter + Reassembler
 
 Phase 2 exit criterion: *"Segmenter reassembles a 1500-byte payload across multiple I-frames."*
