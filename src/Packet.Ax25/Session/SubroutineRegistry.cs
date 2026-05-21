@@ -57,25 +57,19 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
     private GuardEvaluator? wiredGuards;
 
     /// <summary>
-    /// Legacy subroutine names that remain referenced by older
-    /// state-machine YAML pages (e.g. <c>connected.sdl.yaml</c>'s
-    /// <c>Enquiry_Response_F_0</c> / <c>_F_1</c>) but aren't separate
-    /// subroutines in the redrawn <c>figc4.7</c> — both call the same
-    /// <c>Enquiry_Response</c> body, with the F-bit choice arising
-    /// naturally from the spec's first-decision predicate
-    /// <c>F == 1 &amp; (Frame==RR || Frame==RNR || Frame==I)?</c>.
+    /// Legacy subroutine names — pure name rewrites where the alias walks
+    /// the canonical body unchanged. Used when a YAML page calls a
+    /// subroutine under a name that the redrawn figc4.7 doesn't emit
+    /// directly.
     /// </summary>
     /// <remarks>
-    /// Each entry maps the legacy alias name to the canonical spec
-    /// name to walk. After <see cref="Wire"/>, invoking the legacy
-    /// alias runs the canonical body; the figure-faithful caller-side
-    /// name in <c>connected.sdl.yaml</c> stays unchanged.
+    /// After <see cref="Wire"/>, invoking the legacy alias runs the
+    /// canonical body; the figure-faithful caller-side name in the
+    /// state-machine YAMLs stays unchanged.
     /// </remarks>
     private static readonly IReadOnlyDictionary<string, string> LegacyAliases =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["Enquiry_Response_F_0"] = "Enquiry_Response",
-            ["Enquiry_Response_F_1"] = "Enquiry_Response",
             // Packet.Ax25.Sdl v0.5.0 names the figc4.7 subroutine `Select_T1`
             // (matching the figure heading); earlier transcriptions called
             // it `Select_T1_Value`. Keep the longer historic name working.
@@ -88,6 +82,49 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         };
 
     /// <summary>
+    /// Context-binding aliases — alias names that mutate the trigger
+    /// context before walking the canonical body. Used where the SDL
+    /// figure's call-site annotation on a subroutine implies an
+    /// out-of-band binding that the canonical body alone doesn't
+    /// produce.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Concrete case: figc4.7b page 102 draws <c>Check Need for Response</c>'s
+    /// Yes branch as <c>Enquiry Response (F = 1)</c>. The <c>(F = 1)</c>
+    /// annotation isn't explained in the spec prose (§C1.2 covers the
+    /// standard SDL symbols only); plausible readings include a formal
+    /// parameter binding, a frame-emission annotation analogous to the
+    /// <c>DM (F = 1)</c> shorthand used elsewhere, or a documentation
+    /// reminder. The <em>wire contract</em> is unambiguous either way:
+    /// AX.25 v2.2 §4.3 prose states *"the reply to this poll is indicated
+    /// by setting the response (final) bit in the appropriate frame"*, so
+    /// every response taking this code path must go out with F=1. The
+    /// canonical encoding of the annotation in the yaml DSL is the open
+    /// question — tracked at
+    /// <see href="https://github.com/M0LTE/ax25sdl/issues/45">m0lte/ax25sdl#45</see>.
+    /// </para>
+    /// <para>
+    /// The walker / codegen currently surfaces the annotation as a
+    /// name-suffix alias (<c>Enquiry_Response_F_1</c> / <c>_F_0</c>) of
+    /// the canonical <c>Enquiry_Response</c> body. Until the upstream
+    /// encoding settles, this dictionary mutates <see cref="PendingFrame.PfBit"/>
+    /// before walking the canonical body, so the response-emitting verbs
+    /// (<c>RR Response</c>, <c>RNR Response</c>, <c>SREJ</c>) emit frames
+    /// with the right F bit on the wire. Without the binding, polls
+    /// received by a Connected peer get responses with F=0, the polling
+    /// side's TimerRecovery guard <c>response_and_F_eq_1</c> never matches,
+    /// and recovery-to-Connected is unreachable.
+    /// </para>
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, (string Canonical, Action<TransitionContext> Bind)> ContextBindingAliases =
+        new Dictionary<string, (string, Action<TransitionContext>)>(StringComparer.Ordinal)
+        {
+            ["Enquiry_Response_F_1"] = ("Enquiry_Response", tx => tx.Pending.PfBit = true),
+            ["Enquiry_Response_F_0"] = ("Enquiry_Response", tx => tx.Pending.PfBit = false),
+        };
+
+    /// <summary>
     /// Canonical names of every subroutine the transcribed pages reference.
     /// Sourced from the generated <see cref="DataLink_Subroutines.Subroutines"/>
     /// list plus the legacy aliases.
@@ -95,6 +132,7 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
     public static IReadOnlyList<string> KnownSubroutines { get; } =
         DataLink_Subroutines.Subroutines.Select(s => s.Name)
             .Concat(LegacyAliases.Keys)
+            .Concat(ContextBindingAliases.Keys)
             .ToList();
 
     /// <summary>
@@ -121,11 +159,18 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         {
             subroutines[spec.Name] = _ => { /* no-op until Wire() is called */ };
         }
-        // Legacy aliases (e.g. Enquiry_Response_F_0 / _F_1, Select_T1_Value)
-        // — referenced by older transcriptions or by paths that called the
-        // longer historic name; resolved to the same body as their
-        // canonical target once Wire() runs.
+        // Legacy aliases (e.g. Select_T1_Value, Check_Need_For_Response with
+        // capital F) — referenced by older transcriptions or by paths that
+        // called the longer historic name; resolved to the same body as
+        // their canonical target once Wire() runs.
         foreach (var alias in LegacyAliases.Keys)
+        {
+            subroutines[alias] = _ => { /* no-op until Wire() is called */ };
+        }
+        // Context-binding aliases (e.g. Enquiry_Response_F_0/F_1) — resolved
+        // to the canonical body, but with a context-mutation applied first
+        // so the body's frame-emission verbs see the right Pending state.
+        foreach (var alias in ContextBindingAliases.Keys)
         {
             subroutines[alias] = _ => { /* no-op until Wire() is called */ };
         }
@@ -166,6 +211,22 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
             if (!specsByName.TryGetValue(canonicalName, out var spec)) continue;
             var captured = spec;
             subroutines[alias] = tx => WalkSubroutine(captured, tx);
+        }
+        // Each context-binding alias mutates the trigger context then walks
+        // the canonical body — see ContextBindingAliases doc for why the
+        // mutation is needed and the open encoding question at
+        // m0lte/ax25sdl#45.
+        foreach (var (alias, (canonicalName, bind)) in ContextBindingAliases)
+        {
+            if (userOverridden.Contains(alias)) continue;
+            if (!specsByName.TryGetValue(canonicalName, out var spec)) continue;
+            var captured = spec;
+            var capturedBind = bind;
+            subroutines[alias] = tx =>
+            {
+                capturedBind(tx);
+                WalkSubroutine(captured, tx);
+            };
         }
     }
 
