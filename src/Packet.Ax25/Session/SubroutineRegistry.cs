@@ -76,13 +76,21 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         {
             ["Enquiry_Response_F_0"] = "Enquiry_Response",
             ["Enquiry_Response_F_1"] = "Enquiry_Response",
+            // Packet.Ax25.Sdl v0.5.0 names the figc4.7 subroutine `Select_T1`
+            // (matching the figure heading); earlier transcriptions called
+            // it `Select_T1_Value`. Keep the longer historic name working.
+            ["Select_T1_Value"]      = "Select_T1",
+            // figc4.7 emits `Check_Need_for_Response` (lowercase 'for'); the
+            // calling pages spell the action verb `Check Need For Response`
+            // which normalises to `Check_Need_For_Response`. Alias the
+            // capital-F form so action-verb dispatch finds the body.
+            ["Check_Need_For_Response"] = "Check_Need_for_Response",
         };
 
     /// <summary>
     /// Canonical names of every subroutine the transcribed pages reference.
     /// Sourced from the generated <see cref="DataLink_Subroutines.Subroutines"/>
-    /// list plus the legacy aliases — transcription updates flow through
-    /// automatically.
+    /// list plus the legacy aliases.
     /// </summary>
     public static IReadOnlyList<string> KnownSubroutines { get; } =
         DataLink_Subroutines.Subroutines.Select(s => s.Name)
@@ -113,8 +121,9 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         {
             subroutines[spec.Name] = _ => { /* no-op until Wire() is called */ };
         }
-        // Legacy aliases (e.g. Enquiry_Response_F_0 / _F_1) — referenced
-        // by older transcriptions; resolved to the same body as their
+        // Legacy aliases (e.g. Enquiry_Response_F_0 / _F_1, Select_T1_Value)
+        // — referenced by older transcriptions or by paths that called the
+        // longer historic name; resolved to the same body as their
         // canonical target once Wire() runs.
         foreach (var alias in LegacyAliases.Keys)
         {
