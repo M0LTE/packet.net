@@ -127,7 +127,7 @@ public class DataLinkIntegrationTests
                 ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
                 ["Connected"]            = DataLink_Connected.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["TimerRecovery"]        = Array.Empty<TransitionSpec>(),
+                ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
             },
             initialState: initialState);
         return (session, recorder, guards);
