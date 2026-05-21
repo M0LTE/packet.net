@@ -88,13 +88,7 @@ public class DataLinkSessionLifecycleTests
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
                 ["Connected"]            = DataLink_Connected.Transitions,
                 ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-                // TimerRecovery is referenced by some Connected transitions
-                // but has no transcription yet. Stub with empty so an
-                // accidental routing there doesn't throw — events posted
-                // while in TimerRecovery would just drop. Replace with a
-                // real transcription once figc4.6's TimerRecovery state
-                // is transcribed.
-                ["TimerRecovery"]        = Array.Empty<TransitionSpec>(),
+                ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
             },
             initialState: initialState);
         sessionRef = session;

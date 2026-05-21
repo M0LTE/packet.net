@@ -593,12 +593,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
         ["Connected"]            = DataLink_Connected.Transitions,
         ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        // TimerRecovery is referenced by some Connected transitions but
-        // has no transcription yet. Stub with empty so an accidental
-        // routing there doesn't throw — events posted while in
-        // TimerRecovery just drop. Replace once figc4.6's TimerRecovery
-        // state is transcribed.
-        ["TimerRecovery"]        = Array.Empty<TransitionSpec>(),
+        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch

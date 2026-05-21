@@ -259,7 +259,7 @@ public class XrouterViaNetsimConnectedMode
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
         ["Connected"]            = DataLink_Connected.Transitions,
         ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]        = Array.Empty<TransitionSpec>(),
+        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
