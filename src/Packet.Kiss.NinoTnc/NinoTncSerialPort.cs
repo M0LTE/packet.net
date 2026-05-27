@@ -1,37 +1,36 @@
 using System.Collections.Concurrent;
-using System.IO.Ports;
 using System.Threading.Channels;
 using Packet.Kiss;
+using Packet.Kiss.Serial;
 
 namespace Packet.Kiss.NinoTnc;
 
 /// <summary>
 /// A NinoTNC USB-CDC serial connection that speaks KISS and the NinoTNC-flavoured
-/// SETHW command. Reads run on a background pump; writes are serialised through
-/// an internal semaphore. Inbound KISS frames are surfaced through
-/// <see cref="ReadFramesAsync"/> and <see cref="FrameReceived"/>; ACKMODE
-/// transmit-completion echoes are correlated through
-/// <see cref="SendFrameWithAckAsync"/>.
+/// SETHW command. Built on top of <see cref="KissSerialModem"/> for the generic
+/// serial-port plumbing; this class adds ACKMODE TX-completion correlation,
+/// NinoTNC frame classification, and SETHW mode switching. Inbound KISS frames
+/// are surfaced through <see cref="ReadFramesAsync"/> and
+/// <see cref="FrameReceived"/>; ACKMODE transmit-completion echoes are correlated
+/// through <see cref="SendFrameWithAckAsync"/>.
 /// </summary>
 public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposable
 {
     /// <summary>The NinoTNC's documented USB-serial baud rate.</summary>
     public const int DefaultBaudRate = 57600;
 
-    private readonly SerialPort serial;
-    private readonly KissDecoder decoder = new();
+    private readonly KissSerialModem modem;
     private readonly Channel<KissFrame> inbound;
-    private readonly SemaphoreSlim writeLock = new(1, 1);
     private readonly ConcurrentDictionary<ushort, TaskCompletionSource<AckModeReceipt>> pendingAcks = new();
-    private readonly CancellationTokenSource pumpCts = new();
+    private readonly CancellationTokenSource dispatchCts = new();
 
-    private Task? readPump;
+    private Task? dispatchLoop;
     private int ackSequenceCursor;
     private int disposed;
 
-    private NinoTncSerialPort(SerialPort serial)
+    private NinoTncSerialPort(KissSerialModem modem)
     {
-        this.serial = serial;
+        this.modem = modem;
         inbound = Channel.CreateUnbounded<KissFrame>(new UnboundedChannelOptions
         {
             SingleReader = false,
@@ -40,17 +39,11 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     }
 
     /// <summary>The port name the connection was opened on (e.g. "COM6" or "/dev/ttyACM0").</summary>
-    public string PortName => serial.PortName;
-
-    // The driver assumes one TNC = one KISS port = one radio (the user's
-    // explicit modelling decision). All TX uses port nibble 0; the encoder /
-    // decoder remain capable of arbitrary ports if some future use of the
-    // lower-level Packet.Kiss types needs it.
-    private const byte KissPort = 0;
+    public string PortName => modem.PortName;
 
     /// <summary>
     /// Fired for every inbound KISS frame after framing/unescaping, in
-    /// its raw form. Subscribers run on the read-pump task — keep handlers
+    /// its raw form. Subscribers run on the dispatch task — keep handlers
     /// fast and non-blocking. Use <see cref="ReadFramesAsync"/> if you'd
     /// rather pull frames on your own task.
     /// </summary>
@@ -66,7 +59,7 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// Fired for every inbound KISS frame after framing/unescaping, *and*
     /// after the driver has classified the shape (AX.25, TX-Test diagnostic,
     /// ACKMODE-Data, or unknown). Strongly typed for ergonomic handler
-    /// dispatch. Subscribers run on the read-pump task.
+    /// dispatch. Subscribers run on the dispatch task.
     /// </summary>
     public event EventHandler<KissInboundEvent>? InboundEvent;
 
@@ -75,24 +68,9 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// </summary>
     public static NinoTncSerialPort Open(string portName, int baudRate = DefaultBaudRate)
     {
-        ArgumentException.ThrowIfNullOrEmpty(portName);
-        var serial = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One)
-        {
-            // 100 ms slot for the pump loop. SerialPort.BaseStream.ReadAsync
-            // does not honour cancellation on Windows, and SerialPort.DataReceived
-            // is famously unreliable; the only pattern that survives both is a
-            // foreground thread doing finite-timeout synchronous reads.
-            ReadTimeout = 100,
-            WriteTimeout = 1000,
-            Handshake = Handshake.None,
-            DtrEnable = true,
-            RtsEnable = true,
-        };
-        serial.Open();
-        var tnc = new NinoTncSerialPort(serial);
-        tnc.readPump = Task.Factory.StartNew(
-            () => tnc.PumpReadsBlocking(tnc.pumpCts.Token),
-            TaskCreationOptions.LongRunning);
+        var inner = KissSerialModem.Open(portName, baudRate);
+        var tnc = new NinoTncSerialPort(inner);
+        tnc.dispatchLoop = Task.Run(() => tnc.DispatchFramesAsync(tnc.dispatchCts.Token));
         return tnc;
     }
 
@@ -109,11 +87,8 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// has *not* happened yet. Use <see cref="SendFrameWithAckAsync"/> when
     /// you need to know when the modem has finished keying.
     /// </summary>
-    public async Task SendFrameAsync(ReadOnlyMemory<byte> ax25Bytes, CancellationToken cancellationToken = default)
-    {
-        var encoded = KissEncoder.Encode(KissPort, KissCommand.Data, ax25Bytes.Span);
-        await WriteAsync(encoded, cancellationToken).ConfigureAwait(false);
-    }
+    public Task SendFrameAsync(ReadOnlyMemory<byte> ax25Bytes, CancellationToken cancellationToken = default) =>
+        modem.SendFrameAsync(ax25Bytes, cancellationToken);
 
     /// <summary>
     /// Send an ACKMODE frame (command 0x0C) and await the TNC's TX-completion
@@ -137,11 +112,15 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
             throw new InvalidOperationException($"sequence tag 0x{tag:X4} already has a pending ACK; pick a unique tag");
         }
 
-        var wire = KissAckMode.BuildSendFrame(KissPort, tag, ax25Bytes.Span);
+        var payload = new byte[ax25Bytes.Length + 2];
+        payload[0] = (byte)((tag >> 8) & 0xFF);
+        payload[1] = (byte)(tag & 0xFF);
+        ax25Bytes.Span.CopyTo(payload.AsSpan(2));
+
         var queuedAt = DateTimeOffset.UtcNow;
         try
         {
-            await WriteAsync(wire, cancellationToken).ConfigureAwait(false);
+            await modem.SendKissAsync(KissCommand.AckMode, payload, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -168,7 +147,7 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// <summary>
     /// Set the NinoTNC operating mode via KISS SETHW (command 0x06).
     /// </summary>
-    /// <param name="mode">DIP-switch-equivalent mode 0–14, or 15 ("Set from KISS").</param>
+    /// <param name="mode">DIP-switch-equivalent mode 0-14, or 15 ("Set from KISS").</param>
     /// <param name="persistToFlash">
     /// When <c>false</c> (default), the +16 non-persist offset is applied so
     /// the change does not touch the TNC's flash. Use <c>true</c> only when
@@ -176,90 +155,42 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// </param>
     public Task SetModeAsync(byte mode, bool persistToFlash = false, CancellationToken cancellationToken = default)
     {
-        var frame = NinoTncSetHardware.BuildKissFrame(mode, persistToFlash, KissPort);
-        return WriteAsync(frame, cancellationToken);
+        byte payload = NinoTncSetHardware.BuildPayloadByte(mode, persistToFlash);
+        return modem.SendKissAsync(KissCommand.SetHardware, new[] { payload }, cancellationToken);
     }
 
     /// <summary>Send a KISS TXDELAY (0x01) command. Units are 10 ms.</summary>
     public Task SetTxDelayAsync(byte tenMsUnits, CancellationToken cancellationToken = default) =>
-        SendParameterAsync(KissCommand.TxDelay, tenMsUnits, cancellationToken);
+        modem.SetTxDelayAsync(tenMsUnits, cancellationToken);
 
-    /// <summary>Send a KISS PERSISTENCE (0x02) command (0–255).</summary>
+    /// <summary>Send a KISS PERSISTENCE (0x02) command (0-255).</summary>
     public Task SetPersistenceAsync(byte value, CancellationToken cancellationToken = default) =>
-        SendParameterAsync(KissCommand.Persistence, value, cancellationToken);
+        modem.SetPersistenceAsync(value, cancellationToken);
 
     /// <summary>Send a KISS SLOTTIME (0x03) command. Units are 10 ms.</summary>
     public Task SetSlotTimeAsync(byte tenMsUnits, CancellationToken cancellationToken = default) =>
-        SendParameterAsync(KissCommand.SlotTime, tenMsUnits, cancellationToken);
+        modem.SetSlotTimeAsync(tenMsUnits, cancellationToken);
 
     /// <summary>Send a KISS FULLDUPLEX (0x05) command.</summary>
     public Task SetFullDuplexAsync(bool fullDuplex, CancellationToken cancellationToken = default) =>
-        SendParameterAsync(KissCommand.FullDuplex, fullDuplex ? (byte)1 : (byte)0, cancellationToken);
+        modem.SetFullDuplexAsync(fullDuplex, cancellationToken);
 
     /// <summary>Send a KISS TXTAIL (0x04) command. Units are 10 ms.</summary>
     public Task SetTxTailAsync(byte tenMsUnits, CancellationToken cancellationToken = default) =>
-        SendParameterAsync(KissCommand.TxTail, tenMsUnits, cancellationToken);
+        modem.SetTxTailAsync(tenMsUnits, cancellationToken);
 
-    private Task SendParameterAsync(KissCommand command, byte value, CancellationToken cancellationToken)
+    private async Task DispatchFramesAsync(CancellationToken cancellationToken)
     {
-        var frame = KissEncoder.Encode(KissPort, command, new[] { value });
-        return WriteAsync(frame, cancellationToken);
-    }
-
-    private async Task WriteAsync(byte[] bytes, CancellationToken cancellationToken)
-    {
-        await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            // Use the synchronous Write path. SerialPort.BaseStream.WriteAsync
-            // is reportedly unreliable on some Windows configurations; the
-            // synchronous path (which BaseStream.WriteAsync wraps via Task.Run
-            // anyway under the hood for non-async-IO ports) matches what the
-            // spike does and is what the hardware loop has been observed to
-            // round-trip.
-            serial.Write(bytes, 0, bytes.Length);
-        }
-        finally
-        {
-            writeLock.Release();
-        }
-    }
-
-    private void PumpReadsBlocking(CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4096];
         Exception? terminal = null;
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            await foreach (var frame in modem.ReadFramesAsync(cancellationToken).ConfigureAwait(false))
             {
-                int read;
-                try
-                {
-                    read = serial.Read(buffer, 0, buffer.Length);
-                }
-                catch (TimeoutException)
-                {
-                    continue;
-                }
-                if (read <= 0)
-                {
-                    continue;
-                }
-                foreach (var frame in decoder.Push(buffer.AsSpan(0, read)))
-                {
-                    DispatchFrame(frame);
-                }
+                DispatchFrame(frame);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Normal shutdown.
-        }
-        catch (Exception ex) when (Volatile.Read(ref disposed) != 0)
-        {
-            // SerialPort throws on Dispose() while a read is in flight; swallow it.
-            terminal = ex;
         }
         catch (Exception ex)
         {
@@ -274,15 +205,10 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
 
     private void DispatchFrame(KissFrame frame)
     {
-        // ACKMODE TX-completion echo: 2-byte payload, our own outbound
-        // sequence tag echoed back. Complete the pending TCS so the
-        // caller's `SendFrameWithAckAsync` returns.
         if (KissAckMode.TryParseAcknowledgement(frame, out var tag) &&
             pendingAcks.TryRemove(tag, out var tcs))
         {
             tcs.TrySetResult(new AckModeReceipt(tag, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-            // No typed event for our own echo — the caller already gets it
-            // as the return value of SendFrameWithAckAsync.
             inbound.Writer.TryWrite(frame);
             FrameReceived?.Invoke(this, frame);
             return;
@@ -307,9 +233,6 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
 
     private ushort NextSequenceTag()
     {
-        // 0x0000 is a legitimate tag but it's also the natural value for an
-        // accidentally-uninitialised tag from the user's side. Start at 1 and
-        // wrap around 0xFFFF → 1 to avoid confusion.
         while (true)
         {
             int next = Interlocked.Increment(ref ackSequenceCursor) & 0xFFFF;
@@ -327,33 +250,19 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
         {
             return;
         }
-        // Dispose the SerialPort *first* — on Windows, SerialPort.BaseStream.ReadAsync
-        // does not honour cancellation tokens reliably (the Win32 ReadFile IO is
-        // not abandoned when the token fires). Closing the underlying handle is
-        // what actually unblocks the pending read so the pump task can exit.
+        await dispatchCts.CancelAsync().ConfigureAwait(false);
+        await modem.DisposeAsync().ConfigureAwait(false);
         try
         {
-            serial.Dispose();
-        }
-        catch
-        {
-            // Best-effort; the pump's catch block handles the resulting exception.
-        }
-        await pumpCts.CancelAsync().ConfigureAwait(false);
-        try
-        {
-            if (readPump is not null)
+            if (dispatchLoop is not null)
             {
-                await readPump.ConfigureAwait(false);
+                await dispatchLoop.ConfigureAwait(false);
             }
         }
         catch
         {
-            // The pump's own try/catch already surfaced any terminal exception
-            // through the inbound channel; we don't need to re-raise here.
         }
-        writeLock.Dispose();
-        pumpCts.Dispose();
+        dispatchCts.Dispose();
     }
 
     /// <inheritdoc/>

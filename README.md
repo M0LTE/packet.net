@@ -17,7 +17,8 @@ Each library is its own NuGet package (or planned package). They compose: the no
 | `src/Packet.Aprs/` | APRS frame codec | _not yet published_ |
 | `src/Packet.Agw/` | AGW (SV2AGW) client | _not yet published_ |
 | `src/Packet.Axudp/` | AXUDP transport | _not yet published_ |
-| `src/Packet.Kiss.NinoTnc/` | NinoTNC-specific KISS transport | _not yet published_ |
+| `src/Packet.Kiss.Serial/` | Generic serial-port KISS modem | [`Packet.Kiss.Serial`](https://www.nuget.org/packages/Packet.Kiss.Serial) |
+| `src/Packet.Kiss.NinoTnc/` | NinoTNC-specific KISS extensions (ACKMODE, SETHW, frame classification) | [`Packet.Kiss.NinoTnc`](https://www.nuget.org/packages/Packet.Kiss.NinoTnc) |
 | `src/Packet.Mcp/` | MCP server scaffolding | _not yet published_ |
 | `src/Packet.Rhp2/` + `.Server/` | RHPv2 protocol | _not yet published_ |
 | `src/Packet.Node/` + `.Extensions/` | Packet-radio node host (web UI, REST, MCP, plugin shim) | n/a — application |

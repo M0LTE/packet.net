@@ -9,6 +9,8 @@ name: publish-libs
 #   Packet.Core
 #   Packet.Kiss.Abstractions
 #   Packet.Kiss
+#   Packet.Kiss.Serial
+#   Packet.Kiss.NinoTnc
 #   Packet.Ax25
 #
 # Add more by appending to the `projects:` array below and giving
@@ -70,6 +72,8 @@ jobs:
           - Packet.Core
           - Packet.Kiss.Abstractions
           - Packet.Kiss
+          - Packet.Kiss.Serial
+          - Packet.Kiss.NinoTnc
           - Packet.Ax25
     env:
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
