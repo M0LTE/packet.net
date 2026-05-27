@@ -39,6 +39,7 @@ jobs:
           - Packet.Core.Tests
           - Packet.Interop.Tests
           - Packet.Kiss.NinoTnc.Tests
+          - Packet.Kiss.Serial.Tests
           - Packet.Kiss.Tests
           - Packet.Node.Tests
           - Packet.Rhp2.Tests

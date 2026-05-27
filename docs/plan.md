@@ -6,6 +6,7 @@
 
 **As of:** 2026-05-17
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-05-28 — Extract generic serial KISS modem into Packet.Kiss.Serial (closes #219)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-17 — packet-terminal example: modernize to Ax25Listener + listener-session facade](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-17 — Packet.Term: Spectre.Console → Terminal.Gui v2](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-05-16 — interop flake investigation: XRouter tests cleared](#17-amendment-log)
@@ -835,6 +836,15 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-28 — Extract generic serial KISS modem into Packet.Kiss.Serial (closes #219)
+
+- New package `Packet.Kiss.Serial` with `KissSerialModem` — a generic serial-port KISS modem implementing `IKissModem`. This is the canonical version of the logic previously duplicated in `m0lte/packet-term-tui` and `M0LTE/axcall`.
+- `KissSerialModem` exposes: `Open(portName, baudRate)`, `SendFrameAsync`, `SendKissAsync` (arbitrary KISS commands), `ReadFramesAsync`, `FrameReceived` event, standard KISS parameter setters (TxDelay, Persistence, SlotTime, TxTail, FullDuplex), and proper `IAsyncDisposable`/`IDisposable`.
+- `NinoTncSerialPort` refactored to compose `KissSerialModem` instead of managing its own `SerialPort` + read pump. The NinoTNC-specific surface (ACKMODE correlation, SETHW mode switching, `NinoTncFrameClassifier` dispatch, `InboundEvent` typed events) is unchanged.
+- `Packet.Kiss.NinoTnc.csproj` now depends on `Packet.Kiss.Serial` (and drops its direct `System.IO.Ports` dependency — comes transitively).
+- Both packages added to `publish-libs.yml` matrix and `ci.yml` test matrix. New test project `Packet.Kiss.Serial.Tests`.
+- README package table updated.
 
 ### 2026-05-21 — Enquiry_Response F-bit parameter binding (closes ax25sdl#43)
 

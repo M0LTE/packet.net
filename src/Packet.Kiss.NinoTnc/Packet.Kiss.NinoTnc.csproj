@@ -1,12 +1,16 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="System.IO.Ports" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="..\Packet.Kiss.Serial\Packet.Kiss.Serial.csproj" />
     <ProjectReference Include="..\Packet.Kiss\Packet.Kiss.csproj" />
     <ProjectReference Include="..\Packet.Ax25\Packet.Ax25.csproj" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <PackageId>Packet.Kiss.NinoTnc</PackageId>
+    <Title>Packet.Kiss.NinoTnc — NinoTNC-specific KISS extensions</Title>
+    <Description>NinoTNC-specific KISS extensions for the Packet.NET stack — ACKMODE TX-completion correlation, SETHW mode switching, TX-Test frame classification, USB port discovery. Built on Packet.Kiss.Serial for generic serial-port plumbing. Source: github.com/m0lte/packet.net.</Description>
+    <PackageTags>ax25;amateur-radio;packet-radio;kiss;tnc;ninotnc</PackageTags>
+  </PropertyGroup>
 
 </Project>
