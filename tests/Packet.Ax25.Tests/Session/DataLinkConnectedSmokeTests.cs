@@ -141,9 +141,25 @@ public class DataLinkConnectedSmokeTests
         s.PostEvent(evt);
 
         s.CurrentState.Should().Be(expected.Next, $"transition '{expected.Id}' should land on '{expected.Next}'");
-        r.Recorded.Should().Equal(
-            expected.Actions.Select(a => (a.Verb, a.Kind)).ToArray(),
-            $"transition '{expected.Id}' actions should fire in order");
+
+        // Loops execute against this harness's empty session state (the
+        // recording dispatcher mutates nothing), so a head-test (while) loop's
+        // body runs zero times and doesn't appear in the recorded sequence;
+        // a tail-test (do-while) body runs exactly once (= the flat list).
+        // Build the expected recorded sequence to match. Loop *iteration*
+        // behaviour is covered by the behavioural tests (out-of-sequence /
+        // stored-frame drain, retransmit), not here.
+        var headLoopBody = new HashSet<int>();
+        foreach (var loop in expected.Loops.Where(l => !l.TestAtEnd))
+            for (int i = loop.Start; i < loop.Start + loop.Length; i++)
+                headLoopBody.Add(i);
+        var expectedRecorded = expected.Actions
+            .Where((_, i) => !headLoopBody.Contains(i))
+            .Select(a => (a.Verb, a.Kind))
+            .ToArray();
+
+        r.Recorded.Should().Equal(expectedRecorded,
+            $"transition '{expected.Id}' actions should fire in order (head-test loop bodies run zero times against empty harness state)");
     }
 
     // ─── Column 1 ──────────────────────────────────────────────────────
@@ -395,16 +411,13 @@ public class DataLinkConnectedSmokeTests
         AssertTransitionFires(new RejReceived(Frame()),
             new Guards { NrInWindow = false, Version22 = false });
 
-    // ─── Column 2 continued (V(r) I Frame Stored = Yes paths) ──────────
-    [Fact] public void t67_i_received_in_seq_stored_p_eq_1() =>
-        AssertTransitionFires(new IFrameReceived(Frame()),
-            new Guards { Command = true, InfoFieldValid = true, NrInWindow = true, OwnReceiverBusy = false, NsEqVr = true, VrIFrameStored = true, PEq1 = true });
-
-    [Fact] public void t68_i_received_in_seq_stored_p_eq_0_ack_pending() =>
-        AssertTransitionFires(new IFrameReceived(Frame()),
-            new Guards { Command = true, InfoFieldValid = true, NrInWindow = true, OwnReceiverBusy = false, NsEqVr = true, VrIFrameStored = true, PEq1 = false, AckPending = true });
-
-    [Fact] public void t69_i_received_in_seq_stored_p_eq_0_no_ack_pending() =>
-        AssertTransitionFires(new IFrameReceived(Frame()),
-            new Guards { Command = true, InfoFieldValid = true, NrInWindow = true, OwnReceiverBusy = false, NsEqVr = true, VrIFrameStored = true, PEq1 = false, AckPending = false });
+    // ─── Column 2 continued (V(r) I Frame Stored paths) ────────────────
+    // Removed t67/t68/t69 (the old separate "V(r) I Frame Stored = Yes"
+    // transitions). With Packet.Ax25.Sdl 0.7.0 the stored-frame drain is a
+    // loop_while *inside* the three in-sequence transitions above (t09/t10/t11),
+    // not a separate selection branch — V(r) I Frame Stored? is the loop's
+    // continue predicate, not a transition guard. The drain's iteration is
+    // covered behaviourally by DataLinkConnectedRetransmitTests /
+    // DataLinkSessionLifecycleTests; selecting it here with a constant mock
+    // guard would just spin the recorder-harness loop. See ax25sdl#48.
 }

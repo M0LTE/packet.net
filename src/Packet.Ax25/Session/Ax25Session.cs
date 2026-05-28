@@ -190,7 +190,7 @@ public sealed class Ax25Session
             }
 
             var tx = new TransitionContext(Context, scheduler, evt);
-            dispatcher.Execute(match.Actions, tx);
+            SdlLoopExecutor.Execute(match.Actions, match.Loops, dispatcher, guards, tx);
             CurrentState = match.Next;
         }
         finally
@@ -198,6 +198,10 @@ public sealed class Ax25Session
             CurrentTrigger = null;
         }
     }
+
+    // Loop expansion (SDL loop_while, Packet.Ax25.Sdl 0.7.0+) lives in
+    // SdlLoopExecutor, shared with the subroutine path so Invoke_Retransmission
+    // — itself a subroutine — iterates identically.
 
     /// <summary>
     /// After every event dispatch, if <see cref="Ax25SessionContext.IFrameQueue"/>

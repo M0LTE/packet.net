@@ -111,7 +111,7 @@ public class HardwareLoop10KBTransfer
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Currently skipped — blocked on two upstream SDL gaps:</b>
+    /// <b>Was blocked on two upstream SDL gaps, both fixed in Packet.Ax25.Sdl 0.7.0:</b>
     /// <list type="bullet">
     ///   <item>
     ///     <a href="https://github.com/m0lte/ax25sdl/issues/44">ax25sdl#44</a>
@@ -136,11 +136,14 @@ public class HardwareLoop10KBTransfer
     /// until N2 retries exhaust and DM ends the session.
     /// </para>
     /// <para>
-    /// The test infrastructure is otherwise complete. Removing the
-    /// <see cref="Skip.If(bool, string)"/> below once
-    /// <c>Packet.Ax25.Sdl</c> ships the fixes will re-enable the
-    /// matrix; the assertion shape stays the same. Downstream
-    /// tracker for both unblocks: <see href="https://github.com/m0lte/packet.net/issues/214"/>.
+    /// Both fixes shipped in <c>Packet.Ax25.Sdl</c> 0.7.0, so the
+    /// unconditional skip has been removed; the matrix now runs on the
+    /// hardware-loop runner (and skips cleanly without a NinoTNC pair via
+    /// <see cref="Skip.If(bool, string)"/> in <c>SelectTwoPorts</c>).
+    /// The in-process retransmit-loop behaviour is proven by
+    /// <c>DataLinkConnectedRetransmitTests.Invoke_Retransmission_Requeues_Every_Unacked_Frame_Not_Just_One</c>;
+    /// this matrix is the on-air end-to-end confirmation. Tracker:
+    /// <see href="https://github.com/m0lte/packet.net/issues/214"/>.
     /// </para>
     /// </remarks>
     [SkippableTheory]
@@ -150,12 +153,13 @@ public class HardwareLoop10KBTransfer
     [InlineData((byte)6, (byte)15, 0.30)]
     public Task Ten_KB_Transfer_Survives_Scripted_Loss(byte modeId, byte txDelayTenMsUnits, double lossProbability)
     {
-        Skip.If(true,
-            "Blocked on two upstream SDL gaps: " +
-            "m0lte/ax25sdl#44 (Invoke_Retransmission encodes only one loop iteration — REJ-triggered retransmits don't re-emit missing I-frames) and " +
-            "m0lte/ax25sdl#43 (Enquiry_Response paths don't set F:=1 — polls get F=0 responses, recovery guard never matches). " +
-            "Link starves in a perpetual RR-poll cycle until N2 retries exhaust. " +
-            "Remove this Skip.If once Packet.Ax25.Sdl ships both fixes (tracked downstream by m0lte/packet.net#214).");
+        // Unblocked by Packet.Ax25.Sdl 0.7.0: ax25sdl#44 (Invoke_Retransmission
+        // recovered as a real loop and executed by the runtime) and ax25sdl#43
+        // (Enquiry_Response sets F:=1) are both fixed, so REJ / TimerRecovery
+        // recovery now re-emits the missing I-frames and the link no longer
+        // starves. Hardware-gated via SelectTwoPorts() in RunTransferAsync —
+        // skips cleanly without a NinoTNC pair, runs on the hardware-loop
+        // runner. See m0lte/packet.net#214.
         return RunTransferAsync(modeId, txDelayTenMsUnits, lossProbability);
     }
 

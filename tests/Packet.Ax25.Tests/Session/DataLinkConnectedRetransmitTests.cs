@@ -112,6 +112,57 @@ public class DataLinkConnectedRetransmitTests
             "V(a) must catch up to N(r) — the spec's 'V(a) := N(r)' action");
     }
 
+    [Fact]
+    public void Invoke_Retransmission_Requeues_Every_Unacked_Frame_Not_Just_One()
+    {
+        // Regression for ax25sdl#44: the figc4.7 retransmit loop used to be
+        // flattened to a single iteration, so only ONE old I-frame was
+        // re-queued and V(s) drifted past V(a). With the loop recovered
+        // (Packet.Ax25.Sdl 0.7.0) and executed (SdlLoopExecutor as a
+        // do-while), Invoke_Retransmission must re-queue every unacked frame
+        // from N(r) up to X (= the saved V(s)) and restore V(s) to X.
+        var time = new FakeTimeProvider();
+        var scheduler = new SystemTimerScheduler(time);
+        var ctx = new Ax25SessionContext
+        {
+            Local  = new Callsign("M0LTEA", 1),
+            Remote = new Callsign("M0LTEB", 2),
+        };
+        var subroutines = new DefaultSubroutineRegistry();
+        var dispatcher = new ActionDispatcher(
+            onTimerExpiry: _ => { },
+            sendSFrame:    _ => { },
+            sendUFrame:    _ => { },
+            sendUiFrame:   _ => { },
+            sendIFrame:    _ => { },
+            sendUpward:    _ => { },
+            sendLinkMux:   _ => { },
+            sendInternal:  _ => { },
+            subroutines:   subroutines);
+        var guards = new GuardEvaluator(Ax25SessionBindings.CreateDefault(ctx, scheduler));
+        subroutines.Wire(dispatcher, guards);
+
+        // A has sent four I-frames (seq 0..3); V(s)=4, V(a)=0. The peer's REJ
+        // asks to go back to N(r)=1, so frames 1, 2 and 3 must be re-queued
+        // (X - N(r) = 4 - 1 = 3 frames).
+        ctx.VS = 4;
+        ctx.VA = 0;
+        for (byte ns = 0; ns < 4; ns++)
+            ctx.SentIFrames[ns] = (new byte[] { ns }, Ax25Frame.PidNoLayer3);
+
+        var rej = Ax25Frame.Rej(
+            destination: ctx.Local, source: ctx.Remote,
+            nr: 1, isCommand: false, pollFinal: false);
+        var tx = new TransitionContext(ctx, scheduler, new RejReceived(rej));
+
+        dispatcher.Execute(new[] { new ActionStep("Invoke Retransmission", ActionKind.Subroutine) }, tx);
+
+        ctx.IFrameQueue.Count.Should().Be(3,
+            "frames at seq 1, 2 and 3 are all re-queued — the single-iteration bug re-queued only one");
+        ctx.VS.Should().Be(4,
+            "V(s) is restored to X (the saved V(s)) after the retransmit loop completes");
+    }
+
     // ─── Rig: two sessions linked in-process ───────────────────────────
 
     private sealed class Link

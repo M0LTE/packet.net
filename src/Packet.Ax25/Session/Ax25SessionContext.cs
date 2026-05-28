@@ -203,6 +203,9 @@ public sealed class Ax25SessionContext
     /// <summary>Increment a sequence variable, wrapping at <see cref="Modulus"/>.</summary>
     public byte IncrementSeq(byte value) => (byte)((value + 1) % Modulus);
 
+    /// <summary>Decrement a sequence variable, wrapping at <see cref="Modulus"/>.</summary>
+    public byte DecrementSeq(byte value) => (byte)((value + Modulus - 1) % Modulus);
+
     /// <summary>Reset all session state to "freshly connected" defaults.</summary>
     public void ResetState()
     {
