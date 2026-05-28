@@ -439,7 +439,7 @@ public sealed class ActionDispatcher : IActionDispatcher
             // N(S) == V(r) (i.e. the next expected) when V(r) advances
             // and ships it upward as DL_DATA_indication.
             case "save_contents_of_I_frame":       SaveIncomingIFrame(tx); break;
-            case "retrieve_stored_V_r_I_frame":    RetrieveStoredVrIFrame(tx, sendUpward); break;
+            case "retrieve_stored_V_r_I_frame":    RetrieveStoredVrIFrame(tx); break;
 
             // Modulus selection. figc4.1 / figc4.4's SABM(E) paths use
             // these to lock in mod-8 vs mod-128 once the peer accepts.
@@ -497,6 +497,11 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "V(s) := V(s) + 1":               ctx.VS = ctx.IncrementSeq(ctx.VS); break;
             case "V(r) := 0":                      ctx.VR = 0; break;
             case "V(r) := V(r) + 1":               ctx.VR = ctx.IncrementSeq(ctx.VR); break;
+            // figc4.5 Timer Recovery draws the stored-frame drain with
+            // V(r) := V(r) - 1. The decrement is surprising for a drain and
+            // is flagged for spec-author confirmation (ax25sdl#49); encoded
+            // faithfully here pending that review.
+            case "V(r) := V(r) - 1":               ctx.VR = ctx.DecrementSeq(ctx.VR); break;
             case "V(a) := 0":                      ctx.VA = 0; break;
             case "RC := 0":                        ctx.RC = 0; break;
             case "RC := 1":                        ctx.RC = 1; break;
@@ -863,25 +868,24 @@ public sealed class ActionDispatcher : IActionDispatcher
     }
 
     /// <summary>
-    /// Implement <c>retrieve_stored_V_r_I_frame</c>: pull the stored
-    /// I-frame whose N(S) equals the session's current V(R), ship its
-    /// payload upward as <see cref="DataLinkDataIndication"/>, and
-    /// remove it from storage.
+    /// Implement <c>retrieve_stored_V_r_I_frame</c>: pull the stored I-frame
+    /// whose N(S) equals the session's current V(R), remove it from storage,
+    /// and <em>stage</em> it on <see cref="TransitionContext.RetrievedStoredFrame"/>
+    /// for the next <c>DL-DATA Indication</c> in the chain to deliver.
     /// </summary>
     /// <remarks>
-    /// In the spec figures, V(r) is typically incremented in the same
-    /// action chain before this verb fires, so V(r) points at the
-    /// next-expected seqno that the just-stored out-of-order frame had.
-    /// If no stored frame matches, this is a no-op — matching what
-    /// linbpq / direwolf do.
+    /// The figc4.4 / figc4.5 stored-frame drain loop draws retrieval and
+    /// delivery as two separate actions (Retrieve, then DL-DATA Indication),
+    /// so this stages rather than delivers — otherwise the loop body's own
+    /// DL-DATA Indication would double-deliver. If no stored frame matches,
+    /// this is a no-op (matching linbpq / direwolf).
     /// </remarks>
-    private static void RetrieveStoredVrIFrame(TransitionContext tx, Action<DataLinkSignal> sendUpward)
+    private static void RetrieveStoredVrIFrame(TransitionContext tx)
     {
-        if (!tx.Session.StoredReceivedIFrames.Remove(tx.Session.VR, out var stored))
+        if (tx.Session.StoredReceivedIFrames.Remove(tx.Session.VR, out var stored))
         {
-            return;
+            tx.RetrievedStoredFrame = (stored.Info, stored.Pid);
         }
-        sendUpward(new DataLinkDataIndication(stored.Info, stored.Pid));
     }
 
     /// <summary>
@@ -901,6 +905,15 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// </remarks>
     private static DataLinkDataIndication BuildDataIndication(TransitionContext tx)
     {
+        // Inside the stored-frame drain loop, a preceding
+        // `Retrieve Stored V(r) I Frame` stages the frame to deliver here;
+        // consume it. Outside the loop, deliver the triggering frame.
+        if (tx.RetrievedStoredFrame is { } staged)
+        {
+            tx.RetrievedStoredFrame = null;
+            return new DataLinkDataIndication(staged.Info, staged.Pid);
+        }
+
         var frame = RequireIncomingFrame(tx, "DL_DATA_indication");
         if (frame.Pid is not byte pid)
         {
@@ -1104,9 +1117,11 @@ public sealed class ActionDispatcher : IActionDispatcher
             // "Push Old I Frame N(r) on Queue" is figc4.4's REJ/SREJ retransmit
             // verb — looks up the previously-sent I-frame at N(r) and re-queues
             // it. Distinct from the unprefixed "Push Old I Frame onto Queue"
-            // which is the Invoke_Retransmission subroutine's loop body.
+            // (the Invoke_Retransmission loop body), which has its own dedicated
+            // case re-queuing the sent I-frame at the current V(s) — it must NOT
+            // alias to push_on_I_frame_queue (that verb pushes a *new* I-frame
+            // from a DL-DATA request and requires that trigger).
             ["Push Old I Frame N(r) on Queue"]    = "push_old_I_frame_N_r_on_queue",
-            ["Push Old I Frame onto Queue"]       = "push_on_I_frame_queue",
             ["Push Frame on Queue"]               = "push_on_I_frame_queue",
             ["Push Frame Onto Queue"]             = "push_on_I_frame_queue",
 
@@ -1117,6 +1132,12 @@ public sealed class ActionDispatcher : IActionDispatcher
             ["Modulo := 128"]                     = "Modulo <- 128",
             ["N1 := 2048"]                        = "N1 <- 2048",
             ["N2 := 10"]                          = "N2 <- 10",
+            // Invoke_Retransmission (figc4.7) set-up verbs.
+            ["X := V(s)"]                         = "X <- V(s)",
+            ["V(s) := N(r)"]                      = "V(s) <- N(r)",
+            ["V(a) := N(r)"]                      = "V(a) <- N(r)",
+            // Stored-frame drain (figc4.4 / figc4.5).
+            ["Retrieve Stored V(r) I Frame"]      = "retrieve_stored_V_r_I_frame",
             ["Next T1 := 2 * SRT"]                = "Next T1 <- 2 * SRT",
             ["Next T1 := (RC*0.25)+SRT*2"]        = "Next T1 <- (RC*0.25)+SRT*2",
             ["SRT := 7(SRT)/8 + (T1)/8 - (Remaining Time on T1 When Last Stopped)/8"]

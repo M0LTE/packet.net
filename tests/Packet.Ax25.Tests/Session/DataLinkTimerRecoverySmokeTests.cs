@@ -61,9 +61,22 @@ public class DataLinkTimerRecoverySmokeTests
 
         session.CurrentState.Should().Be(transition.Next,
             $"transition '{transitionId}' should land on '{transition.Next}'");
-        recorder.Recorded.Should().Equal(
-            transition.Actions.Select(a => (a.Verb, a.Kind)).ToArray(),
-            $"transition '{transitionId}' actions should fire in declared order");
+
+        // Loops run against this harness's empty session state, so a head-test
+        // (while) loop body executes zero times and is absent from the recorded
+        // sequence; a tail-test (do-while) body runs once (= the flat list).
+        // Loop iteration is covered behaviourally elsewhere, not in this smoke test.
+        var headLoopBody = new HashSet<int>();
+        foreach (var loop in transition.Loops.Where(l => !l.TestAtEnd))
+            for (int i = loop.Start; i < loop.Start + loop.Length; i++)
+                headLoopBody.Add(i);
+        var expectedRecorded = transition.Actions
+            .Where((_, i) => !headLoopBody.Contains(i))
+            .Select(a => (a.Verb, a.Kind))
+            .ToArray();
+
+        recorder.Recorded.Should().Equal(expectedRecorded,
+            $"transition '{transitionId}' actions should fire in declared order (head-test loop bodies run zero times against empty harness state)");
     }
 
     // ─── Guards parsing ────────────────────────────────────────────────

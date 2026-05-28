@@ -1010,16 +1010,21 @@ public class ActionDispatcherTests
     }
 
     [Fact]
-    public void Retrieve_Stored_V_R_I_Frame_Pulls_Frame_Matching_V_R_And_Delivers_Upward()
+    public void Retrieve_Stored_V_R_I_Frame_Stages_It_For_The_Following_DL_DATA_Indication()
     {
+        // figc4.4 / figc4.5 draw the stored-frame drain as two separate body
+        // actions: "Retrieve Stored V(r) I Frame" then "DL-DATA Indication".
+        // Retrieval consumes the stored frame and stages it; the following
+        // DL-DATA Indication delivers the staged frame (not the trigger).
         var (d, ctx, s, _, _, _, _, _, upward, _, _) = NewRig();
         ctx.VR = 5;
         ctx.StoredReceivedIFrames[5] = ("delayed-payload"u8.ToArray(), Ax25Frame.PidNoLayer3);
 
-        d.Execute("retrieve_stored_V_r_I_frame", ctx, s);
+        var tx = new TransitionContext(ctx, s, new DlConnectRequest());
+        d.Execute(new[] { "Retrieve Stored V(r) I Frame", "DL-DATA Indication" }, tx);
 
-        ctx.StoredReceivedIFrames.Should().NotContainKey((byte)5, "the stored frame is consumed");
-        upward.Should().ContainSingle();
+        ctx.StoredReceivedIFrames.Should().NotContainKey((byte)5, "retrieval consumes the stored frame");
+        upward.Should().ContainSingle("the staged frame is delivered by the following DL-DATA Indication");
         var sig = upward[0].Should().BeOfType<DataLinkDataIndication>().Subject;
         sig.Info.ToArray().Should().Equal("delayed-payload"u8.ToArray());
     }

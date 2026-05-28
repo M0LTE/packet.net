@@ -335,10 +335,10 @@ Goal: full AX.25 connected-mode operation against LinBPQ — connect, send, retr
 
 - Connect/disconnect mod-8 + mod-128 vs LinBPQ.
 - ✅ REJ and SREJ retransmits observed on the wire. (#209, 2026-05-21)
-- ✅ Timer Recovery entered + exited under scripted net-sim 100 % loss for `(T1−1)·N2` then recovery. *Entry + disconnect cycles covered (#208); recovery-via-RR-poll deferred — blocked by `Invoke_Retransmission` single-iteration bug ([ax25sdl#44](https://github.com/m0lte/ax25sdl/issues/44)).*
+- ✅ Timer Recovery entered + exited under scripted net-sim 100 % loss for `(T1−1)·N2` then recovery. *Entry + disconnect cycles covered (#208); recovery-via-RR-poll was blocked by the `Invoke_Retransmission` single-iteration bug ([ax25sdl#44](https://github.com/m0lte/ax25sdl/issues/44)) — now fixed in Packet.Ax25.Sdl 0.7.0 and executed by the runtime (`SdlLoopExecutor`).*
 - ✅ Segmenter reassembles a 1500-byte payload across multiple I-frames. (#210, 2026-05-21)
 - ✅ FsCheck property tests prove window invariants (`V(A) ≤ V(S) ≤ V(A)+k`, no orphan transitions, no stuck Timer Recovery). (#212, 2026-05-21)
-- 🟡 Hardware loop sustains 10 kB transfer across NinoTNCs with 0–30 % scripted loss. *No-loss matrix passes end-to-end across modes 0 + 6 × TXDELAY 50–400 ms in the steady-state case (#213, 2026-05-21) but flakes on rare bench-wire dropouts; 30 % scripted-loss variant blocked entirely on the recovery-path SDL gaps [ax25sdl#44](https://github.com/m0lte/ax25sdl/issues/44) (`Invoke_Retransmission` single-iteration) and [ax25sdl#43](https://github.com/m0lte/ax25sdl/issues/43) (`Enquiry_Response` doesn't set `F:=1`) — together these mean REJ recovery doesn't re-emit missing I-frames and TimerRecovery never observes a valid F=1 response, so the link starves in a perpetual RR-poll cycle. Downstream tracker: [#214](https://github.com/m0lte/packet.net/issues/214).*
+- 🟡 Hardware loop sustains 10 kB transfer across NinoTNCs with 0–30 % scripted loss. *No-loss matrix passes end-to-end across modes 0 + 6 × TXDELAY 50–400 ms in the steady-state case (#213, 2026-05-21). Both recovery-path SDL gaps are now fixed: [ax25sdl#44](https://github.com/m0lte/ax25sdl/issues/44) (`Invoke_Retransmission` recovered as a real loop in Packet.Ax25.Sdl 0.7.0 and executed by the runtime — `SdlLoopExecutor`, shared by transition + subroutine paths) and [ax25sdl#43](https://github.com/m0lte/ax25sdl/issues/43) (`Enquiry_Response` F:=1, already on main). In-process proof that REJ recovery re-emits every unacked I-frame: `DataLinkConnectedRetransmitTests.Invoke_Retransmission_Requeues_Every_Unacked_Frame_Not_Just_One`. The scripted-loss matrix's unconditional skip is removed; it now runs on the hardware-loop runner and awaits on-air confirmation on the bench before this criterion flips to ✅. Downstream tracker: [#214](https://github.com/m0lte/packet.net/issues/214).*
 
 ### 5.3 Phase 3 — KISS hardening ⬜ ([#169](https://github.com/m0lte/packet.net/issues/169))
 
@@ -836,6 +836,18 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-05-28 — Execute SDL LoopRange in the runtime (consumes Packet.Ax25.Sdl 0.7.0; unblocks recovery for #214)
+
+Packet.Ax25.Sdl 0.7.0 recovered the three data-link loops the codegen had been silently flattening (ax25sdl#44 Invoke_Retransmission, ax25sdl#48 / #49 the V(r) I Frame Stored? drains) as `loop_while` with a `TestAtEnd` flag. This bumps the pin 0.6.0 → 0.7.0 and makes the runtime actually iterate them.
+
+New `SdlLoopExecutor` expands each `LoopRange` over the flat action list: head-test (while) evaluates the continue predicate before each iteration (zero-or-more runs), tail-test (do-while) after (one-or-more), with a 1024-iteration cap that throws if a predicate never clears. It's shared by both `Ax25Session` (transitions) and `SubroutineRegistry` (subroutines) — `Invoke_Retransmission` is a subroutine, so the retransmit loop only iterates once subroutine loops execute.
+
+Three runtime fixes the loops exposed: (1) `"Push Old I Frame onto Queue"` was mis-aliased to `push_on_I_frame_queue` (which requires a DL_DATA_request trigger and threw on REJ); removed so it routes to its dedicated re-queue case — latent until now because the subroutine's old single-path guard skipped it. (2) `GuardEvaluator` now resolves the drain predicate `vr_I_frame_stored` (package's capital-I spelling) to the `vr_i_frame_stored` binding. (3) Stored-frame drain retrieve/deliver split: `Retrieve Stored V(r) I Frame` stages the frame on `TransitionContext.RetrievedStoredFrame` and the loop body's separate `DL-DATA Indication` delivers it (delivering in both would double-deliver); plus `V(r) := V(r) - 1` (figc4.5, faithful to the figure, flagged ax25sdl#49) and the `:=` set-up aliases.
+
+Proof: new `DataLinkConnectedRetransmitTests.Invoke_Retransmission_Requeues_Every_Unacked_Frame_Not_Just_One` shows the loop re-queues `X − N(r)` frames (3, not the old 1) and restores V(s). The loop unified the previously-separate stored / no-stored in-sequence transitions, so the smoke tests are made loop-aware and the now-duplicate t67/t68/t69 removed. Full default-filter suite green.
+
+Phase 2 §5.2: the recovery-via-RR-poll Timer-Recovery criterion is unblocked, and the hardware-loop scripted-loss matrix's unconditional skip is removed (now hardware-gated). That criterion flips to ✅ once the matrix is confirmed on-air on the NinoTNC bench (#214).
 
 ### 2026-05-28 — Extract generic serial KISS modem into Packet.Kiss.Serial (closes #219)
 

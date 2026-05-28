@@ -52,6 +52,17 @@ public sealed class TransitionContext
     /// </summary>
     public PendingFrame Pending { get; } = new();
 
+    /// <summary>
+    /// A stored out-of-sequence I-frame just dequeued by the
+    /// <c>Retrieve Stored V(r) I Frame</c> verb, staged for the immediately
+    /// following <c>DL-DATA Indication</c> to deliver. Null when the
+    /// indication should deliver the triggering frame instead. This is the
+    /// retrieve/deliver split for the figc4.4 / figc4.5 stored-frame drain
+    /// loop: the figure draws retrieval and delivery as two separate actions,
+    /// so a single iteration stages here then delivers.
+    /// </summary>
+    public (ReadOnlyMemory<byte> Info, byte Pid)? RetrievedStoredFrame { get; set; }
+
     /// <summary>Construct a transition context, extracting any frame attached to the trigger.</summary>
     public TransitionContext(Ax25SessionContext session, ITimerScheduler scheduler, Ax25Event trigger)
     {

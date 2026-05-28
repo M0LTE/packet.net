@@ -283,7 +283,7 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
                 continue;
             }
             if (!guardHolds) continue;
-            wiredDispatcher.Execute(path.Actions, tx);
+            SdlLoopExecutor.Execute(path.Actions, path.Loops, wiredDispatcher, wiredGuards, tx);
             return;
         }
         // No matching path — silently no-op.

@@ -150,6 +150,11 @@ public sealed class GuardEvaluator
             ["va_le_nr_le_vs"]                                = "V_a_le_N_r_le_V_s",
             ["nr_eq_vs"]                                      = "n_r_eq_v_s",
             ["nr_eq_va"]                                      = "n_r_eq_v_a",
+            // figc4.4 / figc4.5 stored-frame drain loop predicate. The
+            // package preserves the spec variable `I`'s capital (V(r) I Frame
+            // Stored?), so it emits `vr_I_frame_stored`; the binding is
+            // registered lower-case.
+            ["vr_I_frame_stored"]                            = "vr_i_frame_stored",
 
             // Compound flags — operator-character substitution turns `&` /
             // `||` into `_and_` / `_or_` and preserves spec-variable casing
