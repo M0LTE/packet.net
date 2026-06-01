@@ -94,6 +94,59 @@ public class DataLinkTimerRecoveryIntegrationTests
             "DL-DISCONNECT-indication must surface upstream so callers know the link is gone");
     }
 
+    [Fact]
+    public void TimerRecovery_Retransmits_Unacked_IFrame_And_Recovers_When_Loss_Lifts()
+    {
+        // figc4.5 step 4 (the recovery branch the TimerRecovery docstring
+        // promises but no other in-process test exercised): A enters
+        // TimerRecovery under loss; loss lifts; A re-polls; B replies RR(F=1);
+        // A invokes retransmission of the unacked I-frame (carrying its
+        // ORIGINAL N(s), so B accepts it in sequence) and, once everything is
+        // re-acked, returns to Connected. In-process mirror of the
+        // hardware-loop scripted-loss scenario (#214).
+        //
+        // This exercises two fixes that both had to land for recovery to work:
+        //   - runtime: ActionDispatcher re-emits old frames with the push-time
+        //     N(s) (was renumbered off the restored V(s) — pure-RR stall);
+        //   - upstream (Packet.Ax25.Sdl 0.7.1, ax25sdl#54): figc4.5's
+        //     recovery-complete decision now guards on the post-`V(a):=N(r)`
+        //     value (`vs_eq_nr`) instead of the stale pre-action `vs_eq_va`,
+        //     so a poll-response that fully re-acks routes to Connected rather
+        //     than back into Invoke_Retransmission with nothing to send.
+        var rig = BuildPair();
+        Connect(rig);
+
+        rig.Link.LossActive = true;
+        rig.A.Session.PostEvent(new DlDataRequest("hello"u8.ToArray()));
+        Settle(rig);
+
+        // First T1 expiry: Connected → TimerRecovery, poll (RR P=1) emitted
+        // but dropped because loss is still active. RC=1.
+        rig.Time.Advance(TimeSpan.FromMilliseconds(FastT1V + 10));
+        Settle(rig);
+        rig.A.Session.CurrentState.Should().Be("TimerRecovery");
+
+        // Loss lifts. Subsequent T1 expiries re-send the poll; B replies
+        // RR(F=1); A re-emits the unacked I-frame (N(s)=0) which B accepts,
+        // and once V(a) catches up A returns to Connected. A couple of poll
+        // cycles are needed (retransmit, then the F=1 poll once all re-acked);
+        // loop a bounded number rather than hard-coding the count.
+        rig.Link.LossActive = false;
+        for (int i = 0; i < FastN2 && rig.A.Session.CurrentState != "Connected"; i++)
+        {
+            rig.Time.Advance(TimeSpan.FromMilliseconds(FastT1V + 10));
+            Settle(rig);
+        }
+
+        rig.A.Session.CurrentState.Should().Be("Connected",
+            "after the poll / RR(F=1) exchange and retransmission, A must exit TimerRecovery back to Connected");
+        rig.B.Signals.OfType<DataLinkDataIndication>()
+            .Any(d => d.Info.ToArray().AsSpan().SequenceEqual("hello"u8))
+            .Should().BeTrue(
+                "the unacked I-frame must be retransmitted on recovery, with its original N(s), " +
+                "and surface as a DL-DATA-indication on B");
+    }
+
     // ─── Rig: two sessions linked in-process ───────────────────────────
 
     private sealed class Link
