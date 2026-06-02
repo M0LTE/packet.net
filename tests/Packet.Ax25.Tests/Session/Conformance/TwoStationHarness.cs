@@ -196,6 +196,38 @@ public sealed class TwoStationHarness
         if (CheckAfterEachStep) CheckInvariants();
     }
 
+    // ─── Inbound injection (reaching the "as received" paths) ────────────
+
+    /// <summary>Inject a received-frame event straight into
+    /// <paramref name="target"/>'s session, then pump + check. Models a frame
+    /// arriving on <paramref name="target"/>'s radio that the *peer session*
+    /// would never emit on its own — so it reaches received-frame transitions the
+    /// two well-behaved sessions can't drive between them (a FRMR, an unsolicited
+    /// DM, a malformed frame). Bypasses the channel's drop/duplicate/address
+    /// filters: the frame is, by construction, "already at the receiver".</summary>
+    public void Inject(Endpoint target, Ax25Event evt)
+    {
+        target.Inbound.Enqueue(evt);
+        PumpToQuiescence();
+        if (CheckAfterEachStep) CheckInvariants();
+    }
+
+    /// <summary>Inject raw frame bytes at <paramref name="target"/>'s receiver:
+    /// parse (lenient) + classify through the real <see cref="Ax25FrameClassifier"/>,
+    /// then <see cref="Inject(Endpoint, Ax25Event)"/>. Exercises the full inbound
+    /// codec path, so a real <see cref="Ax25Frame.Frmr"/>/<see cref="Ax25Frame.Dm"/>
+    /// (or a hand-built malformed control byte) becomes the event the dispatcher
+    /// actually sees. Build the frame addressed <em>to</em> the target
+    /// (<c>destination: target.Context.Local, source: target.Context.Remote</c>)
+    /// so it survives any address check the receive path applies.</summary>
+    public void InjectFrameBytes(Endpoint target, ReadOnlyMemory<byte> bytes)
+    {
+        if (!Ax25Frame.TryParse(bytes.Span, out var parsed))
+            throw new InvalidOperationException(
+                "InjectFrameBytes: the supplied bytes did not parse as an AX.25 frame");
+        Inject(target, Ax25FrameClassifier.Classify(parsed));
+    }
+
     /// <summary>Advance the clock past one T1 interval and pump to quiescence —
     /// fires any due timers and lets the resulting cascade settle.</summary>
     public void AdvanceT1(int extraMs = 20)
