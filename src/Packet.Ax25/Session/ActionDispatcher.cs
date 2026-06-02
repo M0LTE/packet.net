@@ -724,7 +724,13 @@ public sealed class ActionDispatcher : IActionDispatcher
             case "DL-ERROR Indication (J)":        sendUpward(new DataLinkErrorIndication("J")); break;
             case "DL-ERROR Indication (K)":        sendUpward(new DataLinkErrorIndication("K")); break;
             case "DL-ERROR Indication (Q)":        sendUpward(new DataLinkErrorIndication("Q")); break;
-            case "DL-UNIT-DATA Indication":        sendUpward(new DataLinkUnitDataIndication(ExtractIncomingInfo(tx), ExtractIncomingPid(tx))); break;
+            // Canonical snake_case to match DL_DATA_indication / DL_CONNECT_indication /
+            // DL_DISCONNECT_indication and the `ActionVerbAliases` entry that
+            // normalises the figure spelling "DL-UNIT-DATA Indication" onto it. The
+            // case label was previously left in display form, so the normalised verb
+            // fell through to the default throw — every UI reception (UI_Check →
+            // DL-UNIT-DATA Indication) crashed. (m0lte/packet.net)
+            case "DL_UNIT_DATA_indication":        sendUpward(new DataLinkUnitDataIndication(ExtractIncomingInfo(tx), ExtractIncomingPid(tx))); break;
 
             default:
                 throw new InvalidOperationException(
