@@ -282,6 +282,7 @@ public static class Ax25SessionBindings
         DmReceived f         => f.Frame,
         FrmrReceived f       => f.Frame,
         XidReceived f        => f.Frame,
+        XidResponseReceived f => f.Frame,
         TestReceived f       => f.Frame,
         IOrSCommandReceived f => f.Frame,
         AllOtherCommands f   => f.Frame,

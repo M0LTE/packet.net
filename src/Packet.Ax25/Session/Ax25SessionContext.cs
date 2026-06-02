@@ -137,6 +137,15 @@ public sealed class Ax25SessionContext
     /// <summary>True if SREJ has been negotiated via XID.</summary>
     public bool SrejEnabled { get; set; }
 
+    /// <summary>
+    /// True if the segmenter/reassembler has been negotiated via XID (the
+    /// HDLC Optional Functions segmenter bit, §4.3.3.7) — a v2.2-only
+    /// capability (§1621) enabled only when both peers advertise it. The MDL
+    /// negotiation sets this; the DL-DATA segment/reassemble path (arc V4)
+    /// gates on it. Forced off on the version-2.0 fallback.
+    /// </summary>
+    public bool SegmenterReassemblerEnabled { get; set; }
+
     /// <summary>True for half-duplex operation. Set by figc4.7's <c>Set_Version_2_0</c> / <c>Set_Version_2_2</c> subroutines.</summary>
     public bool HalfDuplex { get; set; } = true;
 
