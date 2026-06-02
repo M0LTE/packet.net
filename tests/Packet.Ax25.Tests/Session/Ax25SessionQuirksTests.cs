@@ -75,6 +75,26 @@ public class Ax25SessionQuirksTests
     }
 
     [Fact]
+    public void Quirk_on_skips_lone_Invoke_Retransmission_so_command_SREJ_paths_retransmit_nothing()
+    {
+        // m0lte/packet.net#234: the figc4.5 SREJ *command* paths
+        // (t24_srej_received_no_yes_yes_no / _no_yes_no_no) carry ONLY a go-back-N
+        // "Invoke Retransmission" — no push verb. With the #38 quirk on, that
+        // go-back-N is skipped and there is nothing to redirect, so nothing is
+        // retransmitted. This is deliberate and spec-aligned: §4.3.2.4 makes SREJ
+        // response-only, and direwolf/linbpq neither send nor act on an SREJ
+        // command. This test pins that no-op so a future change can't silently
+        // start go-back-N-retransmitting on a command-form SREJ.
+        var (dispatcher, ctx, scheduler, sentI) = NewRig(Ax25SessionQuirks.Default); // quirk on
+        var tx = SrejTrigger(ctx, scheduler, nr: 1);
+
+        dispatcher.Execute(new[] { new ActionStep("Invoke Retransmission", ActionKind.Subroutine) }, tx);
+
+        sentI.Should().BeEmpty(
+            "a command-form SREJ path carries only the go-back-N Invoke_Retransmission, which the quirk skips — SREJ is response-only (§4.3.2.4), so nothing is retransmitted");
+    }
+
+    [Fact]
     public void Quirk_off_runs_the_figure_as_drawn_and_throws_on_the_payloadless_push()
     {
         var (dispatcher, ctx, scheduler, _) = NewRig(Ax25SessionQuirks.StrictlyFaithful); // quirk off

@@ -60,6 +60,14 @@ public class DataLinkSrejUnderLossTests
         rig.A.Context.VS.Should().Be((byte)1, "exactly one I-frame exists; a retransmit must NOT mint a fresh sequence number");
     }
 
+    // NOTE: this variant pumps each recovery cycle to quiescence with Settle(),
+    // which has NO T1 pacing — so the many T1-spaced retransmits of a real link
+    // collapse into one instantaneous burst and the trace looks like a retransmit
+    // storm (m0lte/packet.net#233). It still recovers correctly. The T1-PACED
+    // companion Srej_under_loss_converges_under_T1_pacing_no_storm proves the
+    // storm is a Settle artifact, not a recovery defect; and
+    // Srej_response_drives_single_frame_selective_retransmit_on_the_wire proves
+    // the #38 quirk does single-frame selective (not go-back-N) on the wire.
     [Fact]
     public void Srej_under_loss_recovers_from_TimerRecovery_with_default_quirk()
     {
@@ -104,6 +112,162 @@ public class DataLinkSrejUnderLossTests
             .Equal(new byte[] { 0, 1, 2, 3 }, "all four payloads must reach B in order once the gap frame is retransmitted with its correct N(s) from TimerRecovery");
         rig.A.Session.CurrentState.Should().Be("Connected", "A must recover the link, not disconnect");
         rig.A.Context.VA.Should().Be((byte)4, "every I-frame must end acknowledged");
+    }
+
+    // m0lte/packet.net#233 (a): the SREJ-selective quirk genuinely ENGAGES
+    // end-to-end. Drive A into TimerRecovery, deliver EXACTLY ONE SREJ(nr=1)
+    // response, and swallow A's reply before B can feed back more SREJs, so we
+    // observe only the frames A puts on the wire in *direct* response to that one
+    // SREJ. With the quirk on (default) A emits the single requested frame N(s)=1
+    // — NOT go-back-N (which would put 1,2,3 on the wire). This is the on-the-wire
+    // proof that complements the verb-level Ax25SessionQuirksTests: the figc4.5
+    // SREJ-received transition (t24_srej_received_yes_yes_*_no, the push-bearing
+    // response paths) really does route through the quirk's selective redirect in
+    // a live two-session exchange.
+    [Fact]
+    public void Srej_response_drives_single_frame_selective_retransmit_on_the_wire()
+    {
+        var rig = BuildPair();
+        DriveIntoTimerRecovery(rig);
+
+        var iFramesFromA = CaptureAOutboundIFramesSwallowed(rig);
+        var srej = Ax25Frame.Srej(destination: rig.A.Context.Local, source: rig.A.Context.Remote, nr: 1, isCommand: false, pollFinal: true);
+        rig.A.Session.PostEvent(Ax25FrameClassifier.Classify(srej));
+        Settle(rig);
+
+        Log("after one SREJ(nr=1) response", rig);
+        iFramesFromA.Should().Equal(new byte[] { 1 },
+            "an SREJ response must trigger SELECTIVE single-frame retransmit of N(r)=1 only — go-back-N would have put N(s)=1,2,3 on the wire");
+        rig.A.Context.VA.Should().Be((byte)1, "the SREJ N(r)=1 acks through frame 0; V(a) advances to 1");
+    }
+
+    // m0lte/packet.net#234: SREJ-as-COMMAND under Default retransmits nothing.
+    // §4.3.2.4 ("The SREJ frame is only sent as a response") makes SREJ
+    // response-only; direwolf omits the command path entirely (src/ax25_link.c
+    // srej_frame: "Command path has been omitted because SREJ can only be
+    // response.") and linbpq gates resend on `if (MSGFLAG & RESP)` (L2Code.c
+    // SFRAME). So nobody sends SREJ as a command and nobody acts on receiving
+    // one. The figc4.5 response:No paths (t24_srej_received_no_yes_*) carry only
+    // a go-back-N "Invoke Retransmission" (no push verb); the #38 selective quirk
+    // skips that go-back-N and has nothing to redirect, so the command form is a
+    // no-op retransmit. This test PINS that documented behaviour: the response
+    // form selectively retransmits, the command form does not — matching the
+    // de-facto stacks. If a future spec revision resurrects an actionable SREJ
+    // command, revisit this together with packethacking/ax25spec#38.
+    [Theory]
+    [InlineData(true,  new byte[] { 1 })] // response (F=1): selective retransmit of N(r)=1
+    [InlineData(false, new byte[0])]      // command  (P=1): no retransmit (SREJ is response-only)
+    public void Srej_command_does_not_retransmit_under_default(bool asResponse, byte[] expectedNs)
+    {
+        var rig = BuildPair();
+        DriveIntoTimerRecovery(rig);
+
+        var iFramesFromA = CaptureAOutboundIFramesSwallowed(rig);
+        var srej = Ax25Frame.Srej(destination: rig.A.Context.Local, source: rig.A.Context.Remote, nr: 1, isCommand: !asResponse, pollFinal: true);
+        rig.A.Session.PostEvent(Ax25FrameClassifier.Classify(srej));
+        Settle(rig);
+
+        _out.WriteLine($"asResponse={asResponse}: A emitted I-frames N(s)=[{string.Join(",", iFramesFromA)}], VA={rig.A.Context.VA}");
+        iFramesFromA.Should().Equal(expectedNs,
+            asResponse
+                ? "an SREJ RESPONSE selectively retransmits N(r)=1"
+                : "an SREJ COMMAND is response-only per §4.3.2.4 — Default retransmits nothing (matches direwolf/linbpq)");
+    }
+
+    // m0lte/packet.net#233 (b)+(c): the same recovery as
+    // Srej_under_loss_recovers_from_TimerRecovery_with_default_quirk, but driven
+    // with T1 PACING — advance the FakeTimeProvider one T1 interval per round and
+    // process only the frames already on the wire (DrainOnce), instead of pumping
+    // every cascade to quiescence. This is the realistic-link model: each
+    // retransmit is one T1 apart. The unpaced Settle() collapses many T1 rounds
+    // into one instant, which is what makes the #231 trace look like a
+    // "retransmit storm". Under pacing the link CONVERGES in a bounded number of
+    // rounds — proving the storm is a Settle artifact, not a recovery defect. (A
+    // secondary, smaller inefficiency remains: the figc4.4/figc4.5 Connected
+    // I-frame table has no out-of-window duplicate-discard guard — direwolf adds
+    // one per X.25 §2.4.6.4(a), the SDL figures don't — so duplicate retransmits
+    // briefly draw extra SREJs. That is a spec-efficiency gap, flagged upstream;
+    // it does not stop convergence and is NOT the quirk.)
+    [Fact]
+    public void Srej_under_loss_converges_under_T1_pacing_no_storm()
+    {
+        var rig = BuildPair();
+        DriveIntoTimerRecovery(rig);
+
+        int rounds = 0;
+        const int maxRounds = 20;
+        for (; rounds < maxRounds && rig.A.Session.CurrentState != "Connected"; rounds++)
+        {
+            rig.Time.Advance(TimeSpan.FromMilliseconds(FastT1V + 20));
+            DrainOnce(rig);
+            Log($"paced round {rounds}", rig);
+        }
+
+        rig.A.Session.CurrentState.Should().Be("Connected",
+            "with realistic T1 pacing the link converges back to Connected — the unpaced 'storm' was a Settle artifact, not a recovery failure");
+        rounds.Should().BeLessThan(maxRounds, "convergence must happen in a bounded number of T1 rounds, not run away");
+        rig.B.Signals.OfType<DataLinkDataIndication>().Select(s => s.Info.ToArray()[0]).Should()
+            .Equal(new byte[] { 0, 1, 2, 3 }, "all four payloads must reach B in order");
+        rig.A.Context.VA.Should().Be((byte)4, "every I-frame must end acknowledged");
+    }
+
+    // Shared setup: connect, enable SREJ both ends, drop A's gap frame N(s)=1 and
+    // starve A of all B→A traffic so A times out into TimerRecovery (where the
+    // figc4.5 SREJ paths live). Leaves the channel CLEAN (phase1 off) on return.
+    private static void DriveIntoTimerRecovery(Pair rig)
+    {
+        Connect(rig);
+        rig.A.Context.SrejEnabled = true;
+        rig.B.Context.SrejEnabled = true;
+
+        var phase1 = new[] { true };
+        rig.Link.Drop = f =>
+        {
+            if (!phase1[0]) return false;
+            bool fromA = f.Source.Callsign.Equals(rig.A.Context.Local);
+            bool toA   = f.Destination.Callsign.Equals(rig.A.Context.Local);
+            bool isI1  = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 1;
+            return (fromA && isI1) || toA;
+        };
+        for (byte i = 0; i < 4; i++) { rig.A.Session.PostEvent(new DlDataRequest(new[] { i })); Settle(rig); }
+        rig.Time.Advance(TimeSpan.FromMilliseconds(FastT1V + 20));
+        Settle(rig);
+        rig.A.Session.CurrentState.Should().Be("TimerRecovery",
+            "starved of acks, A's T1 must expire and drive it into TimerRecovery");
+
+        phase1[0] = false;
+        rig.A.ReceivedFromPeer.Clear();
+        rig.B.ReceivedFromPeer.Clear();
+    }
+
+    // Re-arm the Drop predicate to SWALLOW every I-frame A emits (recording its
+    // N(s)) and drop all other inbound to A, so a single injected SREJ probes
+    // A's direct retransmit response without B feeding back further frames.
+    private static List<byte> CaptureAOutboundIFramesSwallowed(Pair rig)
+    {
+        var iFramesFromA = new List<byte>();
+        rig.Link.Drop = f =>
+        {
+            bool fromA = f.Source.Callsign.Equals(rig.A.Context.Local);
+            if (fromA && Ax25FrameClassifier.Classify(f) is IFrameReceived)
+            {
+                iFramesFromA.Add(f.GetIFrameNs(8)!.Value);
+                return true; // swallow so B can't react and feed back more SREJs
+            }
+            return !fromA; // drop everything TO A (we inject the probe directly)
+        };
+        return iFramesFromA;
+    }
+
+    // Process exactly the events currently queued on both endpoints — ONE pass,
+    // no pump-to-quiescence. Models a single T1-spaced round: each side reacts
+    // to what is already on the wire; any frame it emits in response lands in
+    // the peer's queue but is not processed until the NEXT advance/drain.
+    private static void DrainOnce(Pair rig)
+    {
+        int an = rig.A.Inbound.Count, bn = rig.B.Inbound.Count;
+        for (int i = 0; i < an && rig.A.Inbound.TryDequeue(out var e); i++) rig.A.Session.PostEvent(e);
+        for (int i = 0; i < bn && rig.B.Inbound.TryDequeue(out var e); i++) rig.B.Session.PostEvent(e);
     }
 
     private void Try(Action a, Pair rig)

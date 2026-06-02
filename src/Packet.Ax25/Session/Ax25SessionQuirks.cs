@@ -51,6 +51,24 @@ public sealed record Ax25SessionQuirks
     /// conformance only). Delete this quirk once ax25sdl ships a corrected
     /// figc4.5. Removal tracked at m0lte/packet.net#227 ← packethacking/ax25spec#38.
     /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// <b>Scope — SREJ is response-only (m0lte/packet.net#234).</b> The redirect
+    /// fires only on the figc4.5 SREJ <i>response</i> paths
+    /// (<c>t24_srej_received_yes_yes_*_no</c>), which carry the
+    /// <c>push_frame_on_queue</c> verb this quirk rewrites. The SREJ
+    /// <i>command</i> paths (<c>t24_srej_received_no_yes_*</c>) carry only the
+    /// go-back-N <c>Invoke Retransmission</c> (no push), so when this quirk skips
+    /// it nothing is retransmitted on the command form. That is intentional and
+    /// spec-aligned: AX.25 v2.2 §4.3.2.4 says "The SREJ frame is only sent as a
+    /// response", and no surveyed implementation sends SREJ as a command or acts
+    /// on receiving one (direwolf <c>src/ax25_link.c</c>: "Command path has been
+    /// omitted because SREJ can only be response"; linbpq gates resend on
+    /// <c>if (MSGFLAG &amp; RESP)</c>). The vestigial figc4.5 command-SREJ form is
+    /// itself errata flagged upstream. If a future spec revision resurrects an
+    /// actionable SREJ command, revisit here alongside #38.
+    /// </para>
+    /// </remarks>
     public bool Ax25Spec38SrejSelectiveRetransmit { get; init; } = true;
 
     /// <summary>
