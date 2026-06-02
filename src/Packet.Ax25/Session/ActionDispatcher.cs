@@ -54,6 +54,10 @@ public sealed class ActionDispatcher : IActionDispatcher
     private readonly Action<DataLinkSignal> sendUpward;
     private readonly Action<LinkMultiplexerSignal> sendLinkMux;
     private readonly Action<InternalSignal> sendInternal;
+    private readonly Action<MdlSignal> sendMdl;
+    private readonly Action<TransitionContext> sendXidCommand;
+    private readonly Action<TransitionContext> applyNegotiatedParameters;
+    private readonly Action<Ax25SessionContext> setVersion20;
     private readonly ISubroutineRegistry subroutines;
 
     /// <summary>
@@ -73,6 +77,15 @@ public sealed class ActionDispatcher : IActionDispatcher
 
     /// <summary>Default inactive-link timer (T3).</summary>
     public TimeSpan T3Duration { get; init; } = TimeSpan.FromMilliseconds(30000);
+
+    /// <summary>
+    /// Management retry timer (TM201) duration — armed by the MDL machine's
+    /// <c>Start TM201</c> verb on each XID-command send (figc5.1/figc5.2,
+    /// §C5.3). The §C5.3 prose does not give a numeric default for TM201; it is
+    /// the management analogue of the data-link T1, so we default it to the same
+    /// 3000 ms as T1. The MDL driver overrides it from the negotiated/forced T1V.
+    /// </summary>
+    public TimeSpan Tm201Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
 
     /// <summary>
     /// Construct a dispatcher.
@@ -135,6 +148,31 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// every known subroutine — sufficient for testing transition flow
     /// without figc4.7's real bodies wired.
     /// </param>
+    /// <param name="sendMdl">
+    /// Called when the MDL machine raises a signal to Layer 3 —
+    /// <c>MDL-NEGOTIATE Confirm</c> / <c>MDL-ERROR Indicate (B/C/D)</c>
+    /// (figc5.x, §C5.3). Defaults to a no-op sink; only the MDL driver wires it.
+    /// </param>
+    /// <param name="sendXidCommand">
+    /// Called when the MDL <c>XID_command</c> verb fires — builds and sends the
+    /// XID command frame carrying our offered parameter set (§6.3.2). Defaults to
+    /// a no-op; only the MDL driver wires it (the data-link machine never emits
+    /// this verb).
+    /// </param>
+    /// <param name="applyNegotiatedParameters">
+    /// Called when the MDL <c>Apply Negotiated Parameters</c> subroutine verb
+    /// fires (figc5.2) — the §6.3.2 reverts-to merge of our offer and the peer's
+    /// XID response. Defaults to a no-op (the figc5.3–figc5.8 per-parameter
+    /// subroutines are an un-transcribed placeholder); the MDL driver supplies
+    /// the real merge via <see cref="XidNegotiator"/>.
+    /// </param>
+    /// <param name="setVersion20">
+    /// Called when the shared <c>set_version_2_0</c> verb fires. Defaults to the
+    /// data-link figc4.6 semantics (clear <see cref="Ax25SessionContext.IsExtended"/>
+    /// only — the data-link path runs its remaining v2.0 verbs separately). The
+    /// MDL driver overrides it with the complete §1436 version-2.0 default set,
+    /// since the figc5.2 FRMR path draws a single "Set Version 2.0" box.
+    /// </param>
     public ActionDispatcher(
         Action<string> onTimerExpiry,
         Action<SupervisoryFrameSpec> sendSFrame,
@@ -144,7 +182,11 @@ public sealed class ActionDispatcher : IActionDispatcher
         Action<LinkMultiplexerSignal>? sendLinkMux = null,
         Action<InternalSignal>? sendInternal = null,
         Action<IFrameSpec>? sendIFrame = null,
-        ISubroutineRegistry? subroutines = null)
+        ISubroutineRegistry? subroutines = null,
+        Action<MdlSignal>? sendMdl = null,
+        Action<TransitionContext>? sendXidCommand = null,
+        Action<TransitionContext>? applyNegotiatedParameters = null,
+        Action<Ax25SessionContext>? setVersion20 = null)
     {
         this.onTimerExpiry = onTimerExpiry ?? throw new ArgumentNullException(nameof(onTimerExpiry));
         this.sendSFrame    = sendSFrame    ?? throw new ArgumentNullException(nameof(sendSFrame));
@@ -155,6 +197,15 @@ public sealed class ActionDispatcher : IActionDispatcher
         this.sendInternal  = sendInternal  ?? (_ => { });
         this.sendIFrame    = sendIFrame    ?? (_ => { });
         this.subroutines   = subroutines   ?? new DefaultSubroutineRegistry();
+        // MDL (figc5.x) hooks — no-op / minimal defaults so a data-link
+        // dispatcher built without them is unaffected. The MDL driver
+        // (Ax25ManagementDataLink) supplies real callbacks. setVersion20
+        // defaults to the data-link figc4.6 semantics (clear IsExtended only);
+        // the MDL driver overrides it with the full §1436 v2.0 default set.
+        this.sendMdl                   = sendMdl                   ?? (_ => { });
+        this.sendXidCommand            = sendXidCommand            ?? (_ => { });
+        this.applyNegotiatedParameters = applyNegotiatedParameters ?? (_ => { });
+        this.setVersion20              = setVersion20              ?? (ctx => ctx.IsExtended = false);
     }
 
     /// <inheritdoc/>
@@ -470,6 +521,36 @@ public sealed class ActionDispatcher : IActionDispatcher
             // family (Push on I Frame Queue and its word-order / spelling
             // variants) all enqueue from the triggering DL_DATA_request.
             Ax25ActionVerb.MDLNEGOTIATERequest    => Do(() => sendInternal(new MdlNegotiateRequestSignal())),
+
+            // ─── Management Data-Link (MDL, figc5.1/figc5.2) ───────────────
+            //
+            // These verbs are only ever emitted by the management_data_link
+            // machine, driven by Ax25ManagementDataLink. On a data-link
+            // dispatcher the MDL callbacks default to no-ops / the bare timer
+            // ops, so an accidental MDL verb in a data-link table is inert
+            // rather than a crash (it can't happen — the tables are disjoint).
+            //
+            // XID_command (signal_lower): build + send our XID *command* frame
+            // carrying the offered parameter set (§6.3.2). The frame factory
+            // path (UFrameSpec) can't carry an info field, so this routes
+            // through a dedicated builder callback the MDL driver supplies.
+            Ax25ActionVerb.XIDCommand             => Do(() => sendXidCommand(tx)),
+            // Start/Stop TM201 (figc5.x management retry timer, §C5.3). Armed on
+            // each XID-command send, cancelled when negotiation completes;
+            // expiry routes through onTimerExpiry("TM201") like the data-link
+            // timers, which the MDL driver maps to a Tm201Expiry event.
+            Ax25ActionVerb.StartTM201             => Do(() => scheduler.Arm("TM201", Tm201Duration, () => onTimerExpiry("TM201"))),
+            Ax25ActionVerb.StopTM201              => Do(() => scheduler.Cancel("TM201")),
+            // Apply Negotiated Parameters (figc5.2, subroutine placeholder): the
+            // §6.3.2 reverts-to merge. The MDL driver supplies the real merge
+            // (XidNegotiator.ApplyNegotiated); default is a no-op.
+            Ax25ActionVerb.ApplyNegotiatedParameters => Do(() => applyNegotiatedParameters(tx)),
+            // MDL → Layer 3 primitives (figc5.x, §5.1 / §C5.3).
+            Ax25ActionVerb.MDLNEGOTIATEConfirm    => Do(() => sendMdl(new MdlNegotiateConfirmSignal())),
+            Ax25ActionVerb.MDLERRORIndicateB      => Do(() => sendMdl(new MdlErrorIndicateSignal("B"))),
+            Ax25ActionVerb.MDLERRORIndicateC      => Do(() => sendMdl(new MdlErrorIndicateSignal("C"))),
+            Ax25ActionVerb.MDLERRORIndicateD      => Do(() => sendMdl(new MdlErrorIndicateSignal("D"))),
+
             Ax25ActionVerb.PushOnIFrameQueue      => Do(() => PushOnIFrameQueue(tx)),
             Ax25ActionVerb.PushOnIFrameQueueNoteWordOrder => Do(() => PushOnIFrameQueue(tx)),
             Ax25ActionVerb.PushFrameOnQueue       => Do(() => PushOnIFrameQueue(tx)),
@@ -548,7 +629,13 @@ public sealed class ActionDispatcher : IActionDispatcher
             // SABM(E) processing verbs that lock in mod-8 vs mod-128 once the
             // peer accepts. They are emitted as Processing-kind verbs (not
             // subroutine calls) by the state tables.
-            Ax25ActionVerb.SetVersion20           => Do(() => ctx.IsExtended = false),
+            // set_version_2_0 is shared between the data-link figc4.6 FRMR
+            // fallback and the MDL figc5.2 FRMR (pre-v2.2 peer) path. Routed
+            // through the injectable setVersion20 callback: the data-link
+            // dispatcher's default clears IsExtended only (its other v2.0 verbs
+            // run separately); the MDL driver overrides it to install the full
+            // §1436 v2.0 default set (the figc5.2 box stands in for the whole set).
+            Ax25ActionVerb.SetVersion20           => Do(() => setVersion20(ctx)),
             Ax25ActionVerb.SetVersion22           => Do(() => ctx.IsExtended = true),
 
             // Individual Set_Version_2_x body verbs (figc4.7), used inside the

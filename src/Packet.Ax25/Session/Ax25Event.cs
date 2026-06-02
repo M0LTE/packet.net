@@ -47,6 +47,22 @@ public sealed record MdlErrorIndicate(string Code) : Ax25Event("MDL_ERROR_indica
 
 // ─── Frame-received events (from the link multiplexer) ─────────────────
 
+/// <summary>
+/// An XID <em>response</em> frame arrived while the management data-link
+/// (MDL) is negotiating. Distinct from <see cref="XidReceived"/> (the
+/// undifferentiated data-link XID-frame event): the MDL machine's
+/// <c>Negotiating</c> state reacts only to the response (§C5.3), so the
+/// MDL driver classifies an inbound XID frame whose C/R bit marks it a
+/// response into this event. Carries the frame so <c>Apply Negotiated
+/// Parameters</c> can parse its info field and the <c>F_eq_1</c> guard can
+/// read its final bit.
+/// </summary>
+public sealed record XidResponseReceived(Ax25Frame Frame) : Ax25Event("XID_response_received");
+
+/// <summary>The management retry timer TM201 expired (§C5.3). Drives the
+/// MDL <c>Negotiating</c> state's XID-command retransmit / give-up logic.</summary>
+public sealed record Tm201Expiry() : Ax25Event("TM201_expiry");
+
 public sealed record IFrameReceived(Ax25Frame Frame)     : Ax25Event("I_received");
 public sealed record RrReceived(Ax25Frame Frame)         : Ax25Event("RR_received");
 public sealed record RnrReceived(Ax25Frame Frame)        : Ax25Event("RNR_received");

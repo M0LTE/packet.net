@@ -71,6 +71,16 @@ public sealed class Ax25Listener : IAsyncDisposable
         public required Ax25Session Session { get; init; }
         public required SystemTimerScheduler Scheduler { get; init; }
         public required ConcurrentQueue<DataLinkSignal> Signals { get; init; }
+
+        /// <summary>
+        /// The session's management data-link (MDL) driver — runs the XID
+        /// parameter-negotiation FSM. Started by the data-link's
+        /// <c>MDL-NEGOTIATE Request</c> poke (raised after the UA on a v2.2
+        /// connect); inbound XID-response / FRMR-of-XID frames are routed here
+        /// while it is negotiating. Negotiated parameters land back on
+        /// <see cref="Session"/>'s context.
+        /// </summary>
+        public required Ax25ManagementDataLink Mdl { get; init; }
     }
 
     /// <summary>Our station identity. All inbound filtering checks against this.</summary>
@@ -321,6 +331,36 @@ public sealed class Ax25Listener : IAsyncDisposable
             var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context);
             var cachedClassified = Ax25FrameClassifier.Classify(frame);
 
+            // XID / FRMR-of-XID routing — these belong to the MDL machine, not
+            // the data-link session (the data-link Connected state has no XID
+            // handler, and would FRMR-handle a FRMR as a full link reset):
+            //
+            //  • XID *command* → we are the responder: build + send the XID
+            //    response (the un-transcribed figc5.1 responder path).
+            //  • XID *response* while negotiating → we are the initiator: figc5.2
+            //    applies the negotiated parameters.
+            //  • FRMR while negotiating → figc5.2 §6.3.2 ¶1 v2.0 fallback.
+            //
+            // Outside those, frames fall through to the data-link session
+            // unchanged (e.g. a stray XID response with no negotiation → the
+            // data-link catch-all; a real FRMR on an established link → the
+            // data-link FRMR handling).
+            if (cachedClassified is XidReceived && frame.IsCommand)
+            {
+                cached.Mdl.RespondToXidCommand(frame);
+                return;
+            }
+            if (cached.Mdl.IsNegotiating && cachedClassified is XidReceived)
+            {
+                cached.Mdl.OnXidReceived(frame);
+                return;
+            }
+            if (cached.Mdl.IsNegotiating && cachedClassified is FrmrReceived)
+            {
+                cached.Mdl.OnFrmrReceived(frame);
+                return;
+            }
+
             bool wasDisconnected = cached.Session.CurrentState == "Disconnected";
             bool isReconnectSabm = wasDisconnected && (cachedClassified is SabmReceived or SabmeReceived);
 
@@ -509,6 +549,13 @@ public sealed class Ax25Listener : IAsyncDisposable
             sessionRef?.RaiseDataLinkSignal(sig);
         }
 
+        // The session's MDL driver shares the session's scheduler (TM201 is a
+        // distinct timer name, so it doesn't collide with T1/T2/T3) and the same
+        // wire sink. Built before the data-link dispatcher so sendInternal can
+        // route the MDL-NEGOTIATE-request poke straight to it. Negotiated
+        // parameters mutate this session's context (ctx).
+        var mdl = new Ax25ManagementDataLink(ctx, scheduler, SendBytes);
+
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
             sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
@@ -517,7 +564,11 @@ public sealed class Ax25Listener : IAsyncDisposable
             sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendUpward:    SendUpward,
             sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
+            // The data-link figc4.6 UA-received path raises MDL-NEGOTIATE Request
+            // after a successful v2.2 connect; hand it to the MDL driver to open
+            // the XID exchange. (Other internal signals — push_I_frame_queue — are
+            // queue-management that mutate ctx directly; nothing to do here.)
+            sendInternal:  sig => { if (sig is MdlNegotiateRequestSignal) mdl.Negotiate(); },
             subroutines:   new DefaultSubroutineRegistry());
         if (options.T3 is { } t3) dispatcher = WithT3(dispatcher, t3);
 
@@ -536,6 +587,7 @@ public sealed class Ax25Listener : IAsyncDisposable
             Session = session,
             Scheduler = scheduler,
             Signals = signals,
+            Mdl = mdl,
         };
     }
 

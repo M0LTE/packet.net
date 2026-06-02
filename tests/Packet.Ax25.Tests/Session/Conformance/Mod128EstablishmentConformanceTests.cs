@@ -102,8 +102,12 @@ public class Mod128EstablishmentConformanceTests
         h.FiredTransitions.Should().Contain(("AwaitingV22Connection", "t13_t1_expiry_no"),
             "the T1 retry runs the figc4.6 resend-SABME transition, not the figc4.2 resend-SABM one");
         h.B.ReceivedFromPeer.Should().NotBeEmpty("the retry was sent (and this time delivered)");
-        h.B.ReceivedFromPeer.Should().OnlyContain(f => IsSabme(f),
-            "every establishment frame the responder sees is a SABME — the link did NOT downgrade to mod-8");
+        // Every *establishment* frame the responder sees is a SABME — the link
+        // did NOT downgrade to mod-8. (Filter to SABM/SABME: a successful v2.2
+        // connect is now followed by the MDL's XID command, a legitimate
+        // non-establishment frame that arrives once both reach Connected.)
+        h.B.ReceivedFromPeer.Where(f => IsSabm(f) || IsSabme(f))
+            .Should().OnlyContain(f => IsSabme(f));
         h.B.ReceivedFromPeer.Should().NotContain(f => IsSabm(f), "no SABM downgrade on retry");
 
         // And it converges to a mod-128 connection.

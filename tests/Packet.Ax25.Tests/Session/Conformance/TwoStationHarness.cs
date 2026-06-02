@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Time.Testing;
 using Packet.Ax25.Sdl;
 using Packet.Ax25.Session;
+using Packet.Ax25.Xid;
 using Packet.Core;
 
 namespace Packet.Ax25.Tests.Session.Conformance;
@@ -68,7 +69,8 @@ public sealed class TwoStationHarness
 
     public static TwoStationHarness Build(
         bool srej = false, int k = 4, int t1Ms = DefaultT1Ms, int n2 = DefaultN2, int t2Ms = 40,
-        bool extended = false, Ax25SessionQuirks? quirks = null)
+        bool extended = false, Ax25SessionQuirks? quirks = null,
+        XidParameters? xidOfferA = null, XidParameters? xidOfferB = null)
     {
         var q = quirks ?? Ax25SessionQuirks.Default;
         var nodeA = new Callsign("M0LTEA", 1);
@@ -77,10 +79,16 @@ public sealed class TwoStationHarness
         var link  = new Channel();
         var t1v   = TimeSpan.FromMilliseconds(t1Ms);
 
-        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, out var aPeer);
-        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, out var bPeer);
+        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferA, out var aPeer);
+        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferB, out var bPeer);
         aPeer.Target = b.Inbound;          bPeer.Target = a.Inbound;
         aPeer.RxLog  = b.ReceivedFromPeer; bPeer.RxLog  = a.ReceivedFromPeer;
+        // When A sends, the frame is delivered to B's wiring; route XID/FRMR to
+        // B's MDL while it negotiates (and vice-versa). The peer thunk reads the
+        // built Endpoint's MDL; MDL deliveries are deferred onto the peer's work
+        // queue (drained by the pump).
+        aPeer.Mdl = () => b.Mdl;           bPeer.Mdl = () => a.Mdl;
+        aPeer.MdlWork = b.MdlWork;         bPeer.MdlWork = a.MdlWork;
         var harness = new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
         a.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
         b.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
@@ -97,7 +105,8 @@ public sealed class TwoStationHarness
 
     private static Endpoint BuildEndpoint(
         Callsign local, Callsign remote, FakeTimeProvider time, Channel link,
-        bool srej, int k, int t1Ms, int n2, int t2Ms, bool extended, Ax25SessionQuirks quirks, out PeerWiring peer)
+        bool srej, int k, int t1Ms, int n2, int t2Ms, bool extended, Ax25SessionQuirks quirks,
+        XidParameters? xidOffer, out PeerWiring peer)
     {
         peer = new PeerWiring { TargetLocal = remote };
         var peerLocal = peer;
@@ -114,6 +123,7 @@ public sealed class TwoStationHarness
             Quirks      = quirks,
         };
         var signals = new ConcurrentQueue<DataLinkSignal>();
+        var mdlSignals = new ConcurrentQueue<MdlSignal>();
         var inbound = new Queue<Ax25Event>();
         var rxLog = new List<Ax25Frame>();
         var subroutines = new DefaultSubroutineRegistry();
@@ -128,14 +138,52 @@ public sealed class TwoStationHarness
             if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsed)) return;
             if (link.ShouldDrop(parsed)) return;
             if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected)) return;
-            peerLocal.RxLog?.Add(parsed);
-            peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
-            if (link.ShouldDuplicate(parsed))
+            DeliverToPeer(parsed);
+            if (link.ShouldDuplicate(parsed)) DeliverToPeer(parsed);
+
+            void DeliverToPeer(Ax25Frame frame)
             {
-                peerLocal.RxLog?.Add(parsed);
-                peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
+                peerLocal.RxLog?.Add(frame);
+                var evt = Ax25FrameClassifier.Classify(frame);
+                // Mirror the listener's MDL routing (see Ax25Listener.DispatchInbound):
+                //   XID command           → responder builds the XID response
+                //   XID response (negotiating) → initiator applies negotiated params
+                //   FRMR (negotiating)    → initiator v2.0 fallback
+                //
+                // MDL deliveries are DEFERRED onto the peer's work queue rather
+                // than invoked synchronously: in production frames go out the
+                // modem and return through the async inbound pump, so the sender's
+                // own MDL transition completes before the reply is processed.
+                // Invoking synchronously here would re-enter the sender's MDL
+                // PostEvent mid-transition (XID command not yet committed → still
+                // in Ready), mis-routing the reply. The pump drains MdlWork.
+                var peerMdl = peerLocal.Mdl?.Invoke();
+                if (peerMdl is not null && evt is XidReceived && frame.IsCommand)
+                {
+                    peerLocal.MdlWork?.Enqueue(() => peerMdl.RespondToXidCommand(frame));
+                    return;
+                }
+                if (peerMdl is { IsNegotiating: true } && evt is XidReceived)
+                {
+                    peerLocal.MdlWork?.Enqueue(() => peerMdl.OnXidReceived(frame));
+                    return;
+                }
+                if (peerMdl is { IsNegotiating: true } && evt is FrmrReceived)
+                {
+                    peerLocal.MdlWork?.Enqueue(() => peerMdl.OnFrmrReceived(frame));
+                    return;
+                }
+                peerLocal.Target?.Enqueue(evt);
             }
         }
+
+        // The MDL driver shares this endpoint's scheduler + wire sink. Built
+        // before the data-link dispatcher so sendInternal can route the
+        // MDL-NEGOTIATE-request poke (raised by figc4.6 after the UA on a v2.2
+        // connect) straight into it. Negotiated parameters mutate ctx — the same
+        // context the data-link session runs on — which is the whole point.
+        var mdl = new Ax25ManagementDataLink(ctx, scheduler, SendBytes, offered: xidOffer);
+        mdl.MdlSignalEmitted += (_, sig) => mdlSignals.Enqueue(sig);
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
@@ -150,7 +198,7 @@ public sealed class TwoStationHarness
             // only ack via T1 polls — which is why the legacy rigs (all of which
             // stub sendLinkMux) never exercised autonomous delayed-ack.
             sendLinkMux: signal => { if (signal is LinkMultiplexerSeizeRequest) inbound.Enqueue(new LmSeizeConfirm()); },
-            sendInternal: _ => { },
+            sendInternal: sig => { if (sig is MdlNegotiateRequestSignal) mdl.Negotiate(); },
             subroutines: subroutines)
         {
             // T1 uses ctx.T1V; T2/T3 come from these dispatcher properties.
@@ -165,7 +213,7 @@ public sealed class TwoStationHarness
 
         var session = new Ax25Session(ctx, scheduler, dispatcher, guards, TransitionMap(), "Disconnected");
         sessionRef = session;
-        return new Endpoint(local.ToString(), session, ctx, signals, inbound, rxLog);
+        return new Endpoint(local.ToString(), session, ctx, signals, inbound, rxLog, mdl, mdlSignals);
     }
 
     // ─── Scenario actions ───────────────────────────────────────────────
@@ -267,6 +315,32 @@ public sealed class TwoStationHarness
         if (CheckAfterEachStep) CheckInvariants();
     }
 
+    /// <summary>Directly start an MDL XID negotiation from <paramref name="e"/>
+    /// (posts the MDL-NEGOTIATE Request the data-link figc4.6 path would raise on
+    /// a v2.2 connect), then pump. Lets MDL tests exercise negotiation without
+    /// having to also reproduce the full SABME handshake first.</summary>
+    public void StartNegotiation(Endpoint e)
+    {
+        e.Mdl.Negotiate();
+        PumpToQuiescence();
+        if (CheckAfterEachStep) CheckInvariants();
+    }
+
+    /// <summary>Advance the clock past one TM201 interval (the MDL management
+    /// retry timer) and pump — fires a due TM201 retry / give-up and lets the
+    /// cascade settle. TM201 defaults to 3000 ms in the MDL driver; advance past
+    /// the larger of that and the live T1V so the timer fires regardless of
+    /// whether the data-link has (re)set T1V.</summary>
+    public void AdvanceTm201(int extraMs = 50)
+    {
+        var t1 = A.Context.T1V > B.Context.T1V ? A.Context.T1V : B.Context.T1V;
+        var floor = TimeSpan.FromMilliseconds(3000);   // ActionDispatcher.Tm201Duration default
+        var step = (t1 > floor ? t1 : floor) + TimeSpan.FromMilliseconds(extraMs);
+        Time.Advance(step);
+        PumpToQuiescence();
+        if (CheckAfterEachStep) CheckInvariants();
+    }
+
     /// <summary>Advance just past the delayed-ack timer T2 (but well short of
     /// T1), so a receiver's pending RR flushes and the sender's V(a) / window
     /// catches up — without provoking a spurious T1 retransmit. Use after a
@@ -317,6 +391,11 @@ public sealed class TwoStationHarness
             var progress = false;
             while (A.Inbound.TryDequeue(out var evt)) { A.Session.PostEvent(evt); progress = true; }
             while (B.Inbound.TryDequeue(out var evt)) { B.Session.PostEvent(evt); progress = true; }
+            // Deferred MDL work (XID command/response/FRMR routed to the MDL
+            // machine) — drained after the data-link events so a just-sent XID
+            // command's MDL transition has committed before its reply is handled.
+            while (A.MdlWork.TryDequeue(out var work)) { work(); progress = true; }
+            while (B.MdlWork.TryDequeue(out var work)) { work(); progress = true; }
             if (!progress) return;
         }
         throw new InvariantViolationException("link did not settle within 256 round-trips — possible send/ack livelock");
@@ -377,19 +456,34 @@ public sealed class TwoStationHarness
         public Queue<Ax25Event> Inbound { get; }
         public List<Ax25Frame> ReceivedFromPeer { get; }
 
+        /// <summary>This station's MDL (XID-negotiation) driver.</summary>
+        public Ax25ManagementDataLink Mdl { get; }
+
+        /// <summary>MDL → Layer 3 signals this station raised (MDL-NEGOTIATE
+        /// Confirm / MDL-ERROR Indicate), in order.</summary>
+        public ConcurrentQueue<MdlSignal> MdlSignals { get; }
+
+        /// <summary>Deferred MDL-work queue (see <c>PeerWiring.MdlWork</c>).</summary>
+        public Queue<Action> MdlWork { get; } = new();
+
         /// <summary>Payloads this station submitted via DL-DATA-request, in order.</summary>
         public List<byte[]> Submitted { get; } = new();
 
         public Endpoint(
             string name, Ax25Session session, Ax25SessionContext context,
             ConcurrentQueue<DataLinkSignal> signals, Queue<Ax25Event> inbound,
-            List<Ax25Frame> receivedFromPeer)
+            List<Ax25Frame> receivedFromPeer,
+            Ax25ManagementDataLink mdl, ConcurrentQueue<MdlSignal> mdlSignals)
         {
             Name = name; Session = session; Context = context;
             Signals = signals; Inbound = inbound; ReceivedFromPeer = receivedFromPeer;
+            Mdl = mdl; MdlSignals = mdlSignals;
         }
 
         public string State => Session.CurrentState;
+
+        /// <summary>The MDL machine's current state — <c>Ready</c> or <c>Negotiating</c>.</summary>
+        public string MdlState => Mdl.State;
 
         /// <summary>Payloads this station delivered upward (DL-DATA-indication),
         /// in order.</summary>
@@ -402,6 +496,18 @@ public sealed class TwoStationHarness
         public Queue<Ax25Event>? Target { get; set; }
         public List<Ax25Frame>? RxLog { get; set; }
         public Callsign? TargetLocal { get; set; }
+
+        /// <summary>Accessor for the peer endpoint's MDL driver (a thunk because
+        /// the peer is built after this wiring object is constructed). Lets the
+        /// delivery path route an inbound XID/FRMR to the peer's MDL while it is
+        /// negotiating — mirroring <see cref="Ax25Listener"/>.</summary>
+        public Func<Ax25ManagementDataLink?>? Mdl { get; set; }
+
+        /// <summary>The peer endpoint's deferred MDL-work queue. Frame deliveries
+        /// destined for the MDL are enqueued here and drained by the pump, so an
+        /// MDL reply is processed after the sender's own MDL transition commits
+        /// (avoids same-machine PostEvent re-entrancy).</summary>
+        public Queue<Action>? MdlWork { get; set; }
     }
 }
 
