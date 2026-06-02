@@ -86,6 +86,21 @@ public sealed class Ax25Session
     }
 
     /// <summary>
+    /// Raised after a transition fires: its guard matched the triggering event,
+    /// its action chain ran to completion, and <see cref="CurrentState"/> has
+    /// advanced to the transition's <c>Next</c>. The argument is the matched
+    /// <see cref="TransitionSpec"/> (its <c>From</c> is the pre-transition state,
+    /// its <c>Id</c> the codegen transition id). An observability hook — for
+    /// transition-coverage instrumentation, tracing, or metrics — that fires
+    /// only on a handled event (an unhandled event goes to
+    /// <c>onUnhandledEvent</c>, not here) and only once the transition has
+    /// committed (a transition whose actions throw is rolled back and not
+    /// raised). Handlers run synchronously on the posting thread, after the
+    /// state has advanced; keep them fast and non-throwing.
+    /// </summary>
+    public event EventHandler<TransitionSpec>? TransitionFired;
+
+    /// <summary>
     /// Construct a session.
     /// </summary>
     /// <param name="context">Mutable session state — sequence variables, flags, queues.</param>
@@ -208,6 +223,11 @@ public sealed class Ax25Session
                 scheduler.RestoreState(timerState);
                 throw;
             }
+
+            // Transition committed (state advanced, timers kept) — notify
+            // observers. Raised here rather than inside the try so a throwing
+            // observer can't trip the timer-rollback path.
+            TransitionFired?.Invoke(this, match);
         }
         finally
         {
