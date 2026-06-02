@@ -102,6 +102,34 @@ public sealed record Ax25SessionQuirks
     public bool Ax25Spec40DiscardOutOfWindowIFrames { get; init; } = true;
 
     /// <summary>
+    /// Work around <c>packethacking/ax25spec#41</c>: figc4.7 <c>Select_T1_Value</c>
+    /// folds <c>(T1V − "Remaining Time on T1 When Last Stopped")</c> into the
+    /// smoothed round-trip time without Karn's-algorithm guard. That term is only
+    /// a valid round-trip sample when T1 was stopped by an acknowledgement of the
+    /// frame whose transmission armed it. When the frame timed out / was
+    /// retransmitted (or T1 was otherwise not freshly stopped by an ack), the
+    /// remaining time is 0 and the "sample" degenerates to the full T1V (= 2·SRT).
+    /// Since T1V is derived from SRT, feeding it back is self-amplifying:
+    /// SRT' = 7/8·SRT + 1/8·(2·SRT) = 1.125·SRT, so SRT (and T1V) grow geometrically
+    /// under sustained loss until <c>Next T1 &lt;- 2*SRT</c> overflows
+    /// <see cref="TimeSpan"/> (m0lte/packet.net#241; reproduced by the conformance
+    /// harness within a single multi-frame SREJ recovery).
+    /// </summary>
+    /// <remarks>
+    /// When <c>true</c> (default), the SRT IIR update is skipped unless a genuine
+    /// round-trip was measured this cycle — T1 was running and stopped by an ack,
+    /// i.e. <c>T1RemainingWhenLastStopped &gt; 0</c>. On the timeout/retransmit
+    /// path SRT is left unchanged (T1V still backs off via the RC term), per Karn.
+    /// When <c>false</c>, the figure runs as drawn (the divergent IIR, for strict
+    /// conformance study — will overflow under sustained loss). Not gated behind a
+    /// T1V cap deliberately: leaving the unguarded path divergent keeps the fuzzer
+    /// able to catch any *other* SRT-growth source rather than masking it. Delete
+    /// once ax25sdl ships a figc4.7 carrying the Karn guard. Implemented in
+    /// m0lte/packet.net#241 ← packethacking/ax25spec#41.
+    /// </remarks>
+    public bool Ax25Spec41KarnSrtSampling { get; init; } = true;
+
+    /// <summary>
     /// Default preset — spec-<i>correct</i> behaviour (all quirks on). This is
     /// what a session uses unless explicitly configured otherwise.
     /// </summary>
@@ -116,5 +144,6 @@ public sealed record Ax25SessionQuirks
     {
         Ax25Spec38SrejSelectiveRetransmit = false,
         Ax25Spec40DiscardOutOfWindowIFrames = false,
+        Ax25Spec41KarnSrtSampling = false,
     };
 }

@@ -658,15 +658,25 @@ public sealed class ActionDispatcher : IActionDispatcher
             // the elapsed portion of T1 from arm to stop, which is what
             // the spec calls "Remaining Time on T1 When Last Stopped"
             // subtracted from T1V. T1RemainingWhenLastStopped is
-            // captured on stop_T1; zero when T1 expired (gives the
-            // worst-case T1V sample, which is what the spec wants in
-            // that case anyway).
+            // captured on stop_T1. The sample is a valid round-trip ONLY when T1
+            // was stopped by an acknowledgement of the frame that armed it — i.e.
+            // it was running, so remaining > 0. On a timeout/retransmit (or any
+            // reach without a fresh ack-driven stop) remaining is 0, the sample
+            // degenerates to the full T1V (= 2·SRT), and since T1V derives from
+            // SRT the IIR self-amplifies (SRT' = 1.125·SRT) → unbounded growth →
+            // overflow. Karn's algorithm: skip the update when there is no clean
+            // measurement. packethacking/ax25spec#41 (figc4.7 omits the guard);
+            // gated behind Ax25Spec41KarnSrtSampling (m0lte/packet.net#241).
             case "SRT <- 7(SRT)/8 + (T1)/8 - (Remaining Time on T1 When Last Stopped)/8":
             {
                 var sample = ctx.T1V - ctx.T1RemainingWhenLastStopped;
                 if (sample < TimeSpan.Zero) sample = TimeSpan.Zero;
-                ctx.Srt = TimeSpan.FromMilliseconds(
-                    0.875 * ctx.Srt.TotalMilliseconds + 0.125 * sample.TotalMilliseconds);
+                bool cleanMeasurement = ctx.T1RemainingWhenLastStopped > TimeSpan.Zero;
+                if (!ctx.Quirks.Ax25Spec41KarnSrtSampling || cleanMeasurement)
+                {
+                    ctx.Srt = TimeSpan.FromMilliseconds(
+                        0.875 * ctx.Srt.TotalMilliseconds + 0.125 * sample.TotalMilliseconds);
+                }
                 ctx.T1HadExpired = false;
                 ctx.T1RemainingWhenLastStopped = TimeSpan.Zero;
                 break;

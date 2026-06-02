@@ -964,11 +964,31 @@ public class ActionDispatcherTests
     }
 
     [Fact]
-    public void Select_T1_Value_IIR_Falls_Back_To_Full_T1V_When_T1_Expired()
+    public void Select_T1_Value_IIR_Skips_Unmeasured_RoundTrip_By_Default_Karn()
     {
-        // Worst case: T1 was allowed to expire, so remaining = 0 → sample = T1V.
-        // SRT' = 7/8 * 3000 + 1/8 * 6000 = 2625 + 750 = 3375.
+        // ax25spec#41 / Karn's algorithm (Ax25Spec41KarnSrtSampling, default on):
+        // when T1 expired (remaining = 0) there is no clean round-trip to measure,
+        // so SRT is left unchanged rather than folding the full T1V back in. The
+        // unguarded fold (3375 below) is self-amplifying and diverges under loss
+        // (m0lte/packet.net#241). T1V still backs off via the RC term.
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
+        ctx.Srt = TimeSpan.FromMilliseconds(3000);
+        ctx.T1V = TimeSpan.FromMilliseconds(6000);
+        ctx.T1RemainingWhenLastStopped = TimeSpan.Zero;   // T1 expired — no measurement
+
+        d.Execute("SRT <- 7(SRT)/8 + (T1)/8 - (Remaining Time on T1 When Last Stopped)/8", ctx, s);
+
+        ctx.Srt.Should().Be(TimeSpan.FromMilliseconds(3000), "Karn: no RTT sample is taken from a timed-out round-trip");
+    }
+
+    [Fact]
+    public void Select_T1_Value_IIR_Folds_Full_T1V_On_Expiry_When_StrictlyFaithful()
+    {
+        // Quirk off → figc4.7 as drawn: remaining = 0 ⇒ sample = T1V ⇒
+        // SRT' = 7/8 * 3000 + 1/8 * 6000 = 3375. This is the divergent behaviour
+        // (ax25spec#41) preserved for strict conformance study.
+        var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
+        ctx.Quirks = Ax25SessionQuirks.StrictlyFaithful;
         ctx.Srt = TimeSpan.FromMilliseconds(3000);
         ctx.T1V = TimeSpan.FromMilliseconds(6000);
         ctx.T1RemainingWhenLastStopped = TimeSpan.Zero;
