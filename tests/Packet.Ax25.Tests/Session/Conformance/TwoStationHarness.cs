@@ -42,6 +42,15 @@ public sealed class TwoStationHarness
     public TimeSpan T1V { get; }
     public TimeSpan T2 { get; }
 
+    private readonly HashSet<(string From, string Id)> fired = new();
+
+    /// <summary>Every <c>(state, transition-id)</c> that has fired on either
+    /// station's real dispatcher over this harness's lifetime — the substrate for
+    /// behavioural transition-coverage measurement (see
+    /// <c>TransitionCoverageTests</c>). Populated from each session's
+    /// <see cref="Ax25Session.TransitionFired"/> event.</summary>
+    public IReadOnlyCollection<(string From, string Id)> FiredTransitions => fired;
+
     /// <summary>When false, the drive methods skip the post-step invariant
     /// check — used by adversarial scenarios that assert on the converged state
     /// only. Defaults true (oracle runs after every step).</summary>
@@ -71,7 +80,10 @@ public sealed class TwoStationHarness
         var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, out var bPeer);
         aPeer.Target = b.Inbound;          bPeer.Target = a.Inbound;
         aPeer.RxLog  = b.ReceivedFromPeer; bPeer.RxLog  = a.ReceivedFromPeer;
-        return new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
+        var harness = new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
+        a.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
+        b.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
+        return harness;
     }
 
     private static Endpoint BuildEndpoint(
