@@ -242,6 +242,15 @@ public sealed class ActionDispatcher : IActionDispatcher
         // single-frame selective retransmit instead: redirect the push to the
         // figc4.4 "Push Old I Frame N(r) on Queue" behaviour, and skip the
         // go-back-N. Remove once ax25sdl ships a corrected figc4.5.
+        //
+        // Note (m0lte/packet.net#234): this rewrite only has a push to redirect on
+        // the SREJ *response* paths (t24_srej_received_yes_yes_*_no). The SREJ
+        // *command* paths (t24_srej_received_no_yes_*) carry only Invoke_Retransmission,
+        // so skipping it retransmits nothing on the command form. That is
+        // deliberate and spec-aligned — §4.3.2.4 makes SREJ response-only and no
+        // deployed stack sends or acts on an SREJ command (direwolf omits the
+        // command path; linbpq gates resend on RESP). The command-SREJ form is
+        // vestigial errata; see Ax25SessionQuirks and DataLinkSrejUnderLossTests.
         if (tx.Session.Quirks.Ax25Spec38SrejSelectiveRetransmit && tx.Trigger is SrejReceived)
         {
             if (action is "push_on_I_frame_queue" or "push_frame_on_queue")
