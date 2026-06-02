@@ -725,45 +725,34 @@ public sealed class ActionDispatcher : IActionDispatcher
     }
 
     /// <summary>
-    /// Read the N(R) field from the incoming frame's control byte. Assumes
-    /// mod-8 (1-byte control) for now; mod-128 needs the 2-byte extended
-    /// control form which Ax25Frame doesn't model yet.
+    /// Read the N(R) field from the incoming frame. Mode-aware: 3-bit under
+    /// modulo-8, 7-bit under extended modulo-128. The frame carries its own
+    /// control-field width (<see cref="Ax25Frame.ControlExtension"/>), set when
+    /// the receive path parsed it at the link's negotiated modulo, so no
+    /// session-level mode gate is needed here.
     /// </summary>
     private static byte ExtractNr(TransitionContext tx)
-    {
-        var frame = RequireIncomingFrame(tx, "V(a) := N(r)");
-        RequireMod8(tx, "N(R)");
-        // mod-8: bits 7..5 of the 1-byte control field carry N(R) per §4.2.2.
-        return (byte)((frame.Control >> 5) & 0x07);
-    }
+        => RequireIncomingFrame(tx, "V(a) := N(r)").Nr;
 
     /// <summary>
-    /// Read the N(S) field from the incoming I-frame's control byte. Only
-    /// I-frames carry N(S); on an S-frame the same bits encode the S type
-    /// + P/F, so this returns a meaningless value if called against the
-    /// wrong frame type. The caller (the SDL transcription) decides when
-    /// it's valid to invoke <c>N(r) := N(s)</c>.
+    /// Read the N(S) field from the incoming I-frame. Mode-aware (see
+    /// <see cref="ExtractNr"/>). Only I-frames carry N(S); on an S-frame the
+    /// same bits encode the S type + P/F, so this returns a meaningless value
+    /// if called against the wrong frame type. The caller (the SDL
+    /// transcription) decides when it's valid to invoke <c>N(r) := N(s)</c>.
     /// </summary>
     private static byte ExtractNs(TransitionContext tx)
-    {
-        var frame = RequireIncomingFrame(tx, "N(r) := N(s)");
-        RequireMod8(tx, "N(S)");
-        // mod-8 I-frame: control = (N(R) << 5) | (P << 4) | (N(S) << 1) | 0.
-        return (byte)((frame.Control >> 1) & 0x07);
-    }
+        => RequireIncomingFrame(tx, "N(r) := N(s)").Ns;
 
     /// <summary>
-    /// Read the P/F bit (bit 4 of the control byte, mod-8) from the
-    /// incoming frame. Used by <c>F := P</c> to echo the peer's poll bit
-    /// back in the final.
+    /// Read the P/F bit from the incoming frame. Used by <c>F := P</c> to echo
+    /// the peer's poll bit back in the final. <see cref="Ax25Frame.PollFinal"/>
+    /// is mode-aware — bit 4 of the control octet under modulo-8 (and for U
+    /// frames), but bit 0 of the second control octet for an extended
+    /// (modulo-128) I or S frame (Fig 4.1b).
     /// </summary>
     private static bool ExtractPollFinal(TransitionContext tx)
-    {
-        var frame = RequireIncomingFrame(tx, "F := P");
-        // The P/F bit lives at bit 4 in both mod-8 and mod-128 control
-        // fields, so no extended-mode gate is needed here.
-        return frame.PollFinal;
-    }
+        => RequireIncomingFrame(tx, "F := P").PollFinal;
 
     /// <summary>Information field of the triggering frame. Throws if no frame attached.</summary>
     private static ReadOnlyMemory<byte> ExtractIncomingInfo(TransitionContext tx)
@@ -925,8 +914,7 @@ public sealed class ActionDispatcher : IActionDispatcher
     private static void SaveIncomingIFrame(TransitionContext tx)
     {
         var frame = RequireIncomingFrame(tx, "save_contents_of_I_frame");
-        RequireMod8(tx, "N(S)");
-        byte ns = (byte)((frame.Control >> 1) & 0x07);
+        byte ns = frame.Ns;   // mode-aware N(S) (3-bit mod-8 / 7-bit mod-128)
         if (frame.Pid is not byte pid)
         {
             throw new InvalidOperationException(
@@ -1020,15 +1008,6 @@ public sealed class ActionDispatcher : IActionDispatcher
         return tx.IncomingFrame
             ?? throw new InvalidOperationException(
                 $"action `{verb}` requires an incoming frame, but the trigger '{tx.Trigger.Name}' is not a frame-receipt event.");
-    }
-
-    private static void RequireMod8(TransitionContext tx, string fieldName)
-    {
-        if (tx.Session.IsExtended)
-        {
-            throw new NotSupportedException(
-                $"extracting {fieldName} from an extended (mod-128) frame's 2-byte control field is not yet implemented; only mod-8 is wired today.");
-        }
     }
 
     /// <summary>

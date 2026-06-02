@@ -75,6 +75,17 @@ public sealed class AxudpSocket : IDisposable
     /// and an attempted decode (null if the bytes weren't a parseable AX.25
     /// frame).
     /// </summary>
+    /// <remarks>
+    /// The decode is best-effort at modulo-8: this transport layer has no
+    /// session context, so it can't know whether the link is extended
+    /// (modulo-128) — and an extended I/S frame's control-field width isn't
+    /// derivable from the octets alone. The raw bytes are returned alongside,
+    /// so a session-aware consumer must re-parse at the link's negotiated
+    /// modulo (see <c>Ax25Frame.TryParse(…, extended, …)</c>) before trusting
+    /// N(S)/N(R)/PID/info on an extended link. <see cref="AxudpReceiveResult.DecodedFrame"/>
+    /// is suitable for monitor/identification (addresses + frame type, which are
+    /// modulo-independent) without that second pass.
+    /// </remarks>
     public async Task<AxudpReceiveResult> ReceiveAsync(CancellationToken cancellationToken = default)
     {
         var result = await udp.ReceiveAsync(cancellationToken).ConfigureAwait(false);

@@ -274,7 +274,7 @@ public sealed class Ax25Listener : IAsyncDisposable
                 try { TraceFrame(parsed, FrameDirection.Received); }
                 catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
 
-                try { DispatchInbound(parsed); }
+                try { DispatchInbound(parsed, kiss.Payload); }
                 catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
             }
         }
@@ -291,7 +291,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         // event so consumers that DO care can observe.
     }
 
-    private void DispatchInbound(Ax25Frame parsed)
+    private void DispatchInbound(Ax25Frame parsed, ReadOnlyMemory<byte> payload)
     {
         // Frames not addressed to us: monitor-only (trace already
         // fired). Don't route to any session.
@@ -301,7 +301,6 @@ public sealed class Ax25Listener : IAsyncDisposable
         }
 
         var peer = parsed.Source.Callsign;
-        var classified = Ax25FrameClassifier.Classify(parsed);
 
         // Existing session — deliver to the cached state machine and
         // we're done. SABM from a peer we've seen before lands in the
@@ -312,10 +311,20 @@ public sealed class Ax25Listener : IAsyncDisposable
         if (sessions.TryGetValue(peer, out var cached))
         {
             TouchLru(peer);
-            bool wasDisconnected = cached.Session.CurrentState == "Disconnected";
-            bool isReconnectSabm = wasDisconnected && (classified is SabmReceived or SabmeReceived);
 
-            cached.Session.PostEvent(classified);
+            // The routing parse (line ~268) was modulo-8 — we didn't yet know
+            // which session, hence which modulo. Addresses precede the control
+            // field and are modulo-independent, so routing is valid; but an
+            // extended (modulo-128) I/S frame's 2-octet control field was
+            // mis-read. Re-decode at the session's negotiated modulo before
+            // classifying so N(S)/N(R)/PID/info land correctly.
+            var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context);
+            var cachedClassified = Ax25FrameClassifier.Classify(frame);
+
+            bool wasDisconnected = cached.Session.CurrentState == "Disconnected";
+            bool isReconnectSabm = wasDisconnected && (cachedClassified is SabmReceived or SabmeReceived);
+
+            cached.Session.PostEvent(cachedClassified);
 
             if (isReconnectSabm && cached.Session.CurrentState == "Connected")
             {
@@ -323,6 +332,12 @@ public sealed class Ax25Listener : IAsyncDisposable
             }
             return;
         }
+
+        // No cached session — the establishment / transient paths below deal in
+        // U-frames (SABM/SABME) or fall to the Disconnected catch-all (→ DM),
+        // all correctly decoded at modulo-8: an unknown peer can't already have
+        // an extended link with us, so no second pass is needed here.
+        var classified = Ax25FrameClassifier.Classify(parsed);
 
         // No cached session and this isn't a SABM. Two cases:
         //
@@ -396,6 +411,29 @@ public sealed class Ax25Listener : IAsyncDisposable
             _ => new AllOtherCommands(frame),
         };
 
+    /// <summary>
+    /// Re-decode an inbound I/S frame at a known session's negotiated modulo.
+    /// The inbound pump parses every frame at modulo-8 for routing (the session,
+    /// and thus the modulo, isn't known until the address is read) — which is
+    /// always valid for the address fields but mis-reads an extended
+    /// (modulo-128) I/S frame's 2-octet control field. Once the session is
+    /// matched, this second pass re-parses the raw bytes at the session's
+    /// modulo. Returns <paramref name="routed"/> unchanged for modulo-8 links
+    /// and for U frames (1 octet in both modes); re-parses only an extended
+    /// link's I/S frames, falling back to <paramref name="routed"/> if the
+    /// second parse somehow fails (it can't, given the first succeeded).
+    /// </summary>
+    private static Ax25Frame ReparseAtSessionModulo(Ax25Frame routed, ReadOnlyMemory<byte> payload, Ax25SessionContext ctx)
+    {
+        if (!ctx.IsExtended) return routed;               // modulo-8 link: the routing parse was correct
+        if (routed.IsExtendedControl) return routed;      // already 2-octet (defensive; the routing parse is mod-8)
+        bool isUFrame = (routed.Control & 0x03) == 0x03;  // U frames are 1 octet in both modes
+        if (isUFrame) return routed;
+        return Ax25Frame.TryParse(payload.Span, Ax25ParseOptions.Lenient, extended: true, out var ext)
+            ? ext
+            : routed;
+    }
+
     private void RaiseSessionAccepted(Ax25Session session)
     {
         var handler = SessionAccepted;
@@ -452,7 +490,9 @@ public sealed class Ax25Listener : IAsyncDisposable
             // happens before TraceFrame so subscribers see TX in the
             // order frames hit the wire.
             _ = modem.SendFrameAsync(bytes);
-            if (Ax25Frame.TryParse(bytes.Span, out var parsedTx))
+            // Trace at this session's modulo so an extended (mod-128) I/S frame's
+            // N(S)/N(R) render correctly in the monitor.
+            if (Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsedTx))
             {
                 TraceFrame(parsedTx, FrameDirection.Transmitted);
             }

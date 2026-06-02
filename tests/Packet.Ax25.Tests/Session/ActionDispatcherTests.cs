@@ -613,20 +613,21 @@ public class ActionDispatcherTests
     }
 
     [Fact]
-    public void VA_Assign_From_Nr_Throws_For_Extended_Mode_Until_Wired()
+    public void VA_Assign_From_Nr_Reads_7bit_Nr_On_Extended_Frame()
     {
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
         ctx.IsExtended = true;
-        var frame = BuildRrCommand(3);
+        // An extended (mod-128) RR carries a 7-bit N(R) in its second control
+        // octet (Fig 4.3b). N(R) = 100 doesn't fit mod-8's 3 bits, so a correct
+        // result proves the extraction is genuinely 7-bit. Extraction is driven
+        // by the frame's own control width (ControlExtension), not ctx.
+        var frame = Ax25Frame.Rr(new Callsign("M0LTE", 0), new Callsign("G7XYZ", 7),
+            nr: 100, isCommand: true, extended: true);
         var tx = new TransitionContext(ctx, s, new RrReceived(frame));
 
-        var act = () => d.Execute(Ax25ActionVerb.VAAssignNR, tx);
+        d.Execute(Ax25ActionVerb.VAAssignNR, tx);
 
-        // Mod-128 N(R) lives in a 2-byte control field that Ax25Frame doesn't
-        // model yet — fail loudly until that's wired rather than silently
-        // returning the wrong value.
-        act.Should().Throw<NotSupportedException>()
-           .WithMessage("*mod-128*not yet implemented*");
+        ctx.VA.Should().Be(100);
     }
 
     // ─── Pending-frame field assignments (write side) ──────────────────

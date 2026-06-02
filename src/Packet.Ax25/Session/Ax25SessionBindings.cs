@@ -288,22 +288,15 @@ public static class Ax25SessionBindings
         _ => null,
     };
 
-    /// <summary>Extract the N(R) bits from a mod-8 control byte, or <c>null</c> if no frame.</summary>
-    private static byte? IncomingNr(Ax25Event? e)
-    {
-        var f = GetIncomingFrame(e);
-        return f is null ? null : (byte)((f.Control >> 5) & 0x07);
-    }
+    /// <summary>Extract N(R) from the incoming frame (mode-aware: 3-bit mod-8 /
+    /// 7-bit extended mod-128), or <c>null</c> if no frame.</summary>
+    private static byte? IncomingNr(Ax25Event? e) => GetIncomingFrame(e)?.Nr;
 
     /// <summary>
-    /// Extract the N(S) bits from a mod-8 I-frame's control byte. Only
-    /// meaningful for I-frames (the bits at the same position encode
-    /// supervisory-frame type for S-frames); the caller is responsible
-    /// for checking the trigger type before relying on the value.
+    /// Extract the N(S) bits from an incoming I-frame (mode-aware: 3-bit mod-8 /
+    /// 7-bit extended mod-128). Only meaningful for I-frames (the bits at the
+    /// same position encode supervisory-frame type for S-frames); the caller is
+    /// responsible for checking the trigger type before relying on the value.
     /// </summary>
-    private static byte? IncomingNs(Ax25Event? e)
-    {
-        var f = GetIncomingFrame(e);
-        return f is null ? null : (byte)((f.Control >> 1) & 0x07);
-    }
+    private static byte? IncomingNs(Ax25Event? e) => GetIncomingFrame(e)?.Ns;
 }

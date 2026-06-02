@@ -122,7 +122,11 @@ public sealed class Ax25Adapter
     /// </returns>
     public bool OnReceivedAx25Bytes(ReadOnlySpan<byte> bytes)
     {
-        if (!Ax25Frame.TryParse(bytes, out var frame))
+        // Parse at the link's negotiated modulo: an extended (mod-128) I/S frame
+        // carries a 2-octet control field, and the width isn't derivable from
+        // the octets alone (see Ax25Frame.TryParse). U frames are 1 octet in
+        // both modes, so this is inert until the session goes extended.
+        if (!Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, Context.IsExtended, out var frame))
         {
             return false;
         }

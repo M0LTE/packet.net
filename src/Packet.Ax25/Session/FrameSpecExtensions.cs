@@ -33,12 +33,13 @@ public static class FrameSpecExtensions
     {
         ArgumentNullException.ThrowIfNull(context);
         var digi = ResolvePath(spec.Path, context);
+        bool ext = context.IsExtended;
         return spec.Type switch
         {
-            SupervisoryFrameType.Rr   => Ax25Frame.Rr  (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi),
-            SupervisoryFrameType.Rnr  => Ax25Frame.Rnr (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi),
-            SupervisoryFrameType.Rej  => Ax25Frame.Rej (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi),
-            SupervisoryFrameType.Srej => Ax25Frame.Srej(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi),
+            SupervisoryFrameType.Rr   => Ax25Frame.Rr  (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Rnr  => Ax25Frame.Rnr (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Rej  => Ax25Frame.Rej (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Srej => Ax25Frame.Srej(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
             _ => throw new ArgumentOutOfRangeException(nameof(spec), $"unknown supervisory frame type '{spec.Type}'"),
         };
     }
@@ -88,7 +89,8 @@ public static class FrameSpecExtensions
             info:        spec.Info.Span,
             pid:         spec.Pid,
             pollBit:     spec.PBit,
-            digipeaters: ResolvePath(spec.Path, context));
+            digipeaters: ResolvePath(spec.Path, context),
+            extended:    context.IsExtended);
     }
 
     // Per-spec Path overrides the context's chain when present. The
