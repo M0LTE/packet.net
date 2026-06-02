@@ -104,6 +104,11 @@ public sealed class TwoStationHarness
             if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected)) return;
             peerLocal.RxLog?.Add(parsed);
             peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
+            if (link.ShouldDuplicate(parsed))
+            {
+                peerLocal.RxLog?.Add(parsed);
+                peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
+            }
         }
 
         var dispatcher = new ActionDispatcher(
@@ -294,6 +299,15 @@ public sealed class TwoStationHarness
         public Func<Ax25Frame, bool>? Drop { get; set; }
 
         public bool ShouldDrop(Ax25Frame f) => Drop?.Invoke(f) == true;
+
+        /// <summary>Return true to deliver the frame to the peer a second time —
+        /// the medium duplicated it (a digipeater echo, or a retransmit arriving
+        /// alongside the original it was meant to replace). The receiver must
+        /// discard the duplicate and never deliver its payload twice. Null = no
+        /// duplication.</summary>
+        public Func<Ax25Frame, bool>? Duplicate { get; set; }
+
+        public bool ShouldDuplicate(Ax25Frame f) => Duplicate?.Invoke(f) == true;
     }
 
     public sealed class Endpoint
