@@ -496,12 +496,17 @@ public class PendingFrameAssignmentProperties
     }
 
     [Property(MaxTest = 200)]
-    public void Nr_Assign_From_Ns_Reads_Incoming_I_Frame_NS(
+    public void Nr_Assign_From_Ns_Reads_Incoming_I_Frame_NS_When_StrictlyFaithful(
         byte rawNr, byte rawNs, bool pollBit)
     {
+        // Raw figc4.4 verb (ax25spec#42 quirk off): N(r) := N(s) extracts N(S).
+        // With the default-on Ax25Spec42SrejTargetsGap quirk this verb is
+        // retargeted to V(R) on an I_received trigger (covered by a unit test in
+        // ActionDispatcherTests); here we pin the underlying extraction.
         var nr = (byte)(rawNr & 0x07);
         var ns = (byte)(rawNs & 0x07);
         var rig = ActionDispatcherPropertyHelpers.NewRig();
+        rig.Context.Quirks = Ax25SessionQuirks.StrictlyFaithful;
         var frame = ActionDispatcherPropertyHelpers.BuildIFrame(
             nr: nr, ns: ns, pollBit: pollBit, info: [1, 2, 3], pid: Ax25Frame.PidNoLayer3);
         var tx = new TransitionContext(rig.Context, rig.Scheduler, new IFrameReceived(frame));

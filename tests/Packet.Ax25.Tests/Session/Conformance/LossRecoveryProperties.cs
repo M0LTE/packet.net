@@ -50,22 +50,21 @@ public class LossRecoveryProperties
     }
 
     [Property(MaxTest = 400)]
-    public bool A_finite_bidirectional_loss_burst_recovers_with_rej(int seedN, int seedBudget, int seedPattern)
+    public bool A_finite_bidirectional_loss_burst_recovers(int seedN, int seedBudget, int seedPattern, bool srej)
     {
         int n      = 1 + Mod(seedN, 6);        // 1..6 I-frames
         int budget = Mod(seedBudget, n + 1);   // 0..n total drops — finite, so the channel always clears
         int k      = Math.Max(4, n);
         var rng    = new Random(seedPattern);
 
-        // REJ (go-back-N) recovery, fuzzed across budgets. SREJ multi-frame
-        // recovery is still blocked by a third defect — #246: figc4.4 SREJs the
-        // just-arrived out-of-sequence frame (N(r):=N(s)) instead of the gap, so a
-        // multi-frame loss can livelock. That only became visible once #242 (the
-        // window guard) and #241 (the SRT/T1V overflow) were fixed. So this
-        // generative bidirectional sweep stays REJ-only; flip to a fuzzed `srej`
-        // parameter once #246 lands. N2 generous so the link doesn't give up before
-        // the finite loss clears.
-        var h = TwoStationHarness.Build(srej: false, k: k, n2: 40);
+        // Both go-back-N (REJ) and selective (SREJ) recovery, fuzzed across budgets
+        // and both modes. This sweep was REJ-only until the three figc4.x SREJ
+        // recovery defects were closed: #242 (out-of-window duplicate discard),
+        // #241 (SRT/T1V overflow), and #246 (SREJ requested the just-arrived frame
+        // instead of the gap). With all three quirks on (default) selective-reject
+        // converges under arbitrary finite loss too. N2 generous so the link
+        // doesn't give up before the finite loss clears.
+        var h = TwoStationHarness.Build(srej: srej, k: k, n2: 40);
         h.Connect();
 
         // Drop up to `budget` frames in EITHER direction (lost I-frames, acks,
@@ -107,14 +106,15 @@ public class LossRecoveryProperties
         h.AssertConverged();
     }
 
-    // The two SRT/T1V blockers under this heavy SREJ burst are now fixed: the
-    // ax25spec#40 duplicate-SREJ livelock (window guard / #242) and the
-    // ax25spec#41 SRT overflow (Karn guard / #241). What remains is #246 — the
-    // figc4.4 multi-frame SREJ path requests the just-arrived frame (N(r):=N(s))
-    // instead of the gap, so a heavy burst still livelocks (B SREJs a frame it
-    // holds; the real gap is never re-requested). Un-skip when #246 lands; this
-    // becomes its convergence regression.
-    [Fact(Skip = "m0lte/packet.net#246: figc4.4 multi-frame SREJ requests the just-arrived frame, not the gap → heavy SREJ recovery livelocks. Overflow (#241) and duplicate-SREJ livelock (#242) are fixed; this is the remaining third defect.")]
+    // Convergence regression for the full SREJ recovery stack: this heavy burst
+    // needed all three figc4.x fixes — the ax25spec#40 duplicate-SREJ livelock
+    // (window guard / #242), the ax25spec#41 SRT overflow (Karn guard / #241), and
+    // ax25spec#42 (#246): figc4.4's multi-frame SREJ requested the just-arrived
+    // frame (N(r):=N(s)) instead of the gap, so the receiver SREJ'd a frame it held
+    // and the real gap was never re-requested. With Ax25Spec42SrejTargetsGap on
+    // (default) the SREJ targets V(R), so heavy multi-frame selective-reject
+    // recovery converges.
+    [Fact]
     public void Srej_heavy_bidirectional_loss_burst_recovers()
     {
         var h = TwoStationHarness.Build(srej: true, k: 6, n2: 40);
