@@ -838,6 +838,12 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-06-02 — Conformance harness Phase H: reusable two-station rig + invariant oracle + happy-path suite
+
+First slice of the conformance/generative platform (docs/conformance-harness-plan.md). New `tests/Packet.Ax25.Tests/Session/Conformance/`: `TwoStationHarness` (two real sessions over a controllable in-process channel + shared FakeTimeProvider + ordered pump; tracks submitted-vs-delivered payloads; runs the oracle after every step), `InvariantChecker` (the oracle: defined-state, window/sequence sanity, reliable in-order gap-free duplicate-free delivery, and convergence-after-clean-tail), and `HappyPathConformanceTests` (connect/disconnect, single frame, full window, bidirectional, multi-window mod-8 wrap). All green (672/672); test-only, no runtime change.
+
+Surfaced a real coverage gap while doing it: the figc4.4 in-sequence delayed-ack flushes via the **Link Multiplexer** (Set Ack Pending + LM-SEIZE Request → flush RR on LM-SEIZE-confirm, t23_lm_seize_confirm_yes), but every legacy two-session rig stubs `sendLinkMux`, so autonomous delayed-ack was never exercised — those rigs only ever acked via T1 polls. The harness models a contention-free medium (grant LM-SEIZE immediately) so happy-path acks actually flow. Next: extend the envelope (mod-128, segmentation, RNR/busy, piggyback acks) then the adversarial phases (A1 FsCheck generation).
+
 ### 2026-06-02 — Verify the SREJ-selective quirk engages end-to-end; close the SREJ-as-command gap as documented-non-issue (#233, #234)
 
 Two follow-ups from #231/#227, both resolved as **documentation + tests, no behavioural code change** — the investigation showed the quirk is already correct and the remaining rough edges are spec-side, not packet.net bugs.
