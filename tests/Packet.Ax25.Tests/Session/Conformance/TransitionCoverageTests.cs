@@ -65,17 +65,24 @@ public class TransitionCoverageTests
 
         // ── Assert: each reachable state is behaviourally exercised (a curated,
         // robust must-hit — confirmed-fired ids the battery is built to drive).
-        // AwaitingV22Connection is intentionally absent: the harness can't yet
-        // drive mod-128 connection establishment (0/25 — see the report + §17). ──
+        // AwaitingV22Connection is now driven (v2.2 arc V2): the Ax25Spec44 redirect
+        // routes a mod-128 connect through figc4.6, so the harness reaches it (15/25
+        // — the residual misses are the never-produced error inputs + the
+        // not-layer-3-initiated collision branches, same classes as the other
+        // states; see the report + §17). ──
         (string State, string Id)[] mustHit =
         {
-            ("Disconnected",       "t03_dl_connect_request"),   // A initiates a connect
-            ("Disconnected",       "t13_sabm_received_yes"),     // B accepts an incoming SABM
-            ("AwaitingConnection", "t04_ua_received_yes_yes"),   // connect completes
-            ("Connected",          "t02_dl_data_request"),       // upper layer sends data
-            ("Connected",          "t21_rr_received_yes"),        // an RR acks
-            ("AwaitingRelease",    "t03_ua_received_yes"),        // disconnect completes
-            ("TimerRecovery",      "t15_frmr_received"),          // FRMR during recovery
+            ("Disconnected",          "t03_dl_connect_request"),    // A initiates a connect
+            ("Disconnected",          "t13_sabm_received_yes"),      // B accepts an incoming SABM
+            ("AwaitingConnection",    "t04_ua_received_yes_yes"),    // connect completes
+            ("AwaitingV22Connection", "t12_ua_received_yes_yes"),    // mod-128 connect completes (figc4.6)
+            ("AwaitingV22Connection", "t13_t1_expiry_no"),           // lost SABME retried as SABME
+            ("AwaitingV22Connection", "t14_frmr_received"),          // §975 v2.0 fallback
+            ("AwaitingV22Connection", "t11_dm_received_yes"),        // §975 DM teardown
+            ("Connected",             "t02_dl_data_request"),        // upper layer sends data
+            ("Connected",             "t21_rr_received_yes"),         // an RR acks
+            ("AwaitingRelease",       "t03_ua_received_yes"),         // disconnect completes
+            ("TimerRecovery",         "t15_frmr_received"),           // FRMR during recovery
         };
         foreach (var (state, id) in mustHit)
         {
@@ -84,7 +91,9 @@ public class TransitionCoverageTests
         }
 
         // ── Assert: a floor on total behavioural coverage (regression guard) ──
-        hit.Should().BeGreaterThanOrEqualTo(45,
+        // Raised from 45 → 60 once the v2.2 arc V2 redirect unlocked the
+        // AwaitingV22Connection column (0 → 15), lifting the battery total to 64.
+        hit.Should().BeGreaterThanOrEqualTo(60,
             "the scenario battery should behaviourally exercise a substantial share of the 243 transitions; " +
             "if this drops, a scenario regressed or a path stopped being reached");
     }
@@ -193,8 +202,113 @@ public class TransitionCoverageTests
             Collect(h);
         }
 
-        // 10. mod-128 (extended) connect.
-        { var h = New(extended: true); h.Connect(); h.Disconnect(h.A); Collect(h); }
+        // 10. mod-128 (extended) establishment — the figc4.6 AwaitingV22Connection
+        // column. The Ax25Spec44 redirect (default on) routes a v2.2-preferred
+        // connect here instead of figc4.2's mod-8 AwaitingConnection, so this is the
+        // battery that lifts AwaitingV22Connection off 0/25. Each block drives a
+        // different figc4.6 path.
+
+        // 10a. Happy path: SABME → UA → Connected (mod-128), data, clean disconnect.
+        { var h = New(extended: true); h.Connect(); h.Submit(h.A, 0xC0); h.FlushAcks(); h.Disconnect(h.A); Collect(h); }
+
+        // 10b. Lost SABME → T1 retry RESENDS SABME (t13_t1_expiry_no), then converges.
+        {
+            var h = New(extended: true);
+            var dropped = 0;
+            h.Link.Drop = f => { if ((f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local) && dropped == 0) { dropped++; return true; } return false; };
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            h.AdvanceT1();          // t13_t1_expiry_no → resend SABME → UA → Connected
+            Collect(h);
+        }
+
+        // 10c. §975 FRMR fallback (t14_frmr_received): peer rejects SABME → set
+        // version 2.0, re-establish, fall to AwaitingConnection. Swallow the
+        // initiator's establishment frames so it parks where the fallback leaves it.
+        {
+            var h = New(extended: true);
+            h.Link.Drop = f => ((f.Control & 0xEF) == 0x6F || (f.Control & 0xEF) == 0x2F) && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            if (h.A.State == "AwaitingV22Connection")
+                h.Inject(h.A, new FrmrReceived(Ax25Frame.Frmr(h.A.Context.Local, h.A.Context.Remote, info: ReadOnlySpan<byte>.Empty)));
+            Collect(h);
+        }
+
+        // 10d. Receive-column odds that STAY in AwaitingV22Connection: DL-UNIT-DATA
+        // (t03), UI received (t10_no / t10_yes), a UA with F=0 (t12_ua_received_no →
+        // DL-ERROR D), a SABME-while-pending collision (t15_sabme_received → UA), a
+        // DISC (t17_disc_received), and a redundant DL-CONNECT (t02). All keep A
+        // parked, so they can share one rig. (Establishment frames are swallowed so
+        // the harness peer never UAs us out of the state.)
+        {
+            var h = New(extended: true);
+            var la = h.A.Context.Local; var re = h.A.Context.Remote;
+            h.Link.Drop = f => ((f.Control & 0xEF) == 0x6F || (f.Control & 0xEF) == 0x2F) && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            if (h.A.State == "AwaitingV22Connection")
+            {
+                h.A.Session.PostEvent(new DlConnectRequest());                              // t02 → discard queue, set L3 init
+                h.A.Session.PostEvent(new DlUnitDataRequest(new byte[] { 0x01 }));          // t03 → UI command
+                h.A.Session.PostEvent(new DlDataRequest(new byte[] { 0x02 }));              // t04_yes (layer_3_initiated) → no-op buffer
+                h.Settle();
+                h.InjectFrameBytes(h.A, Ax25Frame.Ui(la, re, info: "y"u8).ToBytes());       // t10_ui_received_no
+                h.InjectFrameBytes(h.A, Ax25Frame.Ui(la, re, info: "z"u8, pollFinal: true).ToBytes()); // t10_ui_received_yes
+                h.InjectFrameBytes(h.A, Ax25Frame.Ua(la, re, finalBit: false).ToBytes());   // t12_ua_received_no → DL-ERROR D, stay
+                h.InjectFrameBytes(h.A, Ax25Frame.Sabme(la, re).ToBytes());                 // t15_sabme_received → UA, stay
+                h.InjectFrameBytes(h.A, Ax25Frame.Disc(la, re).ToBytes());                  // t17_disc_received → stay
+            }
+            Collect(h);
+        }
+
+        // 10d-i. DM(F=1) tears the v2.2 connect down (t11_dm_received_yes →
+        // Disconnected). Fresh rig — this one leaves the state.
+        {
+            var h = New(extended: true);
+            h.Link.Drop = f => (f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            if (h.A.State == "AwaitingV22Connection")
+                h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: true).ToBytes());
+            Collect(h);
+        }
+
+        // 10d-ii. DM(F=0) drops to the mod-8 AwaitingConnection state
+        // (t11_dm_received_no → AwaitingConnection). Fresh rig.
+        {
+            var h = New(extended: true);
+            h.Link.Drop = f => (f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            if (h.A.State == "AwaitingV22Connection")
+                h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: false).ToBytes());
+            Collect(h);
+        }
+
+        // 10d-iii. SABM(v2.0) received while awaiting v2.2 → UA, set version 2.0,
+        // drop to AwaitingConnection (t16_sabm_received). Fresh rig.
+        {
+            var h = New(extended: true);
+            h.Link.Drop = f => (f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            if (h.A.State == "AwaitingV22Connection")
+                h.InjectFrameBytes(h.A, Ax25Frame.Sabm(h.A.Context.Local, h.A.Context.Remote).ToBytes());
+            Collect(h);
+        }
+
+        // 10e. N2 exhaustion while awaiting the v2.2 connection (t13_t1_expiry_yes):
+        // drop every SABME so the retries never get a UA, until RC == N2 → DL-ERROR
+        // G + DL-DISCONNECT → Disconnected.
+        {
+            var h = New(extended: true, n2: 2);
+            h.Link.Drop = f => (f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local);
+            h.A.Session.PostEvent(new DlConnectRequest());
+            h.Settle();
+            for (int r = 0; r < 6 && h.A.State == "AwaitingV22Connection"; r++) h.AdvanceT1();
+            Collect(h);
+        }
 
         // 11. Disconnected-state receive column: deliver assorted frames to a
         // station that has no session up (exercises figc4.1's receive handling —
