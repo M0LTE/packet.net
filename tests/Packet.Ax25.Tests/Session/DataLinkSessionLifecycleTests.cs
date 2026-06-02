@@ -37,7 +37,8 @@ public class DataLinkSessionLifecycleTests
     /// channel. Initial state defaults to Disconnected so callers can
     /// drive the full lifecycle.
     /// </summary>
-    private static Rig NewRig(string initialState = "Disconnected", bool isExtended = false)
+    private static Rig NewRig(string initialState = "Disconnected", bool isExtended = false,
+        Ax25SessionQuirks? quirks = null)
     {
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
@@ -46,6 +47,7 @@ public class DataLinkSessionLifecycleTests
             Local  = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             IsExtended = isExtended,
+            Quirks = quirks ?? Ax25SessionQuirks.Default,
         };
 
         var sFrames = new List<SupervisoryFrameSpec>();
@@ -264,22 +266,42 @@ public class DataLinkSessionLifecycleTests
     [Fact]
     public void Mod128_Connect_Routes_Through_Establish_Data_Link_Emitting_SABME()
     {
-        // With IsExtended = true at connect time, Establish_Data_Link's
-        // mod_128 path runs (rather than the mod_8 SABM path), emitting
-        // SABME. The figc4.1 transcription routes this column to
-        // AwaitingConnection (not AwaitingV22Connection) — the version
-        // distinction is in the subroutine's selected path, not in the
-        // transition target. AwaitingV22Connection is entered via a
-        // different figc4.x path; see the figc4.2 / Awaiting Connection
-        // table for those primitives.
+        // With IsExtended = true at connect time, Establish_Data_Link's mod_128
+        // path runs (rather than the mod_8 SABM path), emitting SABME. The figc4.2
+        // figure routes the Disconnected DL-CONNECT column UNCONDITIONALLY to
+        // AwaitingConnection (no version branch — a confirmed figure defect; see
+        // Ax25SessionQuirks.Ax25Spec44Mod128ConnectRoutesToV22). The Ax25Spec44
+        // quirk (default on) corrects that: a v2.2-preferred connect (IsExtended)
+        // is redirected to AwaitingV22Connection (figc4.6), which resends SABME on
+        // retry and handles the §975 FRMR/DM fallbacks instead of figc4.2's mod-8
+        // retry (which would downgrade to SABM). The SABME is still the emitted
+        // frame either way — only the target state changes.
         var r = NewRig(isExtended: true);
 
         r.Session.PostEvent(new DlConnectRequest());
 
-        r.Session.CurrentState.Should().Be("AwaitingConnection");
+        r.Session.CurrentState.Should().Be("AwaitingV22Connection",
+            "the Ax25Spec44 redirect routes a mod-128 connect to the v2.2 establishment state");
         r.UFrames.Should().ContainSingle();
         r.UFrames[0].Type.Should().Be(UFrameType.Sabme, "mod-128 path emits SABME, not SABM");
         r.UFrames[0].PfBit.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Mod128_Connect_Stays_In_AwaitingConnection_Under_StrictlyFaithful()
+    {
+        // Pins the faithful (uncorrected) figc4.2 behaviour: with the Ax25Spec44
+        // quirk off, a mod-128 connect emits SABME but parks in the mod-8
+        // AwaitingConnection state exactly as the figure draws it — the defect the
+        // default quirk corrects.
+        var r = NewRig(isExtended: true, quirks: Ax25SessionQuirks.StrictlyFaithful);
+
+        r.Session.PostEvent(new DlConnectRequest());
+
+        r.Session.CurrentState.Should().Be("AwaitingConnection",
+            "with the quirk off the figc4.2 figure routes a mod-128 connect to the mod-8 state (the defect)");
+        r.UFrames.Should().ContainSingle();
+        r.UFrames[0].Type.Should().Be(UFrameType.Sabme, "the Establish_Data_Link mod_128 path still emits SABME");
     }
 
     [Fact]

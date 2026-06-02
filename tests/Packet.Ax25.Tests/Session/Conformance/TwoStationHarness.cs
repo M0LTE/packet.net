@@ -68,16 +68,17 @@ public sealed class TwoStationHarness
 
     public static TwoStationHarness Build(
         bool srej = false, int k = 4, int t1Ms = DefaultT1Ms, int n2 = DefaultN2, int t2Ms = 40,
-        bool extended = false)
+        bool extended = false, Ax25SessionQuirks? quirks = null)
     {
+        var q = quirks ?? Ax25SessionQuirks.Default;
         var nodeA = new Callsign("M0LTEA", 1);
         var nodeB = new Callsign("M0LTEB", 2);
         var time  = new FakeTimeProvider();
         var link  = new Channel();
         var t1v   = TimeSpan.FromMilliseconds(t1Ms);
 
-        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, out var aPeer);
-        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, out var bPeer);
+        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, out var aPeer);
+        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, out var bPeer);
         aPeer.Target = b.Inbound;          bPeer.Target = a.Inbound;
         aPeer.RxLog  = b.ReceivedFromPeer; bPeer.RxLog  = a.ReceivedFromPeer;
         var harness = new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
@@ -86,9 +87,17 @@ public sealed class TwoStationHarness
         return harness;
     }
 
+    /// <summary>Build a harness whose sessions run the SDL figures exactly as
+    /// drawn — every <see cref="Ax25SessionQuirks"/> off. Used to pin a figure
+    /// defect's faithful (uncorrected) behaviour alongside the corrected default.</summary>
+    public static TwoStationHarness BuildStrictlyFaithful(
+        bool srej = false, int k = 4, int t1Ms = DefaultT1Ms, int n2 = DefaultN2, int t2Ms = 40,
+        bool extended = false)
+        => Build(srej, k, t1Ms, n2, t2Ms, extended, Ax25SessionQuirks.StrictlyFaithful);
+
     private static Endpoint BuildEndpoint(
         Callsign local, Callsign remote, FakeTimeProvider time, Channel link,
-        bool srej, int k, int t1Ms, int n2, int t2Ms, bool extended, out PeerWiring peer)
+        bool srej, int k, int t1Ms, int n2, int t2Ms, bool extended, Ax25SessionQuirks quirks, out PeerWiring peer)
     {
         peer = new PeerWiring { TargetLocal = remote };
         var peerLocal = peer;
@@ -102,6 +111,7 @@ public sealed class TwoStationHarness
             K   = k,
             SrejEnabled = srej,
             IsExtended  = extended,
+            Quirks      = quirks,
         };
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var inbound = new Queue<Ax25Event>();

@@ -182,6 +182,59 @@ public sealed record Ax25SessionQuirks
     public bool Ax25Spec43DlFlowOffEntersBusy { get; init; } = true;
 
     /// <summary>
+    /// Work around <c>packethacking/ax25spec#&lt;TODO&gt;</c> (issue not yet filed —
+    /// see the PR's "Prepared upstream issue" section; substitute the real number
+    /// here and in the flag name once filed): figc4.2 routes the <c>Disconnected</c>
+    /// <c>DL-CONNECT request</c> path <i>unconditionally</i> to
+    /// <c>"1 Awaiting Connection"</c> — <c>Establish Data Link</c> &#8594;
+    /// <c>Set Layer 3 Initiated</c> &#8594; <b>Awaiting Connection</b> — with <b>no
+    /// version branch</b>, regardless of modulo. (Verified against the authoritative
+    /// graphml source <c>DataLink_Disconnected.graphml</c> in <c>m0lte/ax25sdl</c>:
+    /// the initiator's DL-CONNECT edge has no modulo test; version routing exists
+    /// only on the <i>responder</i> SABM/SABME-received side.) That is a faithful
+    /// transcription of a defective figure: a v2.2-preferred connect sends a SABME
+    /// (the figc4.7 <c>Establish_Data_Link</c> subroutine <i>does</i> branch on
+    /// <c>mod_128</c> and emits SABME), but then parks in <c>AwaitingConnection</c>
+    /// (figc4.2) instead of <c>AwaitingV22Connection</c> (figc4.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two real bugs follow from the mis-routing — both fixed by this redirect:
+    /// (1) <c>AwaitingConnection</c>'s T1-expiry retry sends a hardcoded
+    /// <c>SABM (P==1)</c> (figc4.2 <c>t05_t1_expiry_no</c> &#8594; <c>SABMPEqEq1</c>), so a
+    /// lost initial SABME <b>downgrades the link to mod-8</b> on the first retry; and
+    /// (2) <c>AwaitingConnection</c> has <b>no <c>FRMR_received</c> handler at all</b>,
+    /// so the §975 fallback (a pre-v2.2 peer FRMRs our SABME &#8594; we drop to v2.0/SABM)
+    /// cannot fire. <c>AwaitingV22Connection</c> (figc4.6) handles both correctly:
+    /// <c>t13_t1_expiry_no</c> resends <c>SABME (P=1)</c>; <c>t14_frmr_received</c>
+    /// sets version 2.0, re-establishes (now mod-8), and moves to
+    /// <c>AwaitingConnection</c>; <c>t11_dm_received_yes</c> tears down (§975 DM case);
+    /// <c>t12_ua_received_*</c> completes the mod-128 connection.
+    /// </para>
+    /// <para>
+    /// When <c>true</c> (default), a <c>DL_CONNECT_request</c> firing in
+    /// <c>Disconnected</c> while the link is extended
+    /// (<see cref="Ax25SessionContext.IsExtended"/>) has its transition target
+    /// rewritten from <c>AwaitingConnection</c> to <c>AwaitingV22Connection</c>; a
+    /// mod-8 connect (<c>IsExtended==false</c>) is unchanged. Keying on
+    /// <c>IsExtended</c> at dispatch time is self-consistent with the FRMR fallback:
+    /// figc4.6 <c>t14</c> sets version 2.0 (<c>IsExtended=false</c>) before
+    /// re-establishing, so the subsequent SABM connect naturally stays mod-8. When
+    /// <c>false</c>, the figure runs as drawn (a mod-128 connect parks in
+    /// <c>AwaitingConnection</c> and downgrades on retry — for strict conformance
+    /// study). Unlike the guard-rewriting quirks this rewrites a transition's
+    /// <i>target state</i> (in <see cref="Ax25Session"/>'s dispatch path), scoped to
+    /// the single <c>Disconnected</c> DL-CONNECT transition under <c>IsExtended</c>.
+    /// De-facto corroboration: direwolf's author hit the identical defect —
+    /// <c>ax25_link.c</c> ~L1060 <c>enter_new_state(S, S-&gt;modulo == 128 ?
+    /// state_5_awaiting_v22_connection : state_1_awaiting_connection)</c> with the
+    /// comment "Original always sent SABM and went to state 1 … my enhancement".
+    /// Delete once ax25sdl ships a figc4.2 carrying the version branch.
+    /// </para>
+    /// </remarks>
+    public bool Ax25Spec44Mod128ConnectRoutesToV22 { get; init; } = true;
+
+    /// <summary>
     /// Default preset — spec-<i>correct</i> behaviour (all quirks on). This is
     /// what a session uses unless explicitly configured otherwise.
     /// </summary>
@@ -199,5 +252,6 @@ public sealed record Ax25SessionQuirks
         Ax25Spec41KarnSrtSampling = false,
         Ax25Spec42SrejTargetsGap = false,
         Ax25Spec43DlFlowOffEntersBusy = false,
+        Ax25Spec44Mod128ConnectRoutesToV22 = false,
     };
 }
