@@ -654,15 +654,33 @@ public class ActionDispatcherTests
     }
 
     [Fact]
-    public void Nr_Assign_From_Ns_Reads_Incoming_I_Frame_NS()
+    public void Nr_Assign_From_Ns_Reads_Incoming_I_Frame_NS_When_StrictlyFaithful()
     {
+        // Raw figc4.4 verb (ax25spec#42 quirk off): N(r) := N(s) extracts N(S).
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
+        ctx.Quirks = Ax25SessionQuirks.StrictlyFaithful;
         var frame = BuildIFrame(nr: 2, ns: 4, pollBit: false, info: "hello"u8.ToArray());
         var tx = new TransitionContext(ctx, s, new IFrameReceived(frame));
 
         d.Execute("N(r) := N(s)", tx);
 
         tx.Pending.Nr.Should().Be((byte)4);
+    }
+
+    [Fact]
+    public void Nr_Assign_From_Ns_Retargets_To_Vr_By_Default_Ax25Spec42()
+    {
+        // ax25spec#42 / Ax25Spec42SrejTargetsGap (default on): on an I_received
+        // trigger the SREJ must request the gap (V(R)), not the just-arrived N(S),
+        // so the figure's `N(r) := N(s)` is retargeted to V(R).
+        var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
+        ctx.VR = 1;
+        var frame = BuildIFrame(nr: 2, ns: 4, pollBit: false, info: "hello"u8.ToArray());
+        var tx = new TransitionContext(ctx, s, new IFrameReceived(frame));
+
+        d.Execute("N(r) := N(s)", tx);
+
+        tx.Pending.Nr.Should().Be((byte)1, "retargeted from N(S)=4 to V(R)=1 — the missing gap");
     }
 
     [Fact]

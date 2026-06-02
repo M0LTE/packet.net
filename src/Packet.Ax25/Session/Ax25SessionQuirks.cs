@@ -130,6 +130,31 @@ public sealed record Ax25SessionQuirks
     public bool Ax25Spec41KarnSrtSampling { get; init; } = true;
 
     /// <summary>
+    /// Work around <c>packethacking/ax25spec#42</c>: figc4.4's out-of-sequence
+    /// <c>I_received</c> SREJ path, when a selective-reject exception is already
+    /// outstanding, does <c>N(r) := N(s)</c> before sending SREJ — so it requests
+    /// retransmission of the frame that just <i>arrived</i> (and was just saved),
+    /// not the missing gap. With more than one frame outstanding the real gap is
+    /// never re-requested: the peer keeps resending the already-received frame and
+    /// the receiver keeps SREJ'ing it, so selective-reject recovery livelocks
+    /// (V(R) frozen until T1/N2 intervene; reproduced in <c>LossRecoveryProperties</c>).
+    /// direwolf flags the identical erratum (<c>ax25_link.c</c>: "The SDL says ask
+    /// for N(S) which is clearly wrong because that's what we just received") and
+    /// requests the missing gap instead.
+    /// </summary>
+    /// <remarks>
+    /// When <c>true</c> (default), the SREJ target is retargeted from N(S) to V(R)
+    /// — the next still-missing frame — so the SREJ requests the actual gap. The
+    /// rewrite fires only on an <c>I_received</c> trigger (the sole figure path
+    /// carrying the <c>N(r) := N(s)</c> verb, connected.sdl.yaml), so it is inert
+    /// elsewhere. When <c>false</c>, the figure runs as drawn (SREJ asks for the
+    /// just-arrived frame, reproducing the livelock for strict conformance study).
+    /// Delete once ax25sdl ships a figc4.4 requesting the gap. Implemented in
+    /// m0lte/packet.net#246 ← packethacking/ax25spec#42.
+    /// </remarks>
+    public bool Ax25Spec42SrejTargetsGap { get; init; } = true;
+
+    /// <summary>
     /// Default preset — spec-<i>correct</i> behaviour (all quirks on). This is
     /// what a session uses unless explicitly configured otherwise.
     /// </summary>
@@ -145,5 +170,6 @@ public sealed record Ax25SessionQuirks
         Ax25Spec38SrejSelectiveRetransmit = false,
         Ax25Spec40DiscardOutOfWindowIFrames = false,
         Ax25Spec41KarnSrtSampling = false,
+        Ax25Spec42SrejTargetsGap = false,
     };
 }

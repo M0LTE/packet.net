@@ -263,6 +263,22 @@ public sealed class ActionDispatcher : IActionDispatcher
             }
         }
 
+        // Quirk Ax25Spec42SrejTargetsGap (default on): figc4.4's out-of-sequence
+        // I_received SREJ path (with a selective-reject exception already
+        // outstanding) does `N(r) := N(s)` before SREJ — requesting the frame that
+        // just arrived rather than the missing gap, so multi-frame SREJ recovery
+        // livelocks (packethacking/ax25spec#42; direwolf flags the same erratum and
+        // requests the gap). Retarget the SREJ to V(R), the next still-missing
+        // frame. `N(r) := N(s)` appears only in this one I_received figure path, so
+        // gating on the I_received trigger scopes the rewrite precisely. Remove once
+        // ax25sdl ships a corrected figc4.4. m0lte/packet.net#246.
+        if (tx.Session.Quirks.Ax25Spec42SrejTargetsGap
+            && tx.Trigger is IFrameReceived
+            && action == "N(r) := N(s)")
+        {
+            action = "N(r) := V(r)";
+        }
+
         switch (action)
         {
             // ─── Flag mutations ────────────────────────────────────────
