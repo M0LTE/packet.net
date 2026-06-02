@@ -442,6 +442,26 @@ public class ActionDispatcherTests
     }
 
     [Fact]
+    public void DL_UnitData_Indication_From_UI_Frame_Raises_UnitDataIndication()
+    {
+        // Regression: UI_Check emits the figure verb "DL-UNIT-DATA Indication";
+        // ActionVerbAliases normalises it to the snake_case canonical
+        // (DL_UNIT_DATA_indication), but the switch case had been left in display
+        // form, so the normalised verb fell through to the default throw and every
+        // UI reception crashed. Drive the exact walker-emitted spelling so the fix
+        // (snake_case case label) is exercised through the real alias path.
+        var (d, ctx, s, _, _, _, _, _, upward, _, _) = NewRig();
+        var info = "ui-payload"u8.ToArray();
+        var frame = Ax25Frame.Ui(new Callsign("M0LTE", 0), new Callsign("G7XYZ", 7), info: info);
+        var tx = new TransitionContext(ctx, s, new UiReceived(frame));
+
+        d.Execute("DL-UNIT-DATA Indication", tx);
+
+        var sig = upward.Should().ContainSingle().Which.Should().BeOfType<DataLinkUnitDataIndication>().Subject;
+        sig.Info.ToArray().Should().Equal(info);
+    }
+
+    [Fact]
     public void DL_Data_Indication_Throws_When_Trigger_Has_No_Frame()
     {
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();

@@ -84,7 +84,7 @@ public class TransitionCoverageTests
         }
 
         // ── Assert: a floor on total behavioural coverage (regression guard) ──
-        hit.Should().BeGreaterThanOrEqualTo(35,
+        hit.Should().BeGreaterThanOrEqualTo(38,
             "the scenario battery should behaviourally exercise a substantial share of the 243 transitions; " +
             "if this drops, a scenario regressed or a path stopped being reached");
     }
@@ -198,14 +198,12 @@ public class TransitionCoverageTests
 
         // 11. Disconnected-state receive column: deliver assorted frames to a
         // station that has no session up (exercises figc4.1's receive handling —
-        // DISC→DM, spurious UA, and an info-bearing frame → info_not_permitted).
-        // NB: a UI here is deliberately omitted — UI_Check emits the
-        // `DL_UNIT_DATA_indication` verb which the dispatcher's subroutine path
-        // doesn't resolve (it only wires the "DL-UNIT-DATA Indication" display
-        // spelling); that gap is surfaced by this ledger and tracked in plan §17.
+        // a UI (→ DL-UNIT-DATA indication via UI_Check), DISC→DM, spurious UA, and
+        // an info-bearing frame → info_not_permitted).
         {
             var h = New();
             var local = h.A.Context.Local; var remote = h.A.Context.Remote;
+            h.InjectFrameBytes(h.A, Ax25Frame.Ui(local, remote, info: "x"u8).ToBytes());
             h.InjectFrameBytes(h.A, Ax25Frame.Disc(local, remote).ToBytes());
             h.InjectFrameBytes(h.A, Ax25Frame.Ua(local, remote).ToBytes());
             // DM carrying info → info_not_permitted (M) in Disconnected.
