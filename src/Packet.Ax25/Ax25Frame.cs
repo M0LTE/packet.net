@@ -49,8 +49,30 @@ public sealed partial class Ax25Frame
     /// <summary>Zero or more digipeater (repeater) slots, in path order.</summary>
     public IReadOnlyList<Ax25Address> Digipeaters { get; }
 
-    /// <summary>Raw control byte (see <see cref="ControlUi"/>).</summary>
+    /// <summary>
+    /// Raw control byte — the first (low-order) control octet (see
+    /// <see cref="ControlUi"/>). For an extended (modulo-128) I or S frame
+    /// this is the first of two octets; <see cref="ControlExtension"/> holds
+    /// the second. The frame-type discriminator bits (bit 0; bits 1-0) live
+    /// here in both modes, so classification reads this octet regardless of
+    /// modulo.
+    /// </summary>
     public byte Control { get; }
+
+    /// <summary>
+    /// Second control octet of an extended (modulo-128) I or S frame, carrying
+    /// the 7-bit N(R) (bits 7-1) and the P/F bit (bit 0) per AX.25 v2.2
+    /// Fig 4.1b. <c>null</c> for U frames and for every modulo-8 frame — those
+    /// have a 1-octet control field. Its presence is what makes a frame
+    /// "extended" (see <see cref="IsExtendedControl"/>).
+    /// </summary>
+    public byte? ControlExtension { get; }
+
+    /// <summary>
+    /// True when this frame carries the 2-octet (modulo-128) control field.
+    /// Equivalent to <see cref="ControlExtension"/> being present.
+    /// </summary>
+    public bool IsExtendedControl => ControlExtension.HasValue;
 
     /// <summary>PID byte, present on I and UI frames only.</summary>
     public byte? Pid { get; }
@@ -65,9 +87,35 @@ public sealed partial class Ax25Frame
     public bool IsUi => (Control & 0xEF) == ControlUi;
 
     /// <summary>
-    /// True if the P/F bit in the control byte is set.
+    /// True if the P/F bit is set. In a modulo-8 frame (and any U frame, which
+    /// is 1 octet in both modes) the P/F bit is bit 4 of the control octet; in
+    /// an extended (modulo-128) I or S frame it migrates to bit 0 of the second
+    /// control octet (Fig 4.1b).
     /// </summary>
-    public bool PollFinal => (Control & 0x10) != 0;
+    public bool PollFinal => ControlExtension is byte ext
+        ? (ext & 0x01) != 0
+        : (Control & 0x10) != 0;
+
+    /// <summary>
+    /// N(R), the receive sequence number carried by I and S frames. 3-bit in
+    /// modulo-8 (control bits 7-5); 7-bit in extended modulo-128 (second
+    /// control octet bits 7-1) per Fig 4.1b. Meaningless on U frames — the
+    /// caller must know the frame type before relying on this.
+    /// </summary>
+    public byte Nr => ControlExtension is byte ext
+        ? (byte)((ext >> 1) & 0x7F)
+        : (byte)((Control >> 5) & 0x07);
+
+    /// <summary>
+    /// N(S), the send sequence number carried by I frames. 3-bit in modulo-8
+    /// (control bits 3-1); 7-bit in extended modulo-128 (first control octet
+    /// bits 7-1) per Fig 4.1b. Meaningful only for I frames — on an S frame the
+    /// same bits encode the supervisory type, so the caller must check the
+    /// frame type first.
+    /// </summary>
+    public byte Ns => IsExtendedControl
+        ? (byte)((Control >> 1) & 0x7F)
+        : (byte)((Control >> 1) & 0x07);
 
     /// <summary>
     /// True if the address-field C-bits encode a command per §6.1.2
@@ -86,6 +134,7 @@ public sealed partial class Ax25Frame
         Ax25Address source,
         IReadOnlyList<Ax25Address> digipeaters,
         byte control,
+        byte? controlExtension,
         byte? pid,
         ReadOnlyMemory<byte> info)
     {
@@ -93,6 +142,7 @@ public sealed partial class Ax25Frame
         Source = source;
         Digipeaters = digipeaters;
         Control = control;
+        ControlExtension = controlExtension;
         Pid = pid;
         Info = info;
     }
@@ -143,7 +193,8 @@ public sealed partial class Ax25Frame
         byte control = pollFinal ? ControlUiPollFinal : ControlUi;
         byte[] infoBytes = info.ToArray();
 
-        return new Ax25Frame(dest, src, digiList, control, pid, infoBytes);
+        // UI is a U frame — 1-octet control in both modulo-8 and modulo-128.
+        return new Ax25Frame(dest, src, digiList, control, controlExtension: null, pid, infoBytes);
     }
 
     /// <summary>
@@ -153,7 +204,8 @@ public sealed partial class Ax25Frame
         Ax25Address.EncodedLength                       // destination
         + Ax25Address.EncodedLength                     // source
         + (Digipeaters.Count * Ax25Address.EncodedLength)
-        + 1                                             // control
+        + 1                                             // control (first octet)
+        + (ControlExtension.HasValue ? 1 : 0)           // extended control (second octet, mod-128 I/S)
         + (Pid.HasValue ? 1 : 0)
         + Info.Length;
 
@@ -243,6 +295,15 @@ public sealed partial class Ax25Frame
 
         destination[offset++] = Control;
 
+        // Extended (modulo-128) I/S frames have a 2-octet control field,
+        // transmitted first octet first (Fig 4.1b: bit 0 of the first octet is
+        // the first bit sent). Control is the first octet; ControlExtension the
+        // second.
+        if (ControlExtension is byte controlExt)
+        {
+            destination[offset++] = controlExt;
+        }
+
         if (Pid.HasValue)
         {
             destination[offset++] = Pid.Value;
@@ -264,6 +325,9 @@ public sealed partial class Ax25Frame
     /// <summary>
     /// Try to parse a frame from its KISS-form bytes, applying the supplied
     /// <see cref="Ax25ParseOptions"/> for strict-vs-lenient parser choices.
+    /// Assumes modulo-8 (1-octet control); use the
+    /// <see cref="TryParse(ReadOnlySpan{byte}, Ax25ParseOptions, bool, out Ax25Frame?)"/>
+    /// overload to decode an extended (modulo-128) link.
     /// </summary>
     /// <remarks>
     /// Options control acceptance of: all-space callsign slots
@@ -273,6 +337,18 @@ public sealed partial class Ax25Frame
     /// See <c>docs/strict-vs-pragmatic-audit.md</c> for the full inventory.
     /// </remarks>
     public static bool TryParse(ReadOnlySpan<byte> bytes, Ax25ParseOptions options, [NotNullWhen(true)] out Ax25Frame? frame)
+        => TryParse(bytes, options, extended: false, out frame);
+
+    /// <summary>
+    /// Try to parse a frame from its KISS-form bytes for a link operating at a
+    /// known modulo. An I or S frame's control field is 1 octet under modulo-8
+    /// and 2 octets under modulo-128 (Fig 4.1b), and the width is <em>not</em>
+    /// derivable from the octets alone — so the caller (the receive path, which
+    /// knows the session's negotiated modulo) passes <paramref name="extended"/>.
+    /// U frames are 1 octet in both modes, so <paramref name="extended"/> only
+    /// affects I and S frames.
+    /// </summary>
+    public static bool TryParse(ReadOnlySpan<byte> bytes, Ax25ParseOptions options, bool extended, [NotNullWhen(true)] out Ax25Frame? frame)
     {
         ArgumentNullException.ThrowIfNull(options);
         frame = null;
@@ -337,6 +413,23 @@ public sealed partial class Ax25Frame
         }
 
         byte control = bytes[offset++];
+        byte? controlExtension = null;
+
+        // Extended (modulo-128) I and S frames carry a 2-octet control field
+        // (Fig 4.1b); U frames are 1 octet in both modes. The width can't be
+        // told from the first octet alone, so the caller supplies the link's
+        // modulo via `extended`. Frame-type discriminator: bit 0 = 0 → I;
+        // bits 1-0 = 01 → S; bits 1-0 = 11 → U.
+        bool isUFrame = (control & 0x03) == 0x03;
+        if (extended && !isUFrame)
+        {
+            if (bytes.Length < offset + 1)
+            {
+                return false;
+            }
+            controlExtension = bytes[offset++];
+        }
+
         byte? pid = null;
         ReadOnlyMemory<byte> info = ReadOnlyMemory<byte>.Empty;
 
@@ -370,7 +463,7 @@ public sealed partial class Ax25Frame
             info = bytes[offset..].ToArray();
         }
 
-        frame = new Ax25Frame(destination, source, digipeaters, control, pid, info);
+        frame = new Ax25Frame(destination, source, digipeaters, control, controlExtension, pid, info);
         return true;
     }
 }

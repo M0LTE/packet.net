@@ -11,7 +11,7 @@ namespace Packet.Ax25.Tests.Session.Conformance;
 /// </summary>
 public class EnvelopeConformanceTests
 {
-    [Fact(Skip = "mod-128 connected-mode data transfer unimplemented (N(S)/N(R) on 2-byte control) — packet.net#239; un-skip when that lands")]
+    [Fact]
     public void Mod128_extended_window_transfer_converges()
     {
         var h = TwoStationHarness.Build(extended: true, k: 8);

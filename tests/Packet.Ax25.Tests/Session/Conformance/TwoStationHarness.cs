@@ -111,7 +111,11 @@ public sealed class TwoStationHarness
 
         void SendBytes(ReadOnlyMemory<byte> bytes)
         {
-            if (!Ax25Frame.TryParse(bytes.Span, out var parsed)) return;
+            // Parse at the link's modulo. The harness is symmetric (both
+            // endpoints share `extended`), and an I/S frame only ever flows once
+            // both sides agree on the modulo, so the sender's modulo (ctx) equals
+            // the receiver's. U frames are 1 octet in both modes regardless.
+            if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsed)) return;
             if (link.ShouldDrop(parsed)) return;
             if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected)) return;
             peerLocal.RxLog?.Add(parsed);
@@ -234,7 +238,7 @@ public sealed class TwoStationHarness
     /// so it survives any address check the receive path applies.</summary>
     public void InjectFrameBytes(Endpoint target, ReadOnlyMemory<byte> bytes)
     {
-        if (!Ax25Frame.TryParse(bytes.Span, out var parsed))
+        if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, target.Context.IsExtended, out var parsed))
             throw new InvalidOperationException(
                 "InjectFrameBytes: the supplied bytes did not parse as an AX.25 frame");
         Inject(target, Ax25FrameClassifier.Classify(parsed));

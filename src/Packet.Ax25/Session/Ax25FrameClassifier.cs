@@ -16,9 +16,13 @@ namespace Packet.Ax25.Session;
 /// filter before calling this.
 /// </para>
 /// <para>
-/// Mod-8 only. Mod-128 (extended) frames use a 2-byte control field
-/// which <see cref="Ax25Frame"/> doesn't model yet; until that lands
-/// the classifier assumes 1-byte control.
+/// Modulo-independent. The I/S/U frame-type discriminator (bit 0; bits
+/// 1-0) and the S-frame subtype (low nibble) / U-frame subtype all live in
+/// the first control octet, which is identical under modulo-8 and extended
+/// modulo-128 (Fig 4.1a/4.1b). The classifier reads only that octet, so it
+/// classifies an extended frame correctly without knowing the modulo; the
+/// 7-bit N(R)/N(S) (which <em>do</em> differ by modulo) are decoded later,
+/// mode-aware, via <see cref="Ax25Frame.Nr"/> / <see cref="Ax25Frame.Ns"/>.
 /// </para>
 /// </remarks>
 public static class Ax25FrameClassifier

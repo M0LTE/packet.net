@@ -6,8 +6,9 @@ namespace Packet.Ax25;
 /// Factories for non-UI frame types. Each method mirrors the address /
 /// digipeater / C-bit / E-bit handling of <see cref="Ui"/> and selects
 /// the appropriate control byte per §4.3.2 (S-frames) or §4.3.3
-/// (U-frames). Mod-128 (extended) S/I-frames need a 2-byte control
-/// field — out of scope for this file; the methods here are mod-8 only.
+/// (U-frames). I and S frames take an <c>extended</c> flag selecting the
+/// 2-octet modulo-128 control field (Fig 4.1b); U frames are 1 octet in
+/// both modes, so the U-frame factories have no <c>extended</c> parameter.
 /// </summary>
 public sealed partial class Ax25Frame
 {
@@ -106,48 +107,59 @@ public sealed partial class Ax25Frame
 
     /// <summary>
     /// Construct a Receive Ready (RR) supervisory frame per §4.3.2.1.
+    /// Set <paramref name="extended"/> for the modulo-128 2-octet control field.
     /// </summary>
     public static Ax25Frame Rr(Callsign destination, Callsign source,
         byte nr, bool isCommand, bool pollFinal = false,
-        IEnumerable<Callsign>? digipeaters = null)
-        => UFrameAt(SFrameControl(ControlRr, nr, pollFinal), isCommand,
-            destination, source, info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters);
+        IEnumerable<Callsign>? digipeaters = null, bool extended = false)
+        => SFrameAt(ControlRr, destination, source, nr, isCommand, pollFinal, extended, digipeaters);
 
     /// <summary>
     /// Construct a Receive Not Ready (RNR) supervisory frame per §4.3.2.2.
+    /// Set <paramref name="extended"/> for the modulo-128 2-octet control field.
     /// </summary>
     public static Ax25Frame Rnr(Callsign destination, Callsign source,
         byte nr, bool isCommand, bool pollFinal = false,
-        IEnumerable<Callsign>? digipeaters = null)
-        => UFrameAt(SFrameControl(ControlRnr, nr, pollFinal), isCommand,
-            destination, source, info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters);
+        IEnumerable<Callsign>? digipeaters = null, bool extended = false)
+        => SFrameAt(ControlRnr, destination, source, nr, isCommand, pollFinal, extended, digipeaters);
 
     /// <summary>
     /// Construct a REJect (REJ) supervisory frame per §4.3.2.3.
+    /// Set <paramref name="extended"/> for the modulo-128 2-octet control field.
     /// </summary>
     public static Ax25Frame Rej(Callsign destination, Callsign source,
         byte nr, bool isCommand, bool pollFinal = false,
-        IEnumerable<Callsign>? digipeaters = null)
-        => UFrameAt(SFrameControl(ControlRej, nr, pollFinal), isCommand,
-            destination, source, info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters);
+        IEnumerable<Callsign>? digipeaters = null, bool extended = false)
+        => SFrameAt(ControlRej, destination, source, nr, isCommand, pollFinal, extended, digipeaters);
 
     /// <summary>
     /// Construct a Selective REJect (SREJ) supervisory frame per §4.3.2.4.
+    /// Set <paramref name="extended"/> for the modulo-128 2-octet control field.
     /// </summary>
     public static Ax25Frame Srej(Callsign destination, Callsign source,
         byte nr, bool isCommand, bool pollFinal = false,
-        IEnumerable<Callsign>? digipeaters = null)
-        => UFrameAt(SFrameControl(ControlSrej, nr, pollFinal), isCommand,
-            destination, source, info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters);
+        IEnumerable<Callsign>? digipeaters = null, bool extended = false)
+        => SFrameAt(ControlSrej, destination, source, nr, isCommand, pollFinal, extended, digipeaters);
 
     /// <summary>
     /// Construct an Information (I) frame per §4.3.1. Always a command;
     /// carries N(R), N(S), the P bit, the PID octet, and a Layer-3 payload.
+    /// Set <paramref name="extended"/> for the modulo-128 2-octet control field.
     /// </summary>
     public static Ax25Frame I(Callsign destination, Callsign source,
         byte nr, byte ns, ReadOnlySpan<byte> info, byte pid = PidNoLayer3,
-        bool pollBit = false, IEnumerable<Callsign>? digipeaters = null)
+        bool pollBit = false, IEnumerable<Callsign>? digipeaters = null, bool extended = false)
     {
+        if (extended)
+        {
+            // I-frame control (mod-128, Fig 4.1b): octet0 = (N(S) << 1) | 0
+            // (7-bit N(S), bit 0 = 0); octet1 = (N(R) << 1) | P (7-bit N(R),
+            // bit 0 = P).
+            byte first  = (byte)((ns & 0x7F) << 1);
+            byte second = (byte)(((nr & 0x7F) << 1) | (pollBit ? 0x01 : 0));
+            return UFrameAt(first, isCommand: true, destination, source, info, pid, digipeaters, controlExtension: second);
+        }
+
         // I-frame control (mod-8): (N(R) << 5) | (P << 4) | (N(S) << 1) | 0.
         byte control = (byte)(((nr & 0x07) << 5) | (pollBit ? ControlPfBit : 0) | ((ns & 0x07) << 1));
         return UFrameAt(control, isCommand: true, destination, source, info, pid, digipeaters);
@@ -160,6 +172,26 @@ public sealed partial class Ax25Frame
         => (byte)(((nr & 0x07) << 5) | (pollFinal ? ControlPfBit : 0) | baseControl);
 
     /// <summary>
+    /// Build a supervisory frame in either modulo. Mod-8 packs N(R)/P-F into
+    /// the single control octet; mod-128 (Fig 4.3b) keeps the base octet
+    /// (SS bits + "01", high nibble zero) as octet0 and puts
+    /// <c>(N(R) &lt;&lt; 1) | P/F</c> in octet1.
+    /// </summary>
+    private static Ax25Frame SFrameAt(byte baseControl, Callsign destination, Callsign source,
+        byte nr, bool isCommand, bool pollFinal, bool extended, IEnumerable<Callsign>? digipeaters)
+    {
+        if (extended)
+        {
+            byte second = (byte)(((nr & 0x7F) << 1) | (pollFinal ? 0x01 : 0));
+            return UFrameAt(baseControl, isCommand, destination, source,
+                info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters, controlExtension: second);
+        }
+
+        return UFrameAt(SFrameControl(baseControl, nr, pollFinal), isCommand,
+            destination, source, info: ReadOnlySpan<byte>.Empty, pid: null, digipeaters);
+    }
+
+    /// <summary>
     /// Core frame-assembly helper. Builds the address fields (C-bits per
     /// §6.1.2 command/response, E-bit migration onto the last digipeater
     /// or the source slot) and stitches in the supplied control byte +
@@ -168,7 +200,8 @@ public sealed partial class Ax25Frame
     private static Ax25Frame UFrameAt(byte control, bool isCommand,
         Callsign destination, Callsign source,
         ReadOnlySpan<byte> info, byte? pid,
-        IEnumerable<Callsign>? digipeaters)
+        IEnumerable<Callsign>? digipeaters,
+        byte? controlExtension = null)
     {
         var digiList = digipeaters?.Select(c => new Ax25Address(c, CrhBit: false, ExtensionBit: false)).ToList()
                        ?? new List<Ax25Address>();
@@ -190,6 +223,6 @@ public sealed partial class Ax25Frame
         }
 
         byte[] infoBytes = info.ToArray();
-        return new Ax25Frame(dest, src, digiList, control, pid, infoBytes);
+        return new Ax25Frame(dest, src, digiList, control, controlExtension, pid, infoBytes);
     }
 }
