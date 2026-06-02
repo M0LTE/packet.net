@@ -62,6 +62,23 @@ making but isn't. Worth tracking separately so we don't conflate
 | `Ax25Frame.TryParse` | No mod-128 (SABME-initiated session) support | §4.2.2 | N/A — separate work item, not a flag. |
 | `Ax25Frame.Factories.cs` | No reject of SABME construction when caller expects mod-8 context | §4.3.3.2 | Low — never observed in BPQ corpus; SABME is the construction-time concern, not parser. |
 
+### XID information-field codec (`XidInfoField` — §4.3.3.7 / Fig 4.5)
+
+The XID parameter-negotiation TLV codec (added with the v2.2 arc V3, part 1). The encoder (`XidInfoField.Encode`) is unconditionally strict — it never emits a malformed information field. The parser's two leniency knobs live on `XidParseOptions` (defaulted off; `XidParseOptions.Lenient` turns both on). These are *new* acceptance, so the default is strict per the CLAUDE.md rule.
+
+| Location | What we accept | Strict spec says | Driver | Flag name | Default |
+|---|---|---|---|---|---|
+| `XidInfoField.TryParse` GL check | A Group Length that claims more parameter bytes than the buffer holds (clamp to available) | §4.3.3.7 ¶1021 — GL is the exact parameter-field length | Defensive: a peer that mis-sizes GL or appends garbage past the parameter field. No confirmed corpus yet (XID is BPQ-only on our interop matrix); seeded off until interop verifies a real driver. | `AllowGroupLengthOverrun` | `false` |
+| `XidInfoField.TryParse` PI/PL check | A trailing PI with no PL octet, or a PL whose PV runs past the parameter field (take what remains) | §4.3.3.7 ¶1023 — the parameter field is an exact run of complete PI/PL/PV triples | As above — tolerate a truncated trailing parameter. Seeded off until interop verifies a real driver. | `AllowTruncatedParameter` | `false` |
+
+Note: unrecognised PIs, `PL=0` (PV-absent ⇒ default), and the ISO-8885-only Tx variants (PI=5/7) are **not** leniency — §4.3.3.7 ¶1024 mandates skipping unknown PIs and treating an absent/zero-length parameter as "use the current/default value". The strict parser does all of this; it's spec-compliant behaviour, not a flag.
+
+### XID Classes-of-Procedures ABM bit (spec worked-example defect)
+
+| Location | Choice | Why it's not a flag |
+|---|---|---|
+| `ClassesOfProcedures.ToOctets` puts Balanced-ABM at **bit 0** (half-duplex ⇒ `0x21 0x00`) | Figure 4.5's table and §6.3.2 ¶1077 ("Bit 0 is always a 1") put ABM at bit 0. Figure 4.6's worked example instead shows `0x22 0x00` — it placed the always-1 ABM bit at position 1. (Figure 4.6's HDLC-Optional-Functions field, by contrast, *is* table-faithful: ext-addr=bit7, TEST=bit13, 16-bit-FCS=bit15, sync-Tx=bit17 all land exactly per the Fig 4.5 table.) We follow the normative table/prose, so the ABM bit is 0 and half-duplex encodes `0x21`. | Spec-table-vs-figure contradiction, like the APRS `h`-timestamp row — we follow the table. The duplex selection (bit 5) — the only field a peer reads — is identical either way, so there is no interop consequence. **Upstream**: candidate `packethacking/ax25spec` issue (Fig 4.6 ABM byte should be `0x21`, not `0x22`); flagged for Tom, not filed here. |
+
 ## Packet.Aprs
 
 Three pragmatic accommodations, several spec-interpretation choices
