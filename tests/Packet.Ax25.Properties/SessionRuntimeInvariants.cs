@@ -40,6 +40,34 @@ public class SessionRuntimeInvariants
         AssertWindowInvariant(rig.Context, "after all requests");
     }
 
+    /// <summary>
+    /// The same sliding-window invariant must hold for an EXTENDED (modulo-128)
+    /// session: <c>(V(s) - V(a)) mod 128 ≤ K</c>. The mod-8 property above can't
+    /// catch a mod-128-specific window-arithmetic bug (e.g. a hard-coded mod-8 in
+    /// the queue gate, or an N(S) that wraps at 8 instead of 128), so this runs
+    /// the identical drive with a SABME-style extended context and the mod-128
+    /// window K.
+    /// </summary>
+    [Property(MaxTest = 200)]
+    public void Window_Invariant_Holds_In_Extended_Mode(byte requestCountRaw, byte kRaw)
+    {
+        var requestCount = (requestCountRaw % 50) + 1;
+        // Mod-128 windows run wider than mod-8; exercise a range up to the
+        // mod-128 default (32) and a bit beyond, but never ≥ 128.
+        var k = (kRaw % 40) + 1;
+
+        var rig = NewConnectedRig(isExtended: true, k: k);
+        rig.Context.IsExtended.Should().BeTrue();
+        rig.Context.Modulus.Should().Be(128);
+
+        for (int i = 0; i < requestCount; i++)
+        {
+            rig.Session.PostEvent(new DlDataRequest(new byte[] { (byte)i }));
+            AssertWindowInvariant(rig.Context, $"after {i + 1} DL-DATA-request(s) (extended, K={k})");
+        }
+        AssertWindowInvariant(rig.Context, $"after all requests (extended, K={k})");
+    }
+
     [Property(MaxTest = 50)]
     public void TimerRecovery_Exits_To_Connected_Or_Disconnected_Within_N2_Plus_1_T1_Expiries(byte n2Raw)
     {
@@ -156,7 +184,7 @@ public class SessionRuntimeInvariants
         FakeTimeProvider Time,
         SystemTimerScheduler Scheduler);
 
-    private static Rig NewConnectedRig(int? n2 = null, int? t1vMs = null)
+    private static Rig NewConnectedRig(int? n2 = null, int? t1vMs = null, bool isExtended = false, int? k = null)
     {
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
@@ -164,9 +192,11 @@ public class SessionRuntimeInvariants
         {
             Local  = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
+            IsExtended = isExtended,
         };
         if (n2 is { } n2v)   ctx.N2 = n2v;
         if (t1vMs is { } t)  ctx.T1V = TimeSpan.FromMilliseconds(t);
+        if (k is { } kv)     ctx.K  = kv;
 
         Ax25Session? sessionRef = null;
         var dispatcher = new ActionDispatcher(

@@ -2,38 +2,69 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Packet.Ax25;
+using Packet.Ax25.Session;
+using Packet.Ax25.Xid;
+using Packet.Core;
 using Packet.Kiss;
 using SharpFuzz;
 
 namespace Packet.Fuzz;
 
 /// <summary>
-/// SP-004 — SharpFuzz harness for the AX.25 and KISS wire-format parsers.
+/// SP-004 — SharpFuzz harness for the AX.25 and KISS wire-format parsers, plus
+/// the AX.25 v2.2 parsing/codec surface (extended/mod-128 frames, the XID
+/// information-field codec, and the §6.6 segment reassembler).
 /// </summary>
 /// <remarks>
 /// <para>
-/// Two parser targets:
+/// Parser / codec targets (one fuzz subcommand each, all replayed under
+/// <c>--smoke</c>):
 /// </para>
 /// <list type="bullet">
 /// <item><c>Ax25Frame.TryParse(ReadOnlySpan&lt;byte&gt;, out _)</c> — the direct AX.25
-/// KISS-form (no flags, no FCS) parser.</item>
+/// KISS-form (no flags, no FCS) parser, modulo-8 control field.</item>
 /// <item><c>KissDecoder.Push(ReadOnlySpan&lt;byte&gt;)</c> — KISS parser entry. The
 /// task brief asked for <c>KissFrame.TryParse</c> but no such method exists; KISS
 /// is a stateful framer, not a one-shot parser, so the equivalent harness drives
 /// arbitrary byte sequences through <see cref="KissDecoder"/> instead.</item>
+/// <item><c>Ax25Frame.TryParse(…, extended: true, out _)</c> — the v2.2
+/// EXTENDED/mod-128 parse path. The decoder is mode-aware (the caller tells it
+/// the link modulo), so an I/S frame's control field is 2 octets; this target
+/// fuzzes that second-octet parse.</item>
+/// <item><c>XidInfoField.TryParse(ReadOnlySpan&lt;byte&gt;, options, out _)</c> — the
+/// XID (Exchange Identification) info-field TLV codec (§4.3.3.7). Attacker-
+/// controlled FI/GI/GL and a run of PI/PL/PV triples — truncation, bad types,
+/// length overruns. Fuzzed under both <see cref="XidParseOptions.Strict"/> and
+/// <see cref="XidParseOptions.Lenient"/>.</item>
+/// <item><c>Reassembler.Push(ReadOnlySpan&lt;byte&gt;)</c> + the on-the-wire
+/// <see cref="SegmentationLayer.OnDataIndication"/> seam — the §6.6 segment
+/// reassembler, fed hostile/malformed segment sequences (out-of-order,
+/// oversized counts, missing-first, inner-PID-quirk edges).</item>
 /// </list>
 /// <para>Usage:</para>
 /// <code>
 ///   dotnet run --project tools/Packet.Fuzz -- --smoke [N]
 ///   dotnet run --project tools/Packet.Fuzz -- ax25 [corpus-dir]
 ///   dotnet run --project tools/Packet.Fuzz -- kiss [corpus-dir]
+///   dotnet run --project tools/Packet.Fuzz -- ax25ext [corpus-dir]
+///   dotnet run --project tools/Packet.Fuzz -- xid [corpus-dir]
+///   dotnet run --project tools/Packet.Fuzz -- segment [corpus-dir]
 /// </code>
 /// <para>
 /// <c>--smoke</c> is the always-works mode: it generates N random / structured
-/// inputs in-process and asserts neither <c>TryParse</c> escapes an exception.
-/// The <c>ax25</c> / <c>kiss</c> subcommands invoke
-/// <see cref="Fuzzer.OutOfProcess.Run"/> for use under <c>afl-fuzz</c> +
-/// <c>libfuzzer-dotnet</c>; they aren't required for the smoke pass.
+/// inputs in-process and asserts no target escapes an exception. The per-target
+/// subcommands invoke <see cref="Fuzzer.OutOfProcess.Run"/> for use under
+/// <c>afl-fuzz</c> + <c>libfuzzer-dotnet</c>; they aren't required for the smoke
+/// pass.
+/// </para>
+/// <para>
+/// <b>Invariant for every parser/codec target:</b> never throw an unhandled
+/// exception — return false / a clean parse error / no state corruption. The
+/// reassembler is the one exception to that rule by current design (its
+/// <c>Push</c> contract throws on a protocol-violating segment sequence); see
+/// <c>FINDINGS.md</c> 2026-06-03 for the on-the-wire reachability of that throw.
+/// The segment-target smoke run pins the *current* behaviour (throws are
+/// counted, not asserted-clean) rather than masking it.
 /// </para>
 /// </remarks>
 public static class Program
@@ -54,6 +85,9 @@ public static class Program
             "--seed-corpus"  => RunSeedCorpus(args),
             "ax25"           => RunAx25Fuzzer(args),
             "kiss"           => RunKissFuzzer(args),
+            "ax25ext"        => RunAx25ExtendedFuzzer(args),
+            "xid"            => RunXidFuzzer(args),
+            "segment"        => RunSegmentFuzzer(args),
             "--help"
                 or "-h"      => RunHelp(),
             _ => UnknownCommand(args[0]),
@@ -79,9 +113,12 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Usage:");
         Console.WriteLine("  Packet.Fuzz --smoke [N] [seed]     Smoke test (default N=1000) covering both parsers; optional RNG seed.");
-        Console.WriteLine("  Packet.Fuzz --seed-corpus [dir]    Write the known-valid seed corpus files into <dir>/ax25 + <dir>/kiss.");
-        Console.WriteLine("  Packet.Fuzz ax25 [corpus-dir]      AFL/libfuzzer harness for Ax25Frame.TryParse.");
+        Console.WriteLine("  Packet.Fuzz --seed-corpus [dir]    Write the known-valid seed corpus files into <dir>/{ax25,kiss,ax25ext,xid,segment}.");
+        Console.WriteLine("  Packet.Fuzz ax25 [corpus-dir]      AFL/libfuzzer harness for Ax25Frame.TryParse (mod-8).");
         Console.WriteLine("  Packet.Fuzz kiss [corpus-dir]      AFL/libfuzzer harness for KissDecoder.Push.");
+        Console.WriteLine("  Packet.Fuzz ax25ext [corpus-dir]   AFL/libfuzzer harness for Ax25Frame.TryParse (extended/mod-128).");
+        Console.WriteLine("  Packet.Fuzz xid [corpus-dir]       AFL/libfuzzer harness for XidInfoField.TryParse.");
+        Console.WriteLine("  Packet.Fuzz segment [corpus-dir]   AFL/libfuzzer harness for Reassembler.Push + SegmentationLayer.");
     }
 
     // ─── seed corpus ──────────────────────────────────────────────────
@@ -93,6 +130,9 @@ public static class Program
             : Path.Combine(AppContext.BaseDirectory, "corpus");
         Directory.CreateDirectory(Path.Combine(root, "ax25"));
         Directory.CreateDirectory(Path.Combine(root, "kiss"));
+        Directory.CreateDirectory(Path.Combine(root, "ax25ext"));
+        Directory.CreateDirectory(Path.Combine(root, "xid"));
+        Directory.CreateDirectory(Path.Combine(root, "segment"));
 
         Console.WriteLine($"Writing seed corpus under {root}…");
 
@@ -130,7 +170,120 @@ public static class Program
             Console.WriteLine($"  kiss/{Path.GetFileName(path)} — {kiss.Length} bytes");
         }
 
+        // ── Extended / mod-128 seeds (KISS form) ─────────────────────
+        // Valid mod-128 I and S frames — 2-octet control field (Fig 4.1b),
+        // including the 7-bit N(S)/N(R) and the 127 boundary that mod-8 can't
+        // reach. The decoder is mode-aware, so these only decode correctly with
+        // extended: true (which the ax25ext target / smoke uses).
+        foreach (var (name, bytes) in ExtendedSeeds())
+        {
+            string path = Path.Combine(root, "ax25ext", name);
+            File.WriteAllBytes(path, bytes);
+            Console.WriteLine($"  ax25ext/{name} — {bytes.Length} bytes");
+        }
+
+        // ── XID info-field seeds ─────────────────────────────────────
+        // The Figure 4.6 worked example plus encoder output for a couple of
+        // negotiated parameter sets. These are the known-valid TLV payloads the
+        // XID parser must accept; the fuzzer mutates around them.
+        foreach (var (name, bytes) in XidSeeds())
+        {
+            string path = Path.Combine(root, "xid", name);
+            File.WriteAllBytes(path, bytes);
+            Console.WriteLine($"  xid/{name} — {bytes.Length} bytes");
+        }
+
+        // ── Segment-reassembler seeds ────────────────────────────────
+        // Single segment-info-field buffers (one I-frame's worth of segment),
+        // in both the figure-literal and inner-PID formats, that a Reassembler
+        // would accept. The segment fuzzer concatenates / mutates these into
+        // multi-segment sequences.
+        foreach (var (name, bytes) in SegmentSeeds())
+        {
+            string path = Path.Combine(root, "segment", name);
+            File.WriteAllBytes(path, bytes);
+            Console.WriteLine($"  segment/{name} — {bytes.Length} bytes");
+        }
+
         return 0;
+    }
+
+    /// <summary>
+    /// Known-valid extended (mod-128) frames in KISS form. Each decodes only
+    /// with <c>extended: true</c>; the 2-octet control field carries 7-bit
+    /// N(S)/N(R) (Fig 4.1b), exercised here at the mod-8-unreachable boundary
+    /// (N(S)=127, N(R)=64) plus a mid-range I-frame and an extended RR.
+    /// </summary>
+    private static IEnumerable<(string Name, byte[] Bytes)> ExtendedSeeds()
+    {
+        yield return ("i-ext-mid.bin",
+            Ax25Frame.I(Cs("MOLTER", 0), Cs("M0LTE", 7),
+                nr: 40, ns: 100, info: System.Text.Encoding.ASCII.GetBytes("extended i frame"),
+                pid: Ax25Frame.PidNoLayer3, pollBit: true, extended: true).ToBytes());
+        yield return ("i-ext-wrap.bin",
+            Ax25Frame.I(Cs("MOLTER", 0), Cs("M0LTE", 7),
+                nr: 64, ns: 127, info: System.Text.Encoding.ASCII.GetBytes("ns at the wrap"),
+                pid: Ax25Frame.PidNoLayer3, pollBit: false, extended: true).ToBytes());
+        yield return ("rr-ext.bin",
+            Ax25Frame.Rr(Cs("MOLTER", 0), Cs("M0LTE", 7),
+                nr: 96, isCommand: true, pollFinal: true, extended: true).ToBytes());
+        yield return ("srej-ext.bin",
+            Ax25Frame.Srej(Cs("MOLTER", 0), Cs("M0LTE", 7),
+                nr: 127, isCommand: false, pollFinal: false, extended: true).ToBytes());
+    }
+
+    /// <summary>
+    /// Known-valid XID information fields. The Figure 4.6 worked example (the
+    /// spec's own bytes) plus the encoder's output for a default and a
+    /// full-parameter negotiation set.
+    /// </summary>
+    private static IEnumerable<(string Name, byte[] Bytes)> XidSeeds()
+    {
+        // Figure 4.6 (NJ7P → N7LEM) verbatim — FI GI GL + the 6 PI/PL/PV triples.
+        yield return ("figure-4-6.bin", new byte[]
+        {
+            0x82, 0x80, 0x00, 0x17,
+            0x02, 0x02, 0x22, 0x00,
+            0x03, 0x03, 0x82, 0xA8, 0x22,
+            0x06, 0x02, 0x04, 0x00,
+            0x08, 0x01, 0x02,
+            0x09, 0x02, 0x10, 0x00,
+            0x0A, 0x01, 0x03,
+        });
+        yield return ("empty.bin", XidInfoField.Encode(new XidParameters()));
+        yield return ("full.bin", XidInfoField.Encode(new XidParameters
+        {
+            ClassesOfProcedures = ClassesOfProcedures.FullDuplexCapable,
+            HdlcOptionalFunctions = new HdlcOptionalFunctions
+            {
+                Reject = RejectMode.SelectiveReject,
+                Modulo128 = true,
+                SegmenterReassembler = true,
+            },
+            IFieldLengthRxBits = XidParameters.OctetsToBits(256),
+            WindowSizeRx = 32,
+            AckTimerMillis = 3000,
+            Retries = 10,
+        }));
+    }
+
+    /// <summary>
+    /// Known-valid single-segment info-field buffers, in both segmentation
+    /// formats. A reassembler reads each as one segment of a series; the segment
+    /// fuzzer concatenates and mutates these into (often hostile) multi-segment
+    /// sequences.
+    /// </summary>
+    private static IEnumerable<(string Name, byte[] Bytes)> SegmentSeeds()
+    {
+        // Figure-literal: [F/X][data]. First segment of a 3-segment series, then a
+        // middle, then the last.
+        yield return ("figlit-first.bin",  new byte[] { Segmenter.FirstBit | 2, 0xA0, 0xA1, 0xA2 });
+        yield return ("figlit-mid.bin",    new byte[] { 1, 0xB0, 0xB1, 0xB2 });
+        yield return ("figlit-last.bin",   new byte[] { 0, 0xC0, 0xC1 });
+        // Inner-PID (Dire Wolf): the first segment carries [F/X][inner-PID][data].
+        yield return ("innerpid-first.bin", new byte[] { Segmenter.FirstBit | 1, Ax25Frame.PidNetRom, 0xD0, 0xD1 });
+        // A single-segment (First + last) series — remaining count 0 on the First.
+        yield return ("single.bin",         new byte[] { Segmenter.FirstBit | 0, 0xEE, 0xEF });
     }
 
     private static Packet.Core.Callsign Cs(string @base, byte ssid)
@@ -186,17 +339,40 @@ public static class Program
         // sample is a regression we want to catch in CI.
         var ax25Seeds = LoadCorpus("ax25");
         var kissSeeds = LoadCorpus("kiss");
+        var extSeeds  = LoadCorpus("ax25ext");
+        var xidSeeds  = LoadCorpus("xid");
+        var segSeeds  = LoadCorpus("segment");
 
         var ax25 = SmokeOne("Ax25Frame.TryParse", iterations, FuzzAx25Bytes, ax25Seeds, seed);
         Console.WriteLine();
         var kiss = SmokeOne("KissDecoder.Push", iterations, FuzzKissBytes, kissSeeds, seed);
+        Console.WriteLine();
+        var ext = SmokeOne("Ax25Frame.TryParse(extended)", iterations, FuzzAx25ExtendedBytes, extSeeds, seed,
+            structuredGenerator: MostlyValidExtendedAx25);
+        Console.WriteLine();
+        var xid = SmokeOne("XidInfoField.TryParse", iterations, FuzzXidBytes, xidSeeds, seed,
+            structuredGenerator: MostlyValidXid);
+        Console.WriteLine();
+        // The segment target's reassembler throws InvalidOperationException /
+        // ArgumentException *by design* on protocol-violating segment sequences
+        // (its documented contract; see FINDINGS.md 2026-06-03). FuzzSegmentBytes
+        // swallows exactly those two documented types and records anything else as
+        // a finding — so the smoke run fails only on a crash-class bug (IOOR,
+        // NRE, …), not on the contractual protocol-violation throw.
+        var seg = SmokeOne("Reassembler.Push / SegmentationLayer", iterations, FuzzSegmentBytes, segSeeds, seed,
+            structuredGenerator: HostileSegmentSequence);
 
         Console.WriteLine();
         Console.WriteLine("════════ Summary ════════");
         Report(ax25);
         Report(kiss);
+        Report(ext);
+        Report(xid);
+        Report(seg);
 
-        return (ax25.Findings.Count + kiss.Findings.Count) == 0 ? 0 : 2;
+        int totalFindings = ax25.Findings.Count + kiss.Findings.Count
+                          + ext.Findings.Count + xid.Findings.Count + seg.Findings.Count;
+        return totalFindings == 0 ? 0 : 2;
     }
 
     private static byte[][] LoadCorpus(string subdir)
@@ -209,7 +385,16 @@ public static class Program
         return [.. Directory.EnumerateFiles(dir).Select(File.ReadAllBytes)];
     }
 
-    private static SmokeResult SmokeOne(string label, int iterations, Action<byte[]> target, byte[][] seeds, int rngSeed)
+    /// <summary>
+    /// Run one target through three phases: seed replay, single-mutation of each
+    /// seed, and bulk generated inputs. <paramref name="structuredGenerator"/>,
+    /// when non-null, supplies target-aware structured inputs that alternate with
+    /// the generic random/structured generator in the bulk phase — so a TLV/XID
+    /// or segment target gets deep, format-shaped coverage on top of raw bytes.
+    /// </summary>
+    private static SmokeResult SmokeOne(
+        string label, int iterations, Action<byte[]> target, byte[][] seeds, int rngSeed,
+        Func<Random, byte[]>? structuredGenerator = null)
     {
         Console.WriteLine($"── {label} ──");
         var rng = new Random(rngSeed);
@@ -235,10 +420,14 @@ public static class Program
             }
         }
 
-        // 3) Bulk random / structured inputs.
+        // 3) Bulk random / structured inputs. When a target-aware structured
+        //    generator is supplied, every other input is drawn from it so the
+        //    bulk phase mixes raw-byte robustness with format-shaped depth.
         for (int i = 0; i < iterations; i++)
         {
-            byte[] input = GenerateInput(rng, i);
+            byte[] input = (structuredGenerator is not null && (i & 1) == 0)
+                ? structuredGenerator(rng)
+                : GenerateInput(rng, i);
             TryRun(target, input, result);
         }
 
@@ -448,6 +637,122 @@ public static class Program
         off += 7;
     }
 
+    // ─── v2.2 structured generators ────────────────────────────────────
+
+    /// <summary>
+    /// Produce a buffer shaped like an EXTENDED (mod-128) AX.25 I or S frame:
+    /// the address pair + a 2-octet control field (Fig 4.1b) + tail. The second
+    /// control octet (7-bit N(R) + P/F) is what the mod-8 generator never emits,
+    /// so this is what stresses the extended-parse path. Some bytes are random so
+    /// the parser still exercises its reject branches.
+    /// </summary>
+    private static byte[] MostlyValidExtendedAx25(Random rng)
+    {
+        bool iFrame = rng.Next(2) == 0;
+        int infoLen = iFrame ? rng.Next(0, 64) : 0;
+        // dest + src + ctrl(2) + [pid + info on I].
+        int total = 14 + 2 + (iFrame ? 1 + infoLen : 0);
+        var buf = new byte[total];
+
+        int off = 0;
+        WriteAddrSlot(buf, ref off, rng, isLast: false);   // destination
+        WriteAddrSlot(buf, ref off, rng, isLast: true);    // source (E-bit set → no digis)
+
+        if (iFrame)
+        {
+            // I-frame mod-128: octet0 = (N(S)<<1)|0; octet1 = (N(R)<<1)|P.
+            buf[off++] = (byte)((rng.Next(128) << 1) & 0xFE);
+            buf[off++] = (byte)(((rng.Next(128) << 1) & 0xFE) | rng.Next(2));
+            buf[off++] = (byte)rng.Next(256);              // pid
+            rng.NextBytes(buf.AsSpan(off));                // info
+        }
+        else
+        {
+            // S-frame mod-128: octet0 = SS|01 (low nibble), octet1 = (N(R)<<1)|F.
+            byte[] sBases = { 0x01, 0x05, 0x09, 0x0D };    // RR / RNR / REJ / SREJ
+            buf[off++] = sBases[rng.Next(sBases.Length)];
+            buf[off++] = (byte)(((rng.Next(128) << 1) & 0xFE) | rng.Next(2));
+        }
+        return buf;
+    }
+
+    /// <summary>
+    /// Produce a buffer shaped like an XID information field: <c>FI GI GL</c>
+    /// then a run of PI/PL/PV triples. FI/GI are usually the spec constants
+    /// (0x82/0x80) so the parser gets past the header and into the TLV loop; GL
+    /// and the PL octets are sometimes deliberately wrong (over-claimed,
+    /// truncated) to drive the length-overrun reject branches.
+    /// </summary>
+    private static byte[] MostlyValidXid(Random rng)
+    {
+        var pf = new List<byte>(32);
+        int triples = rng.Next(0, 8);
+        // Real AX.25 PIs plus some unknown/out-of-range ones.
+        byte[] pis = { 0x02, 0x03, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x42, 0xFF, 0x00 };
+        for (int t = 0; t < triples; t++)
+        {
+            byte pi = pis[rng.Next(pis.Length)];
+            int pl = rng.Next(0, 6);
+            pf.Add(pi);
+            pf.Add((byte)pl);
+            for (int i = 0; i < pl; i++) pf.Add((byte)rng.Next(256));
+        }
+
+        // Group length: usually the true parameter-field length, sometimes a
+        // deliberately wrong value to exercise the overrun/clamp branch.
+        int gl = rng.Next(4) switch
+        {
+            0 => Math.Min(pf.Count + rng.Next(1, 8), 0xFFFF),   // over-claim
+            1 => Math.Max(pf.Count - rng.Next(1, 4), 0),         // under-claim
+            _ => pf.Count,                                        // truthful
+        };
+
+        var buf = new byte[XidInfoField.HeaderLength + pf.Count];
+        // FI/GI: mostly the spec constants, occasionally wrong (header reject).
+        buf[0] = rng.Next(8) == 0 ? (byte)rng.Next(256) : XidInfoField.FormatIdentifier;
+        buf[1] = rng.Next(8) == 0 ? (byte)rng.Next(256) : XidInfoField.GroupIdentifier;
+        buf[2] = (byte)((gl >> 8) & 0xFF);
+        buf[3] = (byte)(gl & 0xFF);
+        pf.CopyTo(buf, XidInfoField.HeaderLength);
+        return buf;
+    }
+
+    /// <summary>
+    /// Produce a (usually hostile) multi-segment sequence as a single buffer:
+    /// a length-prefixed run of segment info-fields, the encoding the segment
+    /// fuzz target replays one segment at a time. Mixes valid first/middle/last
+    /// orderings with the malformed shapes the reassembler must survive:
+    /// missing-first, out-of-sequence counts, duplicate firsts, empty fields,
+    /// and over-long remaining counts.
+    /// </summary>
+    private static byte[] HostileSegmentSequence(Random rng)
+    {
+        int segments = rng.Next(0, 6);
+        var ms = new MemoryStream();
+        for (int s = 0; s < segments; s++)
+        {
+            // Each segment: 1 length byte then that many info-field bytes.
+            int len = rng.Next(5) switch
+            {
+                0 => 0,                       // empty info field (ArgumentException path)
+                1 => 1,                       // F/X only, no data / no inner PID
+                _ => rng.Next(1, 8),
+            };
+            var seg = new byte[len];
+            if (len > 0)
+            {
+                // Header byte: random First bit + random remaining count — this is
+                // exactly what produces out-of-sequence / missing-first hostility.
+                byte first = rng.Next(2) == 0 ? Segmenter.FirstBit : (byte)0;
+                seg[0] = (byte)(first | (byte)(rng.Next(128) & Segmenter.CountMask));
+                for (int i = 1; i < len; i++) seg[i] = (byte)rng.Next(256);
+            }
+            ms.WriteByte((byte)len);
+            ms.Write(seg, 0, seg.Length);
+        }
+        return ms.ToArray();
+    }
+
     // ─── targets ─────────────────────────────────────────────────────
 
     private static void FuzzAx25Bytes(byte[] bytes)
@@ -465,6 +770,105 @@ public static class Program
     {
         var decoder = new KissDecoder();
         decoder.Push(bytes);
+    }
+
+    /// <summary>
+    /// Parse arbitrary bytes as an EXTENDED (mod-128) frame. The decoder is
+    /// mode-aware, so this drives the 2-octet-control-field branch of
+    /// <see cref="Ax25Frame.TryParse(ReadOnlySpan{byte}, Ax25ParseOptions, bool, out Ax25Frame?)"/>.
+    /// Invariant: never throw — return false on malformed input.
+    /// </summary>
+    private static void FuzzAx25ExtendedBytes(byte[] bytes)
+    {
+        _ = Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, extended: true, out _);
+        // Also exercise the strict-options path — different reject branches.
+        _ = Ax25Frame.TryParse(bytes, Ax25ParseOptions.Strict, extended: true, out _);
+    }
+
+    /// <summary>
+    /// Parse arbitrary bytes as an XID information field under both the strict
+    /// and lenient option presets. Invariant: never throw — return false on a
+    /// malformed buffer (bad FI/GI, truncated header, GL overrun, truncated
+    /// PI/PL/PV). Re-encoding a successfully-parsed value must also not throw.
+    /// </summary>
+    private static void FuzzXidBytes(byte[] bytes)
+    {
+        if (XidInfoField.TryParse(bytes, XidParseOptions.Strict, out var strict))
+        {
+            // A value the strict parser accepted must re-encode without throwing.
+            _ = XidInfoField.Encode(strict);
+        }
+        if (XidInfoField.TryParse(bytes, XidParseOptions.Lenient, out var lenient))
+        {
+            _ = XidInfoField.Encode(lenient);
+        }
+    }
+
+    /// <summary>
+    /// Drive a hostile multi-segment sequence through both a fresh
+    /// <see cref="Reassembler"/> (figure-literal and inner-PID) and the
+    /// on-the-wire <see cref="SegmentationLayer.OnDataIndication"/> seam.
+    /// </summary>
+    /// <remarks>
+    /// The reassembler throws <see cref="InvalidOperationException"/> /
+    /// <see cref="ArgumentException"/> by documented design on a protocol-
+    /// violating segment sequence (see <c>FINDINGS.md</c> 2026-06-03). Those two
+    /// types are the contract, so this target swallows exactly them and lets any
+    /// other exception escape to be recorded as a finding — i.e. it asserts "no
+    /// <i>crash-class</i> exception (IndexOutOfRange, NullReference, …) escapes",
+    /// which is the invariant that actually matters for this target.
+    /// </remarks>
+    private static void FuzzSegmentBytes(byte[] bytes)
+    {
+        foreach (var expectInnerPid in new[] { false, true })
+        {
+            var reassembler = new Reassembler(expectInnerPid);
+            foreach (var seg in SplitSegmentStream(bytes))
+            {
+                try { _ = reassembler.Push(seg); }
+                catch (InvalidOperationException) { /* documented contract */ }
+                catch (ArgumentException) { /* documented contract */ }
+            }
+        }
+
+        // The on-the-wire seam: deliver each segment as a PID-0x08 DL-DATA
+        // indication, exactly as Ax25Listener does. Same documented-throw
+        // tolerance — this is the reachability path the finding documents.
+        foreach (var quirks in new[] { Ax25SessionQuirks.Default, Ax25SessionQuirks.StrictlyFaithful })
+        {
+            var ctx = new Ax25SessionContext
+            {
+                Local = new Packet.Core.Callsign("M0LTE", 0),
+                Remote = new Packet.Core.Callsign("G7XYZ", 7),
+                Quirks = quirks,
+            };
+            var layer = new SegmentationLayer(ctx);
+            foreach (var seg in SplitSegmentStream(bytes))
+            {
+                var ind = new DataLinkDataIndication(seg, Ax25Frame.PidSegmented);
+                try { _ = layer.OnDataIndication(ind); }
+                catch (InvalidOperationException) { /* documented contract */ }
+                catch (ArgumentException) { /* documented contract */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Split the length-prefixed segment-stream encoding (see
+    /// <see cref="HostileSegmentSequence"/>) into individual segment info-field
+    /// buffers. A truncated final length is clamped to what remains so arbitrary
+    /// AFL bytes (which won't follow the encoding) still produce some segments.
+    /// </summary>
+    private static IEnumerable<byte[]> SplitSegmentStream(byte[] bytes)
+    {
+        int pos = 0;
+        while (pos < bytes.Length)
+        {
+            int len = bytes[pos++];
+            int take = Math.Min(len, bytes.Length - pos);
+            yield return bytes.AsSpan(pos, take).ToArray();
+            pos += take;
+        }
     }
 
     // ─── afl / libfuzzer entry points ─────────────────────────────────
@@ -490,6 +894,39 @@ public static class Program
             stream.CopyTo(ms);
             var decoder = new KissDecoder();
             decoder.Push(ms.ToArray());
+        });
+        return 0;
+    }
+
+    private static int RunAx25ExtendedFuzzer(string[] args)
+    {
+        Fuzzer.OutOfProcess.Run(stream =>
+        {
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            FuzzAx25ExtendedBytes(ms.ToArray());
+        });
+        return 0;
+    }
+
+    private static int RunXidFuzzer(string[] args)
+    {
+        Fuzzer.OutOfProcess.Run(stream =>
+        {
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            FuzzXidBytes(ms.ToArray());
+        });
+        return 0;
+    }
+
+    private static int RunSegmentFuzzer(string[] args)
+    {
+        Fuzzer.OutOfProcess.Run(stream =>
+        {
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            FuzzSegmentBytes(ms.ToArray());
         });
         return 0;
     }
