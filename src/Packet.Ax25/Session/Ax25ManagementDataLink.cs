@@ -75,6 +75,19 @@ public sealed class Ax25ManagementDataLink
     public event EventHandler<MdlSignal>? MdlSignalEmitted;
 
     /// <summary>
+    /// Raised after a transition of the underlying <c>management_data_link</c>
+    /// machine commits — forwarded verbatim from the internal
+    /// <see cref="Ax25Session.TransitionFired"/> of the MDL's state machine.
+    /// The argument is the matched <see cref="TransitionSpec"/> (its <c>From</c>
+    /// is <c>Ready</c>/<c>Negotiating</c>, its <c>Id</c> the codegen transition
+    /// id). A pure observability hook (transition-coverage instrumentation,
+    /// tracing) with the same contract as <see cref="Ax25Session.TransitionFired"/>;
+    /// it adds no MDL behaviour. Handlers run synchronously on the posting thread;
+    /// keep them fast and non-throwing.
+    /// </summary>
+    public event EventHandler<TransitionSpec>? TransitionFired;
+
+    /// <summary>
     /// Construct an MDL driver bound to a data-link session's state.
     /// </summary>
     /// <param name="linkContext">
@@ -182,6 +195,11 @@ public sealed class Ax25ManagementDataLink
             transitionsByState: TransitionMap,
             initialState: "Ready");
         selfRef = machine;
+
+        // Forward the MDL machine's transition-fired observability event so
+        // coverage instrumentation can see the management_data_link transitions
+        // (the harness subscribes here; see TwoStationHarness / TransitionCoverageTests).
+        machine.TransitionFired += (_, spec) => TransitionFired?.Invoke(this, spec);
     }
 
     /// <summary>

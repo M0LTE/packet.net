@@ -93,6 +93,12 @@ public sealed class TwoStationHarness
         var harness = new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
         a.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
         b.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
+        // The MDL (management_data_link) machine runs its own Ax25Session; its
+        // Ready/Negotiating state names don't collide with the data-link states,
+        // so the same (From, Id) ledger captures its transitions too. This lets
+        // the coverage ledger track the MDL machine (V5a).
+        a.Mdl.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
+        b.Mdl.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
         return harness;
     }
 
