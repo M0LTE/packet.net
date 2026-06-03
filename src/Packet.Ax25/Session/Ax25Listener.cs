@@ -81,6 +81,16 @@ public sealed class Ax25Listener : IAsyncDisposable
         /// <see cref="Session"/>'s context.
         /// </summary>
         public required Ax25ManagementDataLink Mdl { get; init; }
+
+        /// <summary>
+        /// The session's §6.6 segmentation-reassembly shim. Sits at the DL
+        /// primitive boundary: the send helper (<see cref="Ax25Listener.SendData"/>)
+        /// runs an over-N1 payload through its segmenter, and the
+        /// <c>SendUpward</c> fan-out runs every inbound DL-DATA indication
+        /// through its reassembler (0x08 PID → reassemble, else pass through).
+        /// One per session — it owns the per-session reassembly buffer.
+        /// </summary>
+        public required SegmentationLayer Segmentation { get; init; }
     }
 
     /// <summary>Our station identity. All inbound filtering checks against this.</summary>
@@ -228,6 +238,59 @@ public sealed class Ax25Listener : IAsyncDisposable
         ct.ThrowIfCancellationRequested();
         throw new TimeoutException(
             $"outbound connect to {remote} timed out after {budget.TotalSeconds:F1}s without DL-CONNECT-confirm.");
+    }
+
+    /// <summary>
+    /// Send an upper-layer (Layer-3) payload over an established session,
+    /// applying §6.6 segmentation at the DL boundary. This is the send-side
+    /// counterpart to the receive-side reassembly wired into every session's
+    /// upward-signal fan-out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// If the session has negotiated the segmenter
+    /// (<see cref="Ax25SessionContext.SegmenterReassemblerEnabled"/>) and the
+    /// payload exceeds N1, the payload is split into PID-0x08 I-frame segments
+    /// and each is posted as its own <see cref="DlDataRequest"/>. Otherwise a
+    /// single un-segmented request is posted. An over-N1 payload on a session
+    /// that has <em>not</em> negotiated the segmenter throws
+    /// <see cref="InvalidOperationException"/> — the request is rejected
+    /// cleanly rather than truncated or sent oversize.
+    /// </para>
+    /// <para>
+    /// Callers that want to send a raw, never-segmented request (e.g. a frame
+    /// they have already segmented, or a control payload) can still post a
+    /// <see cref="DlDataRequest"/> directly via
+    /// <see cref="Ax25Session.PostEvent"/>; this helper is the
+    /// segmentation-aware path.
+    /// </para>
+    /// </remarks>
+    /// <param name="session">An <see cref="Ax25Session"/> previously returned
+    /// by <see cref="ConnectAsync"/> or the <see cref="SessionAccepted"/> event.</param>
+    /// <param name="data">The upper-layer payload.</param>
+    /// <param name="pid">The Layer-3 PID for the (un-segmented) request. Defaults to
+    /// <see cref="Ax25Frame.PidNoLayer3"/>.</param>
+    /// <exception cref="ArgumentException">If <paramref name="session"/> is not a
+    /// session this listener owns.</exception>
+    /// <exception cref="InvalidOperationException">If the payload exceeds N1 and the
+    /// segmenter has not been negotiated for this session.</exception>
+    public void SendData(Ax25Session session, ReadOnlyMemory<byte> data, byte pid = Ax25Frame.PidNoLayer3)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        EnsureNotDisposed();
+
+        if (!sessions.TryGetValue(session.Context.Remote, out var cached) ||
+            !ReferenceEquals(cached.Session, session))
+        {
+            throw new ArgumentException(
+                "the supplied session is not owned by this listener (it was not produced by ConnectAsync / SessionAccepted, " +
+                "or has been evicted from the cache).", nameof(session));
+        }
+
+        foreach (var request in cached.Segmentation.BuildSendRequests(data, pid))
+        {
+            session.PostEvent(request);
+        }
     }
 
     /// <summary>Stop the inbound pump without disposing.</summary>
@@ -521,6 +584,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         if (options.T2  is { } t2)  ctx.T2  = t2;
 
         var signals = new ConcurrentQueue<DataLinkSignal>();
+        var segmentation = new SegmentationLayer(ctx);
 
         Ax25Session? sessionRef = null;
         void SendBytes(ReadOnlyMemory<byte> bytes)
@@ -543,8 +607,24 @@ public sealed class Ax25Listener : IAsyncDisposable
         // the session state), AND through the session's public
         // DataLinkSignalEmitted event (so UI / consumer code can
         // subscribe push-style for DL-DATA-indication etc.).
+        //
+        // Receive-side segmentation seam (§2.4 / §6.6): every DL-DATA
+        // indication passes through the reassembler first. A 0x08-PID segment
+        // is consumed and only delivered when the series completes (the shim
+        // returns null until the last segment); a non-segment indication
+        // passes through unchanged. Non-DATA signals (connect/disconnect/error)
+        // bypass the shim entirely. The dispatcher's
+        // `DLDATAIndication => sendUpward(BuildDataIndication(tx))` is
+        // untouched — the seam is here at the boundary, keeping the
+        // dispatcher / SDL clean.
         void SendUpward(DataLinkSignal sig)
         {
+            if (sig is DataLinkDataIndication dataInd)
+            {
+                var reassembled = segmentation.OnDataIndication(dataInd);
+                if (reassembled is null) return;   // mid-series segment — nothing to deliver yet
+                sig = reassembled;
+            }
             signals.Enqueue(sig);
             sessionRef?.RaiseDataLinkSignal(sig);
         }
@@ -588,6 +668,7 @@ public sealed class Ax25Listener : IAsyncDisposable
             Scheduler = scheduler,
             Signals = signals,
             Mdl = mdl,
+            Segmentation = segmentation,
         };
     }
 
