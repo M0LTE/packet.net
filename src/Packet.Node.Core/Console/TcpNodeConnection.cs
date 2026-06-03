@@ -9,21 +9,26 @@ namespace Packet.Node.Core.Console;
 /// straight on the prompt: no callsign, no KISS, no AX.25.
 /// </summary>
 /// <remarks>
-/// A minimal telnet-protocol filter strips inbound IAC (0xFF) command sequences
-/// so a real telnet client's option negotiation doesn't leak control bytes into
-/// the command stream; raw <c>nc</c> clients (which send none) are unaffected.
-/// We send no telnet options of our own — line-at-a-time cooked mode is the
-/// client default and is what we want.
+/// Telnet line discipline: on connect we send <c>WILL ECHO</c> +
+/// <c>WILL SUPPRESS-GO-AHEAD</c> (<see cref="NegotiateAsync"/>) and echo received
+/// input ourselves, so typing is visible on every client — including raw ones
+/// (<c>plink -raw</c>, <c>nc</c>) that do no local echo of their own. Inbound IAC
+/// (0xFF) command sequences are stripped so a client's option negotiation never
+/// leaks control bytes into the command stream.
 /// </remarks>
 public sealed class TcpNodeConnection : INodeConnection
 {
     private const byte Iac = 255;   // telnet "interpret as command"
     private const byte Sb = 250;    // subnegotiation begin
     private const byte Se = 240;    // subnegotiation end
+    private const byte Will = 251;  // telnet WILL
+    private const byte OptEcho = 1; // option: ECHO
+    private const byte OptSga = 3;  // option: SUPPRESS-GO-AHEAD
 
     private readonly Socket socket;
     private readonly NetworkStream stream;
     private readonly byte[] readBuffer = new byte[2048];
+    private readonly SemaphoreSlim writeLock = new(1, 1);
     private readonly TaskCompletionSource completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int disposed;
@@ -32,6 +37,10 @@ public sealed class TcpNodeConnection : INodeConnection
     private bool inIac;
     private bool inSubneg;
     private int iacCommandBytesRemaining;
+
+    // Server-side echo state, carried across reads.
+    private int echoLineCol;      // printable chars on the current input line (for BS)
+    private bool echoLastWasCr;   // coalesce CR-LF in the echoed stream
 
     public TcpNodeConnection(Socket socket)
     {
@@ -48,6 +57,19 @@ public sealed class TcpNodeConnection : INodeConnection
 
     /// <inheritdoc/>
     public Task Completion => completion.Task;
+
+    /// <summary>
+    /// Send our telnet option negotiation — <c>WILL ECHO</c> + <c>WILL
+    /// SUPPRESS-GO-AHEAD</c> — which puts a compliant client into
+    /// character-at-a-time mode with its local echo off (we echo instead). Call
+    /// once, before the banner. Raw clients ignore these few bytes and still get
+    /// our echo.
+    /// </summary>
+    public async Task NegotiateAsync(CancellationToken cancellationToken = default)
+    {
+        byte[] negotiation = [Iac, Will, OptEcho, Iac, Will, OptSga];
+        await WriteAsync(negotiation, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     public async ValueTask<ReadOnlyMemory<byte>> ReadAsync(CancellationToken cancellationToken = default)
@@ -74,6 +96,7 @@ public sealed class TcpNodeConnection : INodeConnection
             var filtered = StripTelnet(readBuffer.AsSpan(0, n));
             if (filtered.Length > 0)
             {
+                await EchoAsync(filtered, cancellationToken).ConfigureAwait(false);
                 return filtered;
             }
             // The chunk was pure telnet negotiation — read again.
@@ -87,6 +110,17 @@ public sealed class TcpNodeConnection : INodeConnection
         {
             return;
         }
+        // Serialise writes: server-side echo (from the read path) and command
+        // output / relayed data (from the service) can otherwise interleave on
+        // the single stream during a connect-out relay.
+        try
+        {
+            await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
         try
         {
             await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
@@ -96,6 +130,70 @@ public sealed class TcpNodeConnection : INodeConnection
         {
             completion.TrySetResult();
         }
+        finally
+        {
+            writeLock.Release();
+        }
+    }
+
+    // Echo received input back to the client. Printable bytes echo as-is; CR (or
+    // a lone LF) becomes CR-LF; backspace / DEL erases the last echoed character
+    // (only when there is one on the current line, so it can't chew into the
+    // prompt). Best-effort — an echo write failure is swallowed by WriteAsync.
+    private async ValueTask EchoAsync(ReadOnlyMemory<byte> input, CancellationToken ct)
+    {
+        var echo = BuildEcho(input.Span);
+        if (echo.Length > 0)
+        {
+            await WriteAsync(echo, ct).ConfigureAwait(false);
+        }
+    }
+
+    private byte[] BuildEcho(ReadOnlySpan<byte> input)
+    {
+        var output = new List<byte>(input.Length + 2);
+        foreach (var b in input)
+        {
+            switch (b)
+            {
+                case (byte)'\r':
+                    output.Add((byte)'\r');
+                    output.Add((byte)'\n');
+                    echoLineCol = 0;
+                    echoLastWasCr = true;
+                    break;
+                case (byte)'\n':
+                    if (!echoLastWasCr)
+                    {
+                        output.Add((byte)'\r');
+                        output.Add((byte)'\n');
+                        echoLineCol = 0;
+                    }
+                    echoLastWasCr = false;
+                    break;
+                case 0x08:   // BS
+                case 0x7f:   // DEL
+                    if (echoLineCol > 0)
+                    {
+                        output.Add(0x08);
+                        output.Add((byte)' ');
+                        output.Add(0x08);
+                        echoLineCol--;
+                    }
+                    echoLastWasCr = false;
+                    break;
+                default:
+                    if (b >= 0x20)   // printable (incl. UTF-8 high bytes)
+                    {
+                        output.Add(b);
+                        echoLineCol++;
+                    }
+                    // other control characters are not echoed
+                    echoLastWasCr = false;
+                    break;
+            }
+        }
+        return output.ToArray();
     }
 
     // Remove telnet IAC command sequences from the byte stream, tracking state
@@ -181,5 +279,6 @@ public sealed class TcpNodeConnection : INodeConnection
         await stream.DisposeAsync().ConfigureAwait(false);
         try { socket.Shutdown(SocketShutdown.Both); } catch { /* already closed */ }
         socket.Dispose();
+        writeLock.Dispose();
     }
 }

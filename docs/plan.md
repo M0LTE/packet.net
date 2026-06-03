@@ -893,6 +893,10 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+### 2026-06-03 — Telnet console line-discipline fix: CR-LF + server-side echo
+
+The slice-1 telnet console (§5.4) rendered unusably under an interactive client (`plink`): the banner and prompt collapsed onto one line (the prompt CR-overwrote `Welcome `) and typed input wasn't echoed. Root cause: `NodeCommandService.WriteLineAsync` emitted a **bare CR** for every line (its comment claimed CR works "on packet TNCs and telnet alike" — wrong for telnet, which needs CR-LF), and `TcpNodeConnection` sent no telnet options and never echoed, banking on client-side local echo (false for raw `plink`). The fix is per-transport: telnet now gets **CR-LF** line endings while AX.25 keeps the bare-CR packet convention (chosen on `INodeConnection.TransportKind`); `TcpNodeConnection` sends `WILL ECHO` + `WILL SUPPRESS-GO-AHEAD` on connect and **echoes received input server-side** (CR→CR-LF, backspace/DEL erase, column-tracked so it can't chew into the prompt; writes serialised behind a lock so echo can't interleave relayed data during a connect-out); `LineAssembler` now honours BS/DEL so the parsed line stays in step with the echo. The automated console tests asserted only on reply *content*, never terminal rendering — which is exactly how this shipped — so added coverage for the negotiation bytes, CR-LF framing, echo, and backspace (107 node tests). Found in live use on the packetdotnet box, fixed via the build→deploy loop, and verified on the wire (`IAC WILL ECHO`/`SGA`, then `…]\r\nN0CALL> `).
+
 ### 2026-06-03 — Phase 4 slice 1: a minimal but real node host (#167)
 
 The first slice of the node host (§5.4) — a headless, deployable packet-radio node that ties the hardened AX.25 engine + KISS transports together. Generic Host from day one; web server present-but-inert (only `GET /healthz` is mapped). What landed:

@@ -127,4 +127,70 @@ public sealed class TelnetConsoleIntegrationTests
         client.Connected.Should().BeTrue("an unknown command must not drop the telnet session");
         await readCts.CancelAsync();
     }
+
+    [Fact]
+    public async Task Telnet_negotiates_echo_uses_crlf_and_echoes_typed_input()
+    {
+        await using var listener = BuildListener(out _);
+        await listener.StartAsync();
+        var port = listener.BoundEndpoint!.Port;
+
+        using var client = new TcpClient();
+        await client.ConnectAsync("127.0.0.1", port);
+        var stream = client.GetStream();
+
+        var raw = new List<byte>();
+        using var readCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        _ = Task.Run(async () =>
+        {
+            var buf = new byte[1024];
+            try
+            {
+                while (!readCts.Token.IsCancellationRequested)
+                {
+                    int n = await stream.ReadAsync(buf, readCts.Token);
+                    if (n == 0) break;
+                    lock (raw) raw.AddRange(buf[..n]);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (IOException) { }
+        });
+
+        byte[] Bytes() { lock (raw) return raw.ToArray(); }
+        string Text() => Encoding.UTF8.GetString(Bytes());
+
+        // Telnet option negotiation: IAC WILL ECHO + IAC WILL SUPPRESS-GO-AHEAD.
+        await Wait.ForAsync(
+            () => IndexOf(Bytes(), [0xFF, 0xFB, 0x01]) >= 0 && IndexOf(Bytes(), [0xFF, 0xFB, 0x03]) >= 0,
+            "server offers WILL ECHO + WILL SGA on connect");
+
+        // CR-LF line discipline: the prompt sits on its own line after the banner.
+        // The bug was a bare CR making the prompt overwrite the banner's start.
+        await Wait.ForAsync(
+            () => Text().Contains("\r\nM0LTE-1> ", StringComparison.Ordinal),
+            "the prompt is on its own CR-LF line, not overwriting the banner");
+
+        // Server-side echo: a typed character (no newline, no command dispatch)
+        // comes back — so the only possible source is the echo.
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("Z"));
+        await stream.FlushAsync();
+        await Wait.ForAsync(() => Text().Contains('Z'), "typed characters are echoed");
+
+        await readCts.CancelAsync();
+    }
+
+    private static int IndexOf(byte[] haystack, byte[] needle)
+    {
+        for (int i = 0; i + needle.Length <= haystack.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
+    }
 }
