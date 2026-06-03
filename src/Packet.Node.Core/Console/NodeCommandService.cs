@@ -236,12 +236,18 @@ public sealed partial class NodeCommandService
 
     private static async Task WriteLineAsync(INodeConnection connection, string text, CancellationToken ct)
     {
-        // Packet/terminal convention: CR-terminated lines. \n in the source text
-        // is rendered as CR so multi-line replies break correctly on packet TNCs
-        // and telnet alike.
-        var rendered = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\n', '\r') + "\r";
+        // Line endings are per-transport: telnet terminals need CR-LF, while
+        // AX.25 terminals (and packet TNCs) use a bare CR. Normalise the source
+        // text's newlines to the connection's convention and terminate the line.
+        var nl = NewLine(connection);
+        var rendered = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", nl, StringComparison.Ordinal) + nl;
         await connection.WriteAsync(Encoding.UTF8.GetBytes(rendered), ct).ConfigureAwait(false);
     }
+
+    /// <summary>The line terminator for a connection: CR-LF for telnet, a bare CR
+    /// for AX.25 (the packet-radio convention).</summary>
+    private static string NewLine(INodeConnection connection) =>
+        connection.TransportKind == NodeTransportKind.Telnet ? "\r\n" : "\r";
 
     private static async Task<ReadOnlyMemory<byte>> ReadOrCompletion(INodeConnection connection, CancellationToken ct)
     {

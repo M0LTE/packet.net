@@ -110,6 +110,7 @@ public sealed partial class TelnetConsoleListener : IAsyncDisposable
             LogAccepted(connection.PeerId);
             try
             {
+                await connection.NegotiateAsync(ct).ConfigureAwait(false);
                 var service = serviceFactory(connection);
                 await service.RunAsync(connection, ct).ConfigureAwait(false);
             }

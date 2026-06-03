@@ -57,6 +57,17 @@ public sealed class LineAssembler
                 continue;
             }
 
+            // Backspace / DEL: line editing — erase the last buffered byte, so the
+            // assembled line stays in step with the connection's server-side echo.
+            if (b == 0x08 || b == 0x7f)
+            {
+                if (!overflowing && buffer.Count > 0)
+                {
+                    buffer.RemoveAt(buffer.Count - 1);
+                }
+                continue;
+            }
+
             if (overflowing)
             {
                 continue;   // dropping the overflow tail until the next terminator
