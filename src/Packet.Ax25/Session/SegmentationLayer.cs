@@ -1,0 +1,147 @@
+using Packet.Ax25;
+
+namespace Packet.Ax25.Session;
+
+/// <summary>
+/// AX.25 v2.2 §2.4 / §6.6 segmentation-reassembly shim that sits at the
+/// data-link primitive boundary — between Layer 3 (the upper layer) and an
+/// <see cref="Ax25Session"/>. The data-link state machine and session are
+/// <b>unchanged</b>: segments travel as ordinary I-frames carrying PID
+/// <see cref="Ax25Frame.PidSegmented"/> (0x08), so the FSM just sends and
+/// receives them. This layer is the §6.6 "the segmenter passes all other
+/// signals unchanged" boundary process.
+/// </summary>
+/// <remarks>
+/// <para>
+/// One instance per data-link session — it owns the per-session
+/// <see cref="Reassembler"/> (which holds in-flight multi-segment state).
+/// The spec models exactly this placement (§2557 / §2560): the reassembler
+/// examines the DL-DATA / DL-UNIT-DATA <em>indication</em>; a 0x08 PID
+/// means reassemble, anything else passes through transparently. The
+/// segmenter examines the DL-DATA / DL-UNIT-DATA <em>request</em>;
+/// over-N1 means segment, otherwise pass through.
+/// </para>
+/// <para>
+/// <b>Gating.</b> Segmentation is a v2.2, negotiated capability (§1621 —
+/// "only enabled if both stations on the link are using AX.25 version 2.2 or
+/// higher", set via the XID HDLC-Optional-Functions segmenter bit). This
+/// layer gates the send side on
+/// <see cref="Ax25SessionContext.SegmenterReassemblerEnabled"/>. If a payload
+/// exceeds N1−1 (the max segment-free info-field size) and the segmenter is
+/// <em>not</em> enabled, <see cref="BuildSendRequests"/> throws — the request
+/// is rejected cleanly rather than silently truncated or sent as an
+/// oversize frame.
+/// </para>
+/// <para>
+/// <b>Inner PID on reassembly.</b> Figure 6.2 defines the segment header as
+/// the 0x08 PID octet plus one F/X octet — there is <b>no field carrying the
+/// original Layer-3 PID</b> through a segmented series. So a reassembled
+/// payload is delivered with PID <see cref="Ax25Frame.PidNoLayer3"/> (0xF0):
+/// the spec's §6.6 reassembly has no PID-recovery mechanism, and 0xF0 ("no
+/// Layer 3 protocol") is the faithful "PID unknown / raw" value. A future
+/// revision that carries the inner PID (some stacks prepend it as the first
+/// reassembled byte) would change <see cref="ReassembledPid"/>.
+/// </para>
+/// </remarks>
+public sealed class SegmentationLayer
+{
+    private readonly Ax25SessionContext context;
+    private readonly Reassembler reassembler = new();
+
+    /// <summary>
+    /// PID delivered with a reassembled payload. Per §6.6 / Figure 6.2 the
+    /// segment header carries no inner Layer-3 PID, so reassembled data is
+    /// delivered as <see cref="Ax25Frame.PidNoLayer3"/> (0xF0).
+    /// </summary>
+    public const byte ReassembledPid = Ax25Frame.PidNoLayer3;
+
+    /// <summary>Construct a shim over the supplied session context.</summary>
+    /// <param name="context">The session's context — read for the negotiated
+    /// segmenter-enabled flag and N1.</param>
+    public SegmentationLayer(Ax25SessionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        this.context = context;
+    }
+
+    /// <summary>
+    /// Send-side shim. Given an upper-layer payload + its Layer-3 PID, return
+    /// the sequence of <see cref="DlDataRequest"/>s to post to the session:
+    /// <list type="bullet">
+    /// <item>If the segmenter is enabled and the payload exceeds N1−1, one
+    /// <see cref="DlDataRequest"/> per segment, each carrying PID
+    /// <see cref="Ax25Frame.PidSegmented"/> (0x08); the session enqueues +
+    /// sends each as a normal I-frame.</item>
+    /// <item>Otherwise a single <see cref="DlDataRequest"/> with the original
+    /// payload + PID, unchanged.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="data">The upper-layer payload.</param>
+    /// <param name="pid">The Layer-3 PID for the (un-segmented) request.</param>
+    /// <exception cref="InvalidOperationException">If the payload exceeds N1−1
+    /// and the segmenter has not been negotiated (v2.0 / not enabled) — the
+    /// request can't be honoured without violating N1, so it's rejected
+    /// cleanly.</exception>
+    public IReadOnlyList<DlDataRequest> BuildSendRequests(ReadOnlyMemory<byte> data, byte pid = Ax25Frame.PidNoLayer3)
+    {
+        // N1 is the max info-field octet count. An un-segmented info field is
+        // the whole payload (one PID, no segment-control byte), so the
+        // pass-through ceiling is N1 itself. A *segment's* info field is the
+        // F/X control byte + payload, so per-segment payload is N1−1.
+        bool fits = data.Length <= context.N1;
+
+        if (fits)
+        {
+            return new[] { new DlDataRequest(data, pid) };
+        }
+
+        if (!context.SegmenterReassemblerEnabled)
+        {
+            throw new InvalidOperationException(
+                $"payload of {data.Length} bytes exceeds N1={context.N1} and the segmenter/reassembler " +
+                "has not been negotiated (AX.25 v2.2 §6.6 — segmentation requires both peers to advertise " +
+                "the XID HDLC-Optional-Functions segmenter bit). Cannot send without segmenting; rejecting " +
+                "the request rather than truncating or producing an oversize frame.");
+        }
+
+        // Segment into PID-0x08 info fields (segment-control byte + ≤ N1−1
+        // payload bytes each) and post each as its own I-frame request.
+        var segments = Segmenter.Segment(data.Span, context.N1);
+        var requests = new DlDataRequest[segments.Count];
+        for (int i = 0; i < segments.Count; i++)
+        {
+            requests[i] = new DlDataRequest(segments[i], Ax25Frame.PidSegmented);
+        }
+        return requests;
+    }
+
+    /// <summary>
+    /// Receive-side shim. Given a <see cref="DataLinkDataIndication"/> the
+    /// session raised, either:
+    /// <list type="bullet">
+    /// <item>If its PID is <see cref="Ax25Frame.PidSegmented"/> (0x08), feed
+    /// the info field to the per-session <see cref="Reassembler"/> and return
+    /// the completed payload as a single reassembled
+    /// <see cref="DataLinkDataIndication"/> on the last segment, or
+    /// <c>null</c> while more segments are expected (nothing to deliver yet).</item>
+    /// <item>Otherwise return the indication unchanged (pass-through).</item>
+    /// </list>
+    /// </summary>
+    /// <param name="indication">The indication the session raised.</param>
+    /// <returns>The indication to deliver upward, or <c>null</c> when a
+    /// segment was consumed but the series is incomplete.</returns>
+    public DataLinkDataIndication? OnDataIndication(DataLinkDataIndication indication)
+    {
+        ArgumentNullException.ThrowIfNull(indication);
+
+        if (indication.Pid != Ax25Frame.PidSegmented)
+        {
+            return indication;   // not a segment — pass through transparently
+        }
+
+        var completed = reassembler.Push(indication.Info.Span);
+        return completed is null
+            ? null
+            : new DataLinkDataIndication(completed, ReassembledPid);
+    }
+}

@@ -70,7 +70,8 @@ public sealed class TwoStationHarness
     public static TwoStationHarness Build(
         bool srej = false, int k = 4, int t1Ms = DefaultT1Ms, int n2 = DefaultN2, int t2Ms = 40,
         bool extended = false, Ax25SessionQuirks? quirks = null,
-        XidParameters? xidOfferA = null, XidParameters? xidOfferB = null)
+        XidParameters? xidOfferA = null, XidParameters? xidOfferB = null,
+        bool segmenter = false, int? n1 = null)
     {
         var q = quirks ?? Ax25SessionQuirks.Default;
         var nodeA = new Callsign("M0LTEA", 1);
@@ -79,8 +80,8 @@ public sealed class TwoStationHarness
         var link  = new Channel();
         var t1v   = TimeSpan.FromMilliseconds(t1Ms);
 
-        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferA, out var aPeer);
-        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferB, out var bPeer);
+        var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferA, segmenter, n1, out var aPeer);
+        var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferB, segmenter, n1, out var bPeer);
         aPeer.Target = b.Inbound;          bPeer.Target = a.Inbound;
         aPeer.RxLog  = b.ReceivedFromPeer; bPeer.RxLog  = a.ReceivedFromPeer;
         // When A sends, the frame is delivered to B's wiring; route XID/FRMR to
@@ -106,7 +107,7 @@ public sealed class TwoStationHarness
     private static Endpoint BuildEndpoint(
         Callsign local, Callsign remote, FakeTimeProvider time, Channel link,
         bool srej, int k, int t1Ms, int n2, int t2Ms, bool extended, Ax25SessionQuirks quirks,
-        XidParameters? xidOffer, out PeerWiring peer)
+        XidParameters? xidOffer, bool segmenter, int? n1, out PeerWiring peer)
     {
         peer = new PeerWiring { TargetLocal = remote };
         var peerLocal = peer;
@@ -121,7 +122,10 @@ public sealed class TwoStationHarness
             SrejEnabled = srej,
             IsExtended  = extended,
             Quirks      = quirks,
+            SegmenterReassemblerEnabled = segmenter,
         };
+        if (n1 is { } n1Value) ctx.N1 = n1Value;
+        var segmentation = new SegmentationLayer(ctx);
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var mdlSignals = new ConcurrentQueue<MdlSignal>();
         var inbound = new Queue<Ax25Event>();
@@ -191,7 +195,23 @@ public sealed class TwoStationHarness
             sendUFrame:  spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendIFrame:  spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:  signals.Enqueue,
+            // Receive-side segmentation seam — mirrors Ax25Listener.SendUpward:
+            // a 0x08-PID DL-DATA indication is fed to the reassembler and only
+            // surfaced (as one reassembled indication) when the series completes;
+            // a non-segment indication passes through unchanged; non-DATA signals
+            // bypass the shim. So Endpoint.Delivered shows reassembled payloads,
+            // letting the convergence oracle compare one logical submission to one
+            // logical delivery.
+            sendUpward:  sig =>
+            {
+                if (sig is DataLinkDataIndication dataInd)
+                {
+                    var reassembled = segmentation.OnDataIndication(dataInd);
+                    if (reassembled is null) return;
+                    sig = reassembled;
+                }
+                signals.Enqueue(sig);
+            },
             // Model a contention-free medium: grant LM-SEIZE immediately so the
             // figc4.4 delayed-ack (Set Ack Pending + LM-SEIZE Request → flush the
             // RR on LM-SEIZE-confirm) actually flushes. Without this the link can
@@ -213,7 +233,7 @@ public sealed class TwoStationHarness
 
         var session = new Ax25Session(ctx, scheduler, dispatcher, guards, TransitionMap(), "Disconnected");
         sessionRef = session;
-        return new Endpoint(local.ToString(), session, ctx, signals, inbound, rxLog, mdl, mdlSignals);
+        return new Endpoint(local.ToString(), session, ctx, signals, inbound, rxLog, mdl, mdlSignals, segmentation);
     }
 
     // ─── Scenario actions ───────────────────────────────────────────────
@@ -260,6 +280,24 @@ public sealed class TwoStationHarness
         PumpToQuiescence();
         if (CheckAfterEachStep) CheckInvariants();
     }
+
+    /// <summary>Submit one (possibly &gt; N1) upper-layer payload through the §6.6
+    /// segmentation shim at <paramref name="from"/>. Records the WHOLE payload as a
+    /// single logical submission (so the oracle expects one reassembled delivery),
+    /// then posts each segment-request the shim produces as its own I-frame. With
+    /// the segmenter disabled this posts a single un-segmented request (and throws
+    /// if the payload exceeds N1, per the shim's strict reject).</summary>
+    public void SubmitLarge(Endpoint from, byte[] payload)
+    {
+        from.Submitted.Add(payload);
+        foreach (var request in from.Segmentation.BuildSendRequests(payload))
+        {
+            from.Session.PostEvent(request);
+        }
+        PumpToQuiescence();
+        if (CheckAfterEachStep) CheckInvariants();
+    }
+
 
     /// <summary>Disconnect from <paramref name="from"/>; asserts both reach
     /// Disconnected.</summary>
@@ -463,21 +501,30 @@ public sealed class TwoStationHarness
         /// Confirm / MDL-ERROR Indicate), in order.</summary>
         public ConcurrentQueue<MdlSignal> MdlSignals { get; }
 
+        /// <summary>This station's §6.6 segmentation-reassembly shim — used by
+        /// <see cref="TwoStationHarness.SubmitLarge"/> on the send side and wired
+        /// into the dispatcher's upward-signal fan-out on the receive side.</summary>
+        public SegmentationLayer Segmentation { get; }
+
         /// <summary>Deferred MDL-work queue (see <c>PeerWiring.MdlWork</c>).</summary>
         public Queue<Action> MdlWork { get; } = new();
 
-        /// <summary>Payloads this station submitted via DL-DATA-request, in order.</summary>
+        /// <summary>Payloads this station submitted via DL-DATA-request, in order.
+        /// A <see cref="TwoStationHarness.SubmitLarge"/> call records the WHOLE
+        /// (pre-segmentation) payload as one entry, so the convergence oracle
+        /// compares it against the single reassembled delivery.</summary>
         public List<byte[]> Submitted { get; } = new();
 
         public Endpoint(
             string name, Ax25Session session, Ax25SessionContext context,
             ConcurrentQueue<DataLinkSignal> signals, Queue<Ax25Event> inbound,
             List<Ax25Frame> receivedFromPeer,
-            Ax25ManagementDataLink mdl, ConcurrentQueue<MdlSignal> mdlSignals)
+            Ax25ManagementDataLink mdl, ConcurrentQueue<MdlSignal> mdlSignals,
+            SegmentationLayer segmentation)
         {
             Name = name; Session = session; Context = context;
             Signals = signals; Inbound = inbound; ReceivedFromPeer = receivedFromPeer;
-            Mdl = mdl; MdlSignals = mdlSignals;
+            Mdl = mdl; MdlSignals = mdlSignals; Segmentation = segmentation;
         }
 
         public string State => Session.CurrentState;

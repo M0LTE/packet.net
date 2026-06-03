@@ -3,7 +3,6 @@ using FsCheck.Xunit;
 using Xunit;
 using Packet.Ax25;
 using Packet.Ax25.Session;
-using Packet.Ax25.Tests.Session;   // GetIFrameNs extension
 
 namespace Packet.Ax25.Tests.Session.Conformance;
 
@@ -19,13 +18,16 @@ namespace Packet.Ax25.Tests.Session.Conformance;
 public class LossRecoveryProperties
 {
     [Property(MaxTest = 300)]
-    public bool A_single_dropped_iframe_always_recovers(int seedN, int seedDrop, bool srej)
+    public bool A_single_dropped_iframe_always_recovers(int seedN, int seedDrop, bool srej, bool extended)
     {
         int n       = 1 + Mod(seedN, 6);   // 1..6 I-frames
         int dropPos = Mod(seedDrop, n);    // drop the frame with N(s)=dropPos, once
         int k       = Math.Max(4, n);
 
-        var h = TwoStationHarness.Build(srej: srej, k: k);
+        // The `extended` parameter fuzzes the SAME recovery space at both modulos
+        // (mod-8 and mod-128, V4a): the dropped-frame N(S) match below reads the
+        // frame's mode-aware Ns, so the property holds in the 7-bit space too.
+        var h = TwoStationHarness.Build(srej: srej, k: k, extended: extended);
         h.Connect();
 
         var dropped = false;
@@ -34,7 +36,7 @@ public class LossRecoveryProperties
             if (dropped) return false;
             if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
             if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.GetIFrameNs(8) != dropPos) return false;
+            if (f.Ns != dropPos) return false;   // mode-aware: 3-bit mod-8 / 7-bit mod-128
             dropped = true;
             return true;
         };
@@ -50,7 +52,7 @@ public class LossRecoveryProperties
     }
 
     [Property(MaxTest = 400)]
-    public bool A_finite_bidirectional_loss_burst_recovers(int seedN, int seedBudget, int seedPattern, bool srej)
+    public bool A_finite_bidirectional_loss_burst_recovers(int seedN, int seedBudget, int seedPattern, bool srej, bool extended)
     {
         int n      = 1 + Mod(seedN, 6);        // 1..6 I-frames
         int budget = Mod(seedBudget, n + 1);   // 0..n total drops — finite, so the channel always clears
@@ -63,8 +65,9 @@ public class LossRecoveryProperties
         // #241 (SRT/T1V overflow), and #246 (SREJ requested the just-arrived frame
         // instead of the gap). With all three quirks on (default) selective-reject
         // converges under arbitrary finite loss too. N2 generous so the link
-        // doesn't give up before the finite loss clears.
-        var h = TwoStationHarness.Build(srej: srej, k: k, n2: 40);
+        // doesn't give up before the finite loss clears. `extended` fuzzes both the
+        // mod-8 and mod-128 sequence spaces (V4a).
+        var h = TwoStationHarness.Build(srej: srej, k: k, n2: 40, extended: extended);
         h.Connect();
 
         // Drop up to `budget` frames in EITHER direction (lost I-frames, acks,
