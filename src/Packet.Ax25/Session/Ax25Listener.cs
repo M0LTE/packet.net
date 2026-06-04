@@ -580,8 +580,19 @@ public sealed class Ax25Listener : IAsyncDisposable
         };
         if (options.N2 is { } n2)   ctx.N2 = n2;
         if (options.K  is { } k)    ctx.K  = k;
-        if (options.T1V is { } t1v) ctx.T1V = t1v;
         if (options.T2  is { } t2)  ctx.T2  = t2;
+        if (options.T1V is { } t1v)
+        {
+            // Seed BOTH T1V and SRT so the value is coherent before any SDL
+            // transition runs (T1V is what the T1 timer arms; SRT is what
+            // figc4.7's Select_T1_Value smooths). The establishment path
+            // (figc4.1 t13/t14) then runs `SRT := Initial Default; T1V := 2 * SRT`
+            // unconditionally — which would clobber this seed back to the spec
+            // default (m0lte/packet.net#292) — so we ALSO set the dispatcher's
+            // InitialSrt to t1v/2 below, making `T1V := 2 * SRT` reproduce t1v.
+            ctx.T1V = t1v;
+            ctx.Srt = t1v / 2;
+        }
 
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var segmentation = new SegmentationLayer(ctx);
@@ -649,8 +660,20 @@ public sealed class Ax25Listener : IAsyncDisposable
             // the XID exchange. (Other internal signals — push_I_frame_queue — are
             // queue-management that mutate ctx directly; nothing to do here.)
             sendInternal:  sig => { if (sig is MdlNegotiateRequestSignal) mdl.Negotiate(); },
-            subroutines:   new DefaultSubroutineRegistry());
-        if (options.T3 is { } t3) dispatcher = WithT3(dispatcher, t3);
+            subroutines:   new DefaultSubroutineRegistry())
+        {
+            // Per-port timer overrides. InitialSrt seeds the establishment path's
+            // `SRT := Initial Default; T1V := 2 * SRT` so a configured T1V actually
+            // reaches the session's T1 timer (m0lte/packet.net#292) — without it,
+            // the SDL resets T1V to 2×3000 ms on every connect. T3 arms the
+            // inactive-link timer; T2 rides the dispatcher for the day an SDL with a
+            // response-delay timer lands (today's figures arm no T2 — ack flush is
+            // LM-SEIZE-driven), but threading it keeps the option meaningful and the
+            // construction site uniform.
+            InitialSrt  = options.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
+            T3Duration  = options.T3 ?? ActionDispatcher.DefaultT3,
+            T2Duration  = options.T2 ?? ActionDispatcher.DefaultT2,
+        };
 
         var bindings = Ax25SessionBindings.CreateDefault(
             ctx, scheduler, currentTrigger: () => sessionRef?.CurrentTrigger);
@@ -670,25 +693,6 @@ public sealed class Ax25Listener : IAsyncDisposable
             Mdl = mdl,
             Segmentation = segmentation,
         };
-    }
-
-    // T3 override threading — ActionDispatcher's T3Duration is init-only
-    // so a per-option override needs a fresh dispatcher built with the
-    // override applied. The simplest shape that doesn't rewire every
-    // callback is to construct an init-with-overrides clone. We don't
-    // currently expose per-instance T1V here (T1V is on the context,
-    // refreshed by figc4.7's Select_T1_Value subroutine); only T3 and T2
-    // ride on the dispatcher.
-    private static ActionDispatcher WithT3(ActionDispatcher original, TimeSpan t3)
-    {
-        // ActionDispatcher's fields are private, so we can't surgically
-        // replace T3Duration on an existing instance. Callers that need
-        // a non-default T3 should construct the dispatcher with that
-        // value up front. For now treat the option as advisory — only
-        // ConfigureSession-time mutations through the dispatched
-        // expression "Start T3" use this value.
-        _ = t3;
-        return original;
     }
 
     private void AddToCache(Callsign peer, CachedSession built)
@@ -788,11 +792,18 @@ public sealed class Ax25ListenerOptions
     public required Callsign MyCall { get; init; }
 
     /// <summary>
-    /// Override the session-context default T1V (acknowledgement timer).
-    /// If <c>null</c>, sessions use the spec default (2 × initial SRT =
-    /// 6 s); figc4.7's <c>Select_T1_Value</c> recomputes the running
-    /// value as round-trip samples arrive regardless of this seed.
+    /// Override the session's initial T1V (acknowledgement timer). If
+    /// <c>null</c>, sessions use the spec default (2 × initial SRT = 6 s).
     /// </summary>
+    /// <remarks>
+    /// The value seeds both <see cref="Ax25SessionContext.T1V"/> and, via the
+    /// dispatcher's <see cref="ActionDispatcher.InitialSrt"/> (= T1V/2), the
+    /// establishment path's <c>SRT := Initial Default; T1V := 2 * SRT</c> — so a
+    /// configured T1V survives the SABM/SABME connect that would otherwise reset
+    /// it to the spec default (m0lte/packet.net#292). figc4.7's
+    /// <c>Select_T1_Value</c> still smooths the *running* value from round-trip
+    /// samples once frames flow; this only sets the starting point.
+    /// </remarks>
     public TimeSpan? T1V { get; init; }
 
     /// <summary>

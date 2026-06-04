@@ -47,8 +47,13 @@ public sealed partial class NodeCommandService
     {
         ArgumentNullException.ThrowIfNull(connection);
 
-        await WriteLineAsync(connection, Banner(), cancellationToken).ConfigureAwait(false);
-        await WritePromptAsync(connection, cancellationToken).ConfigureAwait(false);
+        // Send the banner AND the first prompt as ONE write (one I-frame), not two
+        // back-to-back. On a slow half-duplex channel each extra I-frame is extra
+        // air occupancy right when the freshly-connected peer wants to send its
+        // first command — two frames is two chances to collide with it (#292). The
+        // per-command prompt below is still its own write (it follows our reply, so
+        // it does not contend with an inbound frame the way the connect burst does).
+        await WriteBannerAndPromptAsync(connection, cancellationToken).ConfigureAwait(false);
 
         var assembler = new LineAssembler();
         try
@@ -186,6 +191,16 @@ public sealed partial class NodeCommandService
     {
         var prompt = Expand(env.Services.Prompt);
         await connection.WriteAsync(Encoding.UTF8.GetBytes(prompt), ct).ConfigureAwait(false);
+    }
+
+    // Banner line + first prompt in a SINGLE write — one I-frame on the air rather
+    // than two back-to-back at the contended just-connected moment (#292).
+    private async Task WriteBannerAndPromptAsync(INodeConnection connection, CancellationToken ct)
+    {
+        var nl = NewLine(connection);
+        var banner = Banner().Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", nl, StringComparison.Ordinal);
+        var prompt = Expand(env.Services.Prompt);
+        await connection.WriteAsync(Encoding.UTF8.GetBytes(banner + nl + prompt), ct).ConfigureAwait(false);
     }
 
     private string Expand(string template) => template

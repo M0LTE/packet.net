@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Ax25.Session;
 using Packet.Core;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
@@ -75,6 +76,50 @@ public sealed class Ax25ConsoleIntegrationTests
         remote.SendLine("B");
         await Wait.ForAsync(() => remote.Saw("73"), "Bye should be acknowledged");
         await Wait.ForAsync(() => remote.CurrentState == "Disconnected", "the link should drop after Bye");
+    }
+
+    [Fact]
+    public async Task Banner_and_first_prompt_go_out_as_a_single_I_frame()
+    {
+        // #292: on a slow half-duplex channel the node bursting banner THEN prompt
+        // as two back-to-back I-frames doubles its air occupancy at the moment the
+        // freshly-connected peer wants to send its first command. They must leave
+        // the node as ONE I-frame.
+        var bus = new SharedRadioBus();
+        var nodeModem = bus.Attach();
+
+        var config = new TestConfigProvider(NodeConfig());
+        var factory = new FakeTransportFactory().Provide(Endpoint(), nodeModem);
+        await using var supervisor = new PortSupervisor(config, factory, TimeProvider.System, NullLoggerFactory.Instance);
+        await supervisor.StartAsync();
+        await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("p1"), "port p1 should come up");
+
+        // Count the I-frames the node transmits (banner/prompt are I-frames; the UA
+        // and any RR poll are not).
+        var nodeIFramesTx = 0;
+        var listener = supervisor.GetPort("p1")!.Listener;
+        listener.FrameTraced += (_, e) =>
+        {
+            if (e.Direction == FrameDirection.Transmitted &&
+                Ax25FrameClassifier.Classify(e.Frame) is IFrameReceived)
+            {
+                Interlocked.Increment(ref nodeIFramesTx);
+            }
+        };
+
+        await using var remote = new RemoteStation(bus.Attach(), RemoteCall);
+        await remote.StartAsync();
+        await remote.ConnectAsync(NodeCall);
+
+        // Banner + prompt arrive (the prompt is "NODE-1> ", expanded from "{call}> ").
+        await Wait.ForAsync(() => remote.Saw("TESTNODE") && remote.Saw("NODE-1>"),
+            "both banner and prompt should arrive on connect");
+
+        // Settle briefly to be sure no second I-frame is in flight, then assert the
+        // node sent exactly one I-frame for the whole banner+prompt.
+        await Task.Delay(100);
+        nodeIFramesTx.Should().Be(1,
+            "the banner and the first prompt must be combined into a single I-frame (#292)");
     }
 
     [Fact]
