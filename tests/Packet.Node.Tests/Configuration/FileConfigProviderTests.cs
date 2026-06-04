@@ -100,7 +100,7 @@ public class FileConfigProviderTests : IDisposable
             ports:
               - id: x
                 transport:
-                  kind: axudp
+                  kind: smoke-signals
                   host: 1.2.3.4
                   port: 9
             """);

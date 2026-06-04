@@ -108,6 +108,65 @@ public class NodeConfigValidatorTests
         Validator.Validate(config).IsValid.Should().Be(expectValid);
     }
 
+    [Theory]
+    [InlineData(0, false)]       // remote port out of 1..65535
+    [InlineData(1, true)]
+    [InlineData(10093, true)]
+    [InlineData(65535, true)]
+    [InlineData(70000, false)]
+    public void Axudp_remote_port_must_be_in_range(int port, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "a",
+            Transport = new AxudpTransport { Host = "peer", Port = port, LocalPort = 10093 },
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Theory]
+    [InlineData(-1, false)]      // localPort 0 is legal (ephemeral); negative is not
+    [InlineData(0, true)]
+    [InlineData(10093, true)]
+    [InlineData(70000, false)]
+    public void Axudp_localPort_allows_zero_ephemeral_but_must_be_in_range(int localPort, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "a",
+            Transport = new AxudpTransport { Host = "peer", Port = 10093, LocalPort = localPort },
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Axudp_requires_a_host()
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "a",
+            Transport = new AxudpTransport { Host = "", Port = 10093 },
+        });
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(null, true)]              // no profile = spec defaults = valid
+    [InlineData("", true)]               // blank = no profile = valid
+    [InlineData("slow-afsk1200", true)]  // the known profile
+    [InlineData("SLOW_AFSK1200", true)]  // case- + separator-insensitive
+    [InlineData("turbo", false)]         // unknown profile = config error
+    public void Profile_must_be_a_known_name_or_absent(string? profile, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Profile = profile,
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
     [Fact]
     public void Rejects_out_of_range_ax25_window()
     {

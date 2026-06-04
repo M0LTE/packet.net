@@ -78,12 +78,22 @@ public sealed record PortConfig
     /// retained in config but torn down at runtime.</summary>
     public bool Enabled { get; init; } = true;
 
-    /// <summary>How to reach the modem for this port (serial KISS, NinoTNC, or
-    /// KISS-over-TCP). A discriminated union keyed by its <c>kind</c>.</summary>
+    /// <summary>How to reach the modem for this port (serial KISS, NinoTNC,
+    /// KISS-over-TCP, or AXUDP). A discriminated union keyed by its <c>kind</c>.</summary>
     public required TransportConfig Transport { get; init; }
 
+    /// <summary>
+    /// Optional named channel-tuning profile (e.g. <c>slow-afsk1200</c>). Opt-in:
+    /// it fills only the AX.25 / KISS fields the operator left unset on this port —
+    /// an explicit value always wins — and absence means exact spec defaults. See
+    /// <see cref="ChannelProfiles"/> for what each profile sets and why it is a
+    /// named per-port choice rather than a silent node-wide default.
+    /// </summary>
+    public string? Profile { get; init; }
+
     /// <summary>AX.25 listener parameters for this port (timers, window, retries).
-    /// Null = spec defaults.</summary>
+    /// Null = spec defaults (or the <see cref="Profile"/>'s value, if a profile is
+    /// set and the field is unset here).</summary>
     public Ax25PortParams? Ax25 { get; init; }
 
     /// <summary>KISS modem tuning (TXDELAY, persistence, slot time) applied live

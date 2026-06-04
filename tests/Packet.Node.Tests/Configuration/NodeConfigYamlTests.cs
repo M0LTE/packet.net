@@ -82,12 +82,14 @@ public class NodeConfigYamlTests
     [InlineData("serial-kiss")]
     [InlineData("nino-tnc")]
     [InlineData("kiss-tcp")]
+    [InlineData("axudp")]
     public void Round_trips_each_transport_kind_through_serialise_then_parse(string kind)
     {
         TransportConfig transport = kind switch
         {
             "serial-kiss" => new SerialKissTransport { Device = "/dev/ttyUSB0", Baud = 115200 },
             "nino-tnc" => new NinoTncTransport { Device = "/dev/ttyACM3", Baud = 57600, Mode = 9 },
+            "axudp" => new AxudpTransport { Host = "peer.local", Port = 10093, LocalPort = 10093, IncludeFcs = true },
             _ => new KissTcpTransport { Host = "modem.local", Port = 8100 },
         };
         var original = new NodeConfig
@@ -105,6 +107,55 @@ public class NodeConfigYamlTests
     }
 
     [Fact]
+    public void Parses_an_axudp_transport_with_all_fields()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports:
+              - id: tunnel
+                enabled: true
+                transport:
+                  kind: axudp
+                  host: 10.0.0.2
+                  port: 10093
+                  localPort: 10093
+                  includeFcs: true
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+
+        var axudp = config.Ports.Should().ContainSingle().Subject
+            .Transport.Should().BeOfType<AxudpTransport>().Subject;
+        axudp.Host.Should().Be("10.0.0.2");
+        axudp.Port.Should().Be(10093);
+        axudp.LocalPort.Should().Be(10093);
+        axudp.IncludeFcs.Should().BeTrue();
+        axudp.DescribeEndpoint().Should().Be("axudp:10.0.0.2:10093(local:10093)");
+    }
+
+    [Fact]
+    public void Axudp_localPort_and_includeFcs_default_when_omitted()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports:
+              - id: tunnel
+                transport:
+                  kind: axudp
+                  host: peer.example
+                  port: 10093
+            """;
+
+        var axudp = NodeConfigYaml.Parse(yaml).Ports[0].Transport.Should().BeOfType<AxudpTransport>().Subject;
+        axudp.LocalPort.Should().Be(0, "localPort defaults to 0 (ephemeral) when omitted");
+        axudp.IncludeFcs.Should().BeFalse("includeFcs defaults to false (LinBPQ BPQAXIP form)");
+    }
+
+    [Fact]
     public void Unknown_transport_kind_throws_a_clear_parse_error()
     {
         const string yaml = """
@@ -114,14 +165,38 @@ public class NodeConfigYamlTests
             ports:
               - id: bad
                 transport:
-                  kind: axudp
+                  kind: smoke-signals
                   host: 10.0.0.1
                   port: 10093
             """;
 
         var act = () => NodeConfigYaml.Parse(yaml);
         act.Should().Throw<Exception>()
-            .Which.Message.Should().Contain("axudp");
+            .Which.Message.Should().Contain("smoke-signals");
+    }
+
+    [Fact]
+    public void Parses_and_round_trips_a_ports_channel_profile()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports:
+              - id: vhf
+                profile: slow-afsk1200
+                transport:
+                  kind: kiss-tcp
+                  host: 127.0.0.1
+                  port: 8001
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+        config.Ports[0].Profile.Should().Be("slow-afsk1200");
+
+        // Round-trip: the profile survives serialise → parse.
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(config));
+        reparsed.Ports[0].Profile.Should().Be("slow-afsk1200");
     }
 
     [Fact]

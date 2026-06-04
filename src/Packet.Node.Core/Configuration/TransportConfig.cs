@@ -14,11 +14,12 @@ namespace Packet.Node.Core.Configuration;
 /// exhaustiveness checking flags any arm you miss.
 /// </para>
 /// <para>
-/// AXUDP is intentionally absent from slice 1 — there is no <c>IKissModem</c>
-/// AXUDP adapter yet, so the factory throws a clear "unsupported in slice 1"
-/// rather than silently doing nothing. The telnet console is <b>not</b> a
-/// transport (it is not an <c>IKissModem</c>); it lives under
-/// <see cref="ManagementConfig.Telnet"/>.
+/// AXUDP (AX.25 frames over UDP, <see cref="AxudpTransport"/>) plugs into the
+/// same seam via the <c>AxudpKissModem</c> adapter, which presents a
+/// <see cref="Packet.Axudp.AxudpSocket"/> as an <c>IKissModem</c> — so the
+/// listener / console / reconcile path is shared with the KISS transports. The
+/// telnet console is <b>not</b> a transport (it is not an <c>IKissModem</c>); it
+/// lives under <see cref="ManagementConfig.Telnet"/>.
 /// </para>
 /// </remarks>
 public abstract record TransportConfig
@@ -45,6 +46,9 @@ public static class TransportKinds
 
     /// <summary>KISS over TCP (a softmodem / net-sim endpoint).</summary>
     public const string KissTcp = "kiss-tcp";
+
+    /// <summary>AX.25 frames encapsulated in UDP datagrams (AXUDP / BPQAXIP).</summary>
+    public const string Axudp = "axudp";
 }
 
 /// <summary>A generic serial-port KISS modem (<c>KissSerialModem.Open</c>).</summary>
@@ -96,4 +100,49 @@ public sealed record KissTcpTransport : TransportConfig
 
     /// <inheritdoc/>
     public override string DescribeEndpoint() => $"kiss-tcp:{Host}:{Port}";
+}
+
+/// <summary>
+/// AXUDP — AX.25 frames encapsulated in UDP datagrams (the BPQAXIP / AXIP-with-UDP
+/// transport). Each datagram payload is one AX.25 frame body (the same KISS-form
+/// octets the listener produces), optionally with a 2-octet FCS trailer. Driven
+/// by the <c>AxudpKissModem</c> adapter over a <see cref="Packet.Axudp.AxudpSocket"/>.
+/// </summary>
+/// <remarks>
+/// AXUDP is a point-to-point UDP tunnel, not a shared RF channel: a port sends
+/// every outbound frame to one configured remote (<see cref="Host"/>:<see cref="Port"/>)
+/// and receives on its own bound <see cref="LocalPort"/>. There is no CSMA on a
+/// UDP link, so the KISS TXDELAY/PERSIST/SLOTTIME knobs are inert for this kind
+/// (the adapter accepts and ignores them — see <c>AxudpKissModem</c>).
+/// </remarks>
+public sealed record AxudpTransport : TransportConfig
+{
+    /// <inheritdoc/>
+    public override string Kind => TransportKinds.Axudp;
+
+    /// <summary>Hostname / IP of the remote AXUDP peer to send frames to.</summary>
+    public required string Host { get; init; }
+
+    /// <summary>UDP port of the remote AXUDP peer.</summary>
+    public required int Port { get; init; }
+
+    /// <summary>
+    /// Local UDP port to bind for receiving inbound datagrams. Conventionally the
+    /// same as the remote's port for a symmetric tunnel; <c>0</c> picks an
+    /// ephemeral port (send-only / monitor — the peer can't reach an ephemeral
+    /// bind unless it learns the source port).
+    /// </summary>
+    public int LocalPort { get; init; }
+
+    /// <summary>
+    /// Append the CRC-16-CCITT FCS (low byte first) to each datagram. Required by
+    /// peers that validate it (XRouter's AXUDP listener, the AXIP-with-CRC
+    /// variant); leave <c>false</c> (the default) for LinBPQ's BPQAXIP driver,
+    /// which accepts the FCS-less form. Set <c>true</c> for a peer that rejects
+    /// FCS-less bodies as "non-AXUDP".
+    /// </summary>
+    public bool IncludeFcs { get; init; }
+
+    /// <inheritdoc/>
+    public override string DescribeEndpoint() => $"axudp:{Host}:{Port}(local:{LocalPort})";
 }

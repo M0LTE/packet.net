@@ -57,7 +57,7 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
         if (!fields.TryGetValue("kind", out var kind) || string.IsNullOrWhiteSpace(kind))
         {
             throw new YamlException(start, start, "a transport must declare a 'kind' (one of: " +
-                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}).");
+                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp}).");
         }
 
         return Normalise(kind) switch
@@ -78,10 +78,16 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
                 Host = Required(fields, "host", kind, start),
                 Port = Int(fields, "port", 0, start),
             },
+            "axudp" => new AxudpTransport
+            {
+                Host = Required(fields, "host", kind, start),
+                Port = Int(fields, "port", 0, start),
+                LocalPort = Int(fields, "localport", 0, start),
+                IncludeFcs = Bool(fields, "includefcs", false, start),
+            },
             _ => throw new YamlException(start, start,
                 $"unknown transport kind '{kind}' (expected one of: " +
-                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}). " +
-                "Note: AXUDP is not supported in this build."),
+                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp})."),
         };
     }
 
@@ -106,6 +112,13 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
                 EmitField(emitter, "kind", k.Kind);
                 EmitField(emitter, "host", k.Host);
                 EmitField(emitter, "port", k.Port.ToString(CultureInfo.InvariantCulture));
+                break;
+            case AxudpTransport a:
+                EmitField(emitter, "kind", a.Kind);
+                EmitField(emitter, "host", a.Host);
+                EmitField(emitter, "port", a.Port.ToString(CultureInfo.InvariantCulture));
+                EmitField(emitter, "localPort", a.LocalPort.ToString(CultureInfo.InvariantCulture));
+                EmitField(emitter, "includeFcs", a.IncludeFcs ? "true" : "false");
                 break;
             case null:
                 break;
@@ -148,5 +161,18 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
             return parsed;
         }
         throw new YamlException(mark, mark, $"transport field '{key}' must be an integer (got '{v}').");
+    }
+
+    private static bool Bool(Dictionary<string, string?> fields, string key, bool fallback, Mark mark)
+    {
+        if (!fields.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v))
+        {
+            return fallback;
+        }
+        if (bool.TryParse(v, out var parsed))
+        {
+            return parsed;
+        }
+        throw new YamlException(mark, mark, $"transport field '{key}' must be true or false (got '{v}').");
     }
 }
