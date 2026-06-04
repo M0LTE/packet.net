@@ -32,6 +32,10 @@ public sealed class Ax25ConsoleIntegrationTests
                 Id = "p1",
                 Enabled = true,
                 Transport = new KissTcpTransport { Host = "mem", Port = memPort },
+                // Small N2 bounds the node's own connect-OUT (the relay test) at 30 s
+                // instead of the 66 s spec default under CI load; T1 stays spec
+                // default so the banner-count test sees no retransmit (#47).
+                Ax25 = new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
             },
         ],
     };

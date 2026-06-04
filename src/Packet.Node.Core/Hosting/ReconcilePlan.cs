@@ -40,8 +40,9 @@ public sealed record ReconcilePlan
     public IReadOnlyList<PortConfig> KissParamsChanged { get; init; } = [];
 
     /// <summary>Ports whose AX.25 params changed but nothing restart-class did →
-    /// recorded for the next bring-up; the live listener + its sessions are NOT
-    /// disturbed. Keyed by the new config.</summary>
+    /// live-reseed the running listener's per-session parameters so NEW sessions
+    /// use them; existing sessions keep their object identity and in-flight state.
+    /// No restart. Keyed by the new config.</summary>
     public IReadOnlyList<PortConfig> Ax25ParamsChanged { get; init; } = [];
 
     /// <summary>True if the telnet console bind/port/enabled changed → restart

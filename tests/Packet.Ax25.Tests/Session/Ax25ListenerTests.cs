@@ -302,4 +302,67 @@ public class Ax25ListenerTests
         modem.SentFrames.Count.Should().BeGreaterThan(afterIFrame,
             "T1 must fire on the configured 10 s schedule and trigger a retransmit/poll");
     }
+
+    // ─── N2 wiring (the #292-class clobber for the retry count) ─────────────
+    //
+    // The figc4.2 outbound-connect establishment path runs `N2 := 10`
+    // unconditionally — the same defect class as the T1V clobber above — so a
+    // configured N2 was reset to the spec default the moment a connect ran. That
+    // made the listener's `(N2+1)·T1V` ConnectAsync backstop always the 66 s spec
+    // maximum (the dominant symptom of the #47 node-test flake). The fix seeds the
+    // dispatcher's InitialN2 from the configured N2 so `N2 := 10` reproduces it.
+
+    [Fact]
+    public async Task Configured_N2_Survives_The_Outbound_Connect_Handshake()
+    {
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            N2 = 4,
+        });
+        await listener.StartAsync();
+
+        // Kick an outbound connect; the listener emits SABM. Reply with the peer's
+        // UA so the connect completes, then inspect the established session's N2.
+        var connectTask = listener.ConnectAsync(PeerCallA);
+        await modem.SentFrames.WaitForCountAsync(1, TimeSpan.FromSeconds(2)); // SABM
+        modem.InjectInbound(Ax25Frame.Ua(LocalCall, PeerCallA, finalBit: true));
+
+        var session = await connectTask.WithTimeout(TimeSpan.FromSeconds(2));
+        session.CurrentState.Should().Be("Connected");
+        // Before the fix this was 10 — figc4.2's `N2 := 10` clobbered the configured 4.
+        session.Context.N2.Should().Be(4,
+            "the configured N2 must survive the figc4.2 outbound-connect establishment path");
+    }
+
+    [Fact]
+    public async Task Configured_N2_And_T1V_Bound_The_Connect_Backstop()
+    {
+        // With N2 and T1V both honoured through establishment, a connect to a peer
+        // that never answers resolves quickly — bounded by (N2+1)·T1V, here
+        // (1+1)·200 ms — instead of the 66 s spec maximum. (It surfaces as the SDL
+        // exhausting its retries → link reset → InvalidOperationException, or as the
+        // ConnectAsync deadline → TimeoutException; either way it fails fast, which
+        // is the budget the node-test flake hinged on, #47.)
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            N2 = 1,
+            T1V = TimeSpan.FromMilliseconds(200),
+        });
+        await listener.StartAsync();
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var act = async () => await listener.ConnectAsync(PeerCallA);
+        // Either fast-failure mode is fine — the point is it does NOT burn 66 s.
+        (await act.Should().ThrowAsync<Exception>())
+            .Which.Should().Match(ex => ex is TimeoutException || ex is InvalidOperationException);
+        sw.Stop();
+
+        // Generous ceiling (CI scheduling jitter) but far under the 66 s spec max.
+        sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10),
+            "the connect backstop must honour the configured N2/T1V, not the 66 s spec default");
+    }
 }

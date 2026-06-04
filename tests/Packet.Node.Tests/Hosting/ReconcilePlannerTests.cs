@@ -94,8 +94,12 @@ public class ReconcilePlannerTests
     }
 
     [Fact]
-    public void Ax25_param_change_only_is_deferred_no_restart()
+    public void Ax25_param_change_only_is_hot_no_restart()
     {
+        // The AX.25-params-only change is HOT: classified into Ax25ParamsChanged
+        // with no restart class. The supervisor live-reseeds the running listener
+        // (UpdateSessionParameters) so new sessions pick up the params while
+        // existing sessions are untouched — see ReconfigDeltaIntegrationTests.
         var before = Config("M0LTE-1", Tcp("a", ax25: new Ax25PortParams { N2 = 10 }));
         var to = Config("M0LTE-1", Tcp("a", ax25: new Ax25PortParams { N2 = 12 }));
         var plan = ReconcilePlanner.Plan(before, to);

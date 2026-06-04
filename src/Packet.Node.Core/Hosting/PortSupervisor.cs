@@ -186,13 +186,13 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             await ApplyKissParamsAsync(port, cancellationToken).ConfigureAwait(false);
         }
 
-        // AX.25 param changes — update the recorded baseline so the next bring-up
-        // uses them; the live listener + its sessions are left alone (see the
-        // ReconcilePlanner remarks). Object identity preserved.
+        // AX.25 param changes — live-reseed the running listener so NEW sessions
+        // pick up the new params, without rebuilding the listener or disturbing any
+        // existing session (object identity preserved). See the ReconcilePlanner
+        // remarks + Ax25Listener.UpdateSessionParameters.
         foreach (var port in plan.Ax25ParamsChanged)
         {
-            RebaselineConfig(port);
-            LogAx25ParamsDeferred(port.Id);
+            ApplyAx25Params(port);
         }
     }
 
@@ -316,6 +316,26 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         LogKissParamsApplied(port.Id);
     }
 
+    private void ApplyAx25Params(PortConfig port)
+    {
+        RunningPort? running;
+        lock (ports)
+        {
+            ports.TryGetValue(port.Id, out running);
+        }
+        if (running is null) return;   // not up (e.g. faulted) — the next bring-up reads the new config
+
+        // Resolve the profile here too so a live AX.25 reseed uses the same
+        // effective values a fresh bring-up would (explicit wins, profile fills).
+        var (effectiveAx25, _) = ChannelProfiles.Resolve(port);
+
+        // Live-reseed: new sessions on this listener pick up the new AX.25 params;
+        // existing sessions keep their identity and their in-flight state.
+        running.Listener.UpdateSessionParameters(MapAx25Params(effectiveAx25));
+        RebaselineConfig(port);
+        LogAx25ParamsApplied(port.Id);
+    }
+
     private static async Task ApplyKissParamsToModemAsync(IKissModem modem, KissParams? kiss, CancellationToken ct)
     {
         if (kiss is null) return;
@@ -348,17 +368,32 @@ public sealed partial class PortSupervisor : IAsyncDisposable
 
     private static Ax25ListenerOptions BuildListenerOptions(Ax25PortParams? ax25, Callsign myCall)
     {
+        var p = MapAx25Params(ax25);
         return new Ax25ListenerOptions
         {
             MyCall = myCall,
-            T1V = ax25?.T1Ms is { } t1 ? TimeSpan.FromMilliseconds(t1) : null,
-            T2 = ax25?.T2Ms is { } t2 ? TimeSpan.FromMilliseconds(t2) : null,
-            T3 = ax25?.T3Ms is { } t3 ? TimeSpan.FromMilliseconds(t3) : null,
-            N2 = ax25?.N2,
-            K = ax25?.WindowSize,
-            MaxCachedPeers = ax25?.MaxCachedPeers ?? 64,
+            T1V = p.T1V,
+            T2 = p.T2,
+            T3 = p.T3,
+            N2 = p.N2,
+            K = p.K,
+            MaxCachedPeers = p.MaxCachedPeers,
         };
     }
+
+    // Map the config's AX.25 knobs to the engine's live-reseedable parameter
+    // record. The single definition both BringUp (construction-time seed) and the
+    // hot AX.25-params reconcile (UpdateSessionParameters) share, so the two paths
+    // can never drift.
+    private static Ax25SessionParameters MapAx25Params(Ax25PortParams? ax25) => new()
+    {
+        T1V = ax25?.T1Ms is { } t1 ? TimeSpan.FromMilliseconds(t1) : null,
+        T2 = ax25?.T2Ms is { } t2 ? TimeSpan.FromMilliseconds(t2) : null,
+        T3 = ax25?.T3Ms is { } t3 ? TimeSpan.FromMilliseconds(t3) : null,
+        N2 = ax25?.N2,
+        K = ax25?.WindowSize,
+        MaxCachedPeers = ax25?.MaxCachedPeers ?? 64,
+    };
 
     private void OnSessionAccepted(Ax25Listener listener, Ax25OutboundConnector connector, Ax25Session session)
     {
@@ -443,8 +478,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Information, Message = "Port {Id}: KISS parameters applied live (no restart).")]
     private partial void LogKissParamsApplied(string id);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Port {Id}: AX.25 parameters recorded for the next bring-up (live sessions untouched).")]
-    private partial void LogAx25ParamsDeferred(string id);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Port {Id}: AX.25 parameters reseeded live; new sessions use them (existing sessions untouched).")]
+    private partial void LogAx25ParamsApplied(string id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Console session for {PeerId} faulted.")]
     private partial void LogConsoleFaulted(Exception ex, string peerId);

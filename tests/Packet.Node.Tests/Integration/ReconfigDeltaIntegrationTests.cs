@@ -19,6 +19,7 @@ public sealed class ReconfigDeltaIntegrationTests
 {
     private static readonly Callsign NodeCall = new("NODE", 1);
     private static readonly Callsign RemoteCall = new("REMOTE", 1);
+    private static readonly Callsign SecondCall = new("REMOTE", 2);
 
     private static PortConfig Port(string id, int memPort, bool enabled = true,
         KissParams? kiss = null, Ax25PortParams? ax25 = null) => new()
@@ -27,7 +28,10 @@ public sealed class ReconfigDeltaIntegrationTests
         Enabled = enabled,
         Transport = new KissTcpTransport { Host = "mem", Port = memPort },
         Kiss = kiss,
-        Ax25 = ax25,
+        // Default to a bounded connect budget (small N2; the in-memory channel is
+        // instant) so a starved handshake can't burn the 66 s spec default under CI
+        // load (#47); a test that cares about the AX.25 params passes them explicitly.
+        Ax25 = ax25 ?? new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
     };
 
     private static string Endpoint(int memPort) => $"kiss-tcp:mem:{memPort}";
@@ -160,6 +164,80 @@ public sealed class ReconfigDeltaIntegrationTests
         nodeModem.Applied.TxDelay.Should().Be((byte)50, "the new KISS param applied live");
         supervisor.GetPort("a")!.Listener.Should().BeSameAs(listenerBefore, "a hot KISS change must not restart the port");
         remote.CurrentState.Should().Be("Connected", "the session survives a hot KISS change");
+    }
+
+    [Fact]
+    public async Task Ax25_param_change_reseeds_live_new_sessions_pick_it_up_existing_session_survives()
+    {
+        // The slice-1 follow-up: an AX.25-params-only change is HOT (live-reseed),
+        // not restart-class. The marquee invariant, EXTENDED to the *changed* port:
+        // the listener keeps its identity, the existing session keeps its object
+        // identity AND stays Connected, and a NEW session built after the change
+        // picks up the new params.
+        var nodeBus = new SharedRadioBus();
+        var nodeModem = nodeBus.Attach();
+
+        var before = Config(Port("a", 1, ax25: new Ax25PortParams { N2 = 7, T1Ms = 4000 }));
+        var config = new TestConfigProvider(before);
+        var factory = new FakeTransportFactory().Provide(Endpoint(1), nodeModem);
+
+        await using var supervisor = new PortSupervisor(config, factory, TimeProvider.System, NullLoggerFactory.Instance);
+        await supervisor.StartAsync();
+        await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("a"), "port up");
+
+        var listenerBefore = supervisor.GetPort("a")!.Listener;
+        listenerBefore.CurrentSessionParameters.N2.Should().Be(7, "initial AX.25 params seeded on bring-up");
+        listenerBefore.CurrentSessionParameters.T1V.Should().Be(TimeSpan.FromMilliseconds(4000));
+
+        // Capture the node-side session object for the FIRST peer.
+        Ax25Session? firstNodeSession = null;
+        listenerBefore.SessionAccepted += (_, e) => firstNodeSession = e.Session;
+
+        await using var first = new RemoteStation(nodeBus.Attach(), RemoteCall);
+        await first.StartAsync();
+        await first.ConnectAsync(NodeCall);
+        await Wait.ForAsync(() => first.Saw("Welcome"), "first session up");
+        await Wait.ForAsync(() => firstNodeSession is not null, "node observed the first session");
+        var firstSessionBefore = firstNodeSession!;
+        firstSessionBefore.CurrentState.Should().Be("Connected");
+        firstSessionBefore.Context.N2.Should().Be(7, "the first session was built with the OLD params");
+
+        // Live AX.25 reseed: N2 7 → 12, T1 4000 → 8000 ms.
+        var after = Config(Port("a", 1, ax25: new Ax25PortParams { N2 = 12, T1Ms = 8000 }));
+        config.Apply(after);
+        await supervisor.ApplyAsync(ReconcilePlanner.Plan(before, after), after);
+
+        // Invariant: the listener AND the live session keep their object identity,
+        // and the session is still Connected — the reseed did NOT restart the port
+        // or drop the session ON THE CHANGED PORT.
+        supervisor.GetPort("a")!.Listener.Should().BeSameAs(listenerBefore, "an AX.25 reseed must not restart the port");
+        firstNodeSession.Should().BeSameAs(firstSessionBefore, "the live session object identity survives the reseed");
+        firstSessionBefore.CurrentState.Should().Be("Connected", "the existing session is not dropped");
+        first.CurrentState.Should().Be("Connected");
+        firstSessionBefore.Context.N2.Should().Be(7, "the EXISTING session keeps the params it was built with");
+
+        // The listener's live parameters now reflect the new config.
+        listenerBefore.CurrentSessionParameters.N2.Should().Be(12, "the reseed updated the live params");
+        listenerBefore.CurrentSessionParameters.T1V.Should().Be(TimeSpan.FromMilliseconds(8000));
+
+        // A NEW peer that connects in after the reseed gets a session built with the
+        // NEW params (object-distinct from the first, with the new N2).
+        Ax25Session? secondNodeSession = null;
+        listenerBefore.SessionAccepted += (_, e) =>
+        {
+            if (!ReferenceEquals(e.Session, firstSessionBefore)) secondNodeSession = e.Session;
+        };
+
+        await using var second = new RemoteStation(nodeBus.Attach(), SecondCall);
+        await second.StartAsync();
+        await second.ConnectAsync(NodeCall);
+        await Wait.ForAsync(() => second.Saw("Welcome"), "second session up");
+        await Wait.ForAsync(() => secondNodeSession is not null, "node observed the second session");
+
+        secondNodeSession!.Should().NotBeSameAs(firstSessionBefore, "a fresh peer gets a fresh session");
+        secondNodeSession.Context.N2.Should().Be(12, "the NEW session picked up the reseeded N2");
+        // The first session is still alive and unchanged through all of this.
+        firstSessionBefore.CurrentState.Should().Be("Connected", "the original QSO survives a new peer connecting under new params");
     }
 
     [Fact]

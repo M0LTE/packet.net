@@ -78,6 +78,9 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// <summary>Spec-default SRT initial default — the fallback for <see cref="InitialSrt"/> (§6.7.1.2 ⇒ T1V 6000 ms).</summary>
     public static readonly TimeSpan DefaultInitialSrt = TimeSpan.FromMilliseconds(3000);
 
+    /// <summary>Spec-default N2 (retry count) — the fallback for <see cref="InitialN2"/> (§6.7.1.3 ⇒ 10).</summary>
+    public const int DefaultInitialN2 = 10;
+
     /// <summary>Default acknowledgement timer (T1).</summary>
     public TimeSpan T1Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
 
@@ -105,6 +108,22 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// reached the session's T1 timer.
     /// </remarks>
     public TimeSpan InitialSrt { get; init; } = DefaultInitialSrt;
+
+    /// <summary>
+    /// The retry count written by the <c>N2 := 10</c> verb on the figc4.1/figc4.2
+    /// link-establishment paths. Defaults to the AX.25 v2.2 §6.7.1.3 value (10).
+    /// </summary>
+    /// <remarks>
+    /// §6.7.1.3 names N2 a "retry count" implementation/configuration parameter,
+    /// not a wire constant — the figure's <c>N2 := 10</c> just seeds the default.
+    /// Exposing it lets a node configure a per-port retry count that survives the
+    /// establishment handshake: the previous hard-coded 10 silently overwrote any
+    /// <see cref="Ax25SessionContext.N2"/> seeded on the session (the same defect
+    /// class as the SRT/T1V clobber in m0lte/packet.net#292), so a port's
+    /// configured <c>n2</c> never took effect and, transitively, the listener's
+    /// <c>(N2+1)·T1V</c> connect backstop was always the 66 s spec maximum.
+    /// </remarks>
+    public int InitialN2 { get; init; } = DefaultInitialN2;
 
     /// <summary>
     /// Management retry timer (TM201) duration — armed by the MDL machine's
@@ -702,7 +721,7 @@ public sealed class ActionDispatcher : IActionDispatcher
             Ax25ActionVerb.KAssign8               => Do(() => ctx.K = 8),
             Ax25ActionVerb.KAssign32              => Do(() => ctx.K = 32),
             Ax25ActionVerb.T2Assign3000           => Do(() => ctx.T2 = TimeSpan.FromMilliseconds(3000)),
-            Ax25ActionVerb.N2Assign10             => Do(() => ctx.N2 = 10),
+            Ax25ActionVerb.N2Assign10             => Do(() => ctx.N2 = InitialN2),
 
             // ─── Link-parameter assignments (SRT, T1V) ────────────────
             //

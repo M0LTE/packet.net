@@ -46,7 +46,7 @@ public sealed class AxudpNodeToNodeIntegrationTests
         await nodeA.StartAsync();
         await nodeB.StartAsync();
         await Wait.ForAsync(() => nodeA.RunningPortIds.Contains("axudp") && nodeB.RunningPortIds.Contains("axudp"),
-            "both AXUDP ports should come up", timeoutMs: 15000);
+            "both AXUDP ports should come up");
 
         // Node A dials node B through its own node-host connector (the same path the
         // telnet/console Connect command uses) — so node A won't start a console
@@ -89,6 +89,10 @@ public sealed class AxudpNodeToNodeIntegrationTests
                     LocalPort = localPort,
                     IncludeFcs = false,
                 },
+                // Small N2 bounds the node-to-node connect backstop at 30 s instead of
+                // the 66 s spec default, so a starved handshake fails fast under CI
+                // load (#47); T1 stays the spec default.
+                Ax25 = new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
             },
         ],
         // Loopback telnet on an unused port (we don't use it, but keep config valid /
