@@ -232,10 +232,13 @@ public sealed partial class Ax25Frame
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the format AXIP / AXUDP-with-CRC peers expect (e.g. XRouter).
-    /// LinBPQ's AXIP/AXUDP listener with UDP=1 accepts the FCS-less variant
-    /// produced by <see cref="ToBytes"/> as well, but real-on-air HDLC frames
-    /// and Xrouter's AXUDP both require the FCS to be present.
+    /// This is the format AXIP / AXUDP-with-CRC peers expect. Source-verified
+    /// against the reference peers: LinBPQ's BPQAXIP driver over UDP REQUIRES the
+    /// FCS (its UDP receive path drops anything whose CRC residue isn't
+    /// <c>0xf0b8</c> — <c>bpqaxip.c</c>, and confirmed on the wire), XRouter's
+    /// AXUDP requires it, and real-on-air HDLC frames carry it. The FCS-less
+    /// <see cref="ToBytes"/> form is only for a peer that explicitly wants no FCS
+    /// (e.g. a pdn↔pdn tunnel) — it is NOT what BPQAXIP/UDP or XRouter accept.
     /// </para>
     /// <para>
     /// FCS byte-order note: AX.25 v2.2 §3.8 says "the FCS shall be transmitted

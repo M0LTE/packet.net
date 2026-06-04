@@ -41,6 +41,15 @@ namespace Packet.Node.Core.Transports;
 /// configured peer (which the peer's AX.25 layer then ignores by address) — same
 /// as pointing a serial KISS link at one modem.
 /// </para>
+/// <para>
+/// <b>FCS / <c>includeFcs</c> — set it to match the peer, source-verified:</b>
+/// LinBPQ's BPQAXIP driver over UDP and XRouter's AXUDP listener both REQUIRE
+/// the FCS (BPQAXIP drops FCS-less datagrams as "Invalid CRC" — <c>bpqaxip.c</c>,
+/// confirmed on the wire), so those reference peers need <c>includeFcs: true</c>.
+/// The FCS-less default is the minimal raw-body form for a peer that explicitly
+/// wants no FCS (e.g. a pdn↔pdn tunnel). Stripping the FCS on receive is
+/// mandatory, not cosmetic, when the link uses one — see <see cref="ReadFramesAsync"/>.
+/// </para>
 /// </remarks>
 public sealed class AxudpKissModem : IKissModem, IAsyncDisposable
 {
@@ -59,8 +68,11 @@ public sealed class AxudpKissModem : IKissModem, IAsyncDisposable
     /// </summary>
     /// <param name="remote">The remote AXUDP peer every frame is sent to.</param>
     /// <param name="localPort">Local UDP port to bind for receive (0 = ephemeral).</param>
-    /// <param name="includeFcs">Append the 2-octet FCS to each datagram (XRouter /
-    /// AXIP-with-CRC); leave <c>false</c> for LinBPQ's BPQAXIP driver.</param>
+    /// <param name="includeFcs">Append (and, on receive, strip+validate) the
+    /// 2-octet CRC-16/X.25 FCS. Set <c>true</c> for the de-facto reference peers
+    /// that require it — LinBPQ's BPQAXIP over UDP (source-verified) and XRouter's
+    /// AXUDP. <c>false</c> (the default) is the FCS-less raw-body form for a peer
+    /// that explicitly wants no FCS (e.g. a pdn↔pdn tunnel).</param>
     public AxudpKissModem(IPEndPoint remote, int localPort = 0, bool includeFcs = false)
     {
         this.remote = remote ?? throw new ArgumentNullException(nameof(remote));
