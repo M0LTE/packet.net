@@ -909,7 +909,7 @@ What changed, why, where to look for details.
 ```
 
 
-### 2026-06-04 — Interop-test the node AXUDP transport against a real LinBPQ (the gap #299 left); fix the FCS default-doc and prove both directions (PR #PRNUM)
+### 2026-06-04 — Interop-test the node AXUDP transport against a real LinBPQ (the gap #299 left); fix the FCS default-doc and prove both directions (PR #301)
 
 PR #299 added AXUDP to the node host but only ever tested it pdn↔pdn on loopback. AXUDP exists for real-peer interop and LinBPQ is the de-facto reference, so this proves the `AxudpKissModem` actually talks to a real LinBPQ 6.0.25.23 — through the **same** node-host machinery a deployed pdn uses (`PortSupervisor` + `TransportFactory` → `AxudpKissModem` → `Ax25Listener` → node console) — and lands it as repeatable `Category=Interop` tests so `interop.yml` exercises it going forward.
 
