@@ -210,6 +210,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         // the log call sites below.
         var endpointText = port.Transport.DescribeEndpoint();
 
+        // Resolve the port's named channel profile (if any) into effective AX.25 +
+        // KISS params — explicit values win, the profile fills the gaps, no profile
+        // = spec defaults. Opt-in tuning at the node-host layer (see ChannelProfiles).
+        var (effectiveAx25, effectiveKiss) = ChannelProfiles.Resolve(port);
+
         IKissModem modem;
         try
         {
@@ -237,7 +242,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
                 timeProvider);
         }
 
-        var options = BuildListenerOptions(port, myCall);
+        var options = BuildListenerOptions(effectiveAx25, myCall);
         var listener = new Ax25Listener(modem, options, timeProvider);
         var connector = new Ax25OutboundConnector(port.Id, listener, r => ClaimOutbound(r));
         listener.SessionAccepted += (_, e) => OnSessionAccepted(listener, connector, e.Session);
@@ -245,7 +250,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         try
         {
             await listener.StartAsync(ct).ConfigureAwait(false);
-            await ApplyKissParamsToModemAsync(modem, port.Kiss, ct).ConfigureAwait(false);
+            await ApplyKissParamsToModemAsync(modem, effectiveKiss, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -303,7 +308,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         }
         if (running is null) return;   // not up (e.g. faulted) — nothing live to tune
 
-        await ApplyKissParamsToModemAsync(running.Modem, port.Kiss, ct).ConfigureAwait(false);
+        // Resolve the profile here too so a live KISS re-apply uses the same
+        // effective values a fresh bring-up would (explicit wins, profile fills).
+        var (_, effectiveKiss) = ChannelProfiles.Resolve(port);
+        await ApplyKissParamsToModemAsync(running.Modem, effectiveKiss, ct).ConfigureAwait(false);
         RebaselineConfig(port);
         LogKissParamsApplied(port.Id);
     }
@@ -338,9 +346,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         }
     }
 
-    private static Ax25ListenerOptions BuildListenerOptions(PortConfig port, Callsign myCall)
+    private static Ax25ListenerOptions BuildListenerOptions(Ax25PortParams? ax25, Callsign myCall)
     {
-        var ax25 = port.Ax25;
         return new Ax25ListenerOptions
         {
             MyCall = myCall,

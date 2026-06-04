@@ -14,6 +14,9 @@ namespace Packet.Node.Core.Hosting;
 /// <item><b>Identity callsign changed</b> → node-wide reset (every listener
 /// recreated; all sessions end).</item>
 /// <item><b>Transport changed</b> (on an enabled port) → single-port restart.</item>
+/// <item><b>Channel profile changed</b> (on an enabled port) → single-port restart
+/// (it can move both the AX.25 timer seed and the CSMA params; restart resolves
+/// the effective values cleanly).</item>
 /// <item><b>Enabled toggled</b> → bring up / tear down that port.</item>
 /// <item><b>KISS params changed</b> (only) → apply live, no restart.</item>
 /// <item><b>AX.25 params changed</b> (only) → recorded for next bring-up; the
@@ -107,9 +110,14 @@ public static class ReconcilePlanner
             }
 
             // Both enabled — classify the field change.
-            if (!Equals(oldPort.Transport, newPort.Transport))
+            // A transport change, or a channel-profile change (which can move both
+            // the AX.25 timer seed — next-bring-up only — and the CSMA params), is a
+            // single-port restart. Folding profile into restart keeps the effective
+            // params unambiguous: the rebuilt listener picks up the resolved values.
+            if (!Equals(oldPort.Transport, newPort.Transport) ||
+                !string.Equals(oldPort.Profile, newPort.Profile, StringComparison.OrdinalIgnoreCase))
             {
-                restart.Add(newPort);   // transport change → single-port restart
+                restart.Add(newPort);   // transport / profile change → single-port restart
                 continue;
             }
 

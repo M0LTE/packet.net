@@ -33,11 +33,21 @@ public static class NodeConfigTemplate
         # AX.25 ports. Empty = an idle node (still serves telnet + /healthz).
         # Each port needs a stable, unique `id` (the hot-reload reconcile key)
         # and a transport. Uncomment one of the examples to bring a port up.
+        #
+        # Tuning: by default a port uses the AX.25 spec defaults (T1 = 6 s, etc.).
+        # Those are correct on a fast/reliable link but STALL connected-mode on a
+        # slow half-duplex AFSK channel (two equal, phase-locked T1 timers collide
+        # forever). For such a channel set `profile: slow-afsk1200` — a named,
+        # opt-in bundle of channel-appropriate T1 + CSMA defaults. A profile only
+        # fills fields you DON'T set explicitly; an explicit `ax25:`/`kiss:` value
+        # always wins. There is deliberately no silent node-wide default: tuning is
+        # per-port because T1/TXDELAY depend on the physical channel and one node
+        # can mix fast and slow ports.
         ports: []
         #  - id: vhf
         #    enabled: true
         #    transport:
-        #      kind: kiss-tcp      # serial-kiss | nino-tnc | kiss-tcp
+        #      kind: kiss-tcp      # serial-kiss | nino-tnc | kiss-tcp | axudp
         #      host: 127.0.0.1
         #      port: 8001
         #    ax25:                 # optional — omit for spec defaults
@@ -56,11 +66,24 @@ public static class NodeConfigTemplate
         #      baud: 57600
         #  - id: nino
         #    enabled: false
+        #    profile: slow-afsk1200 # slow half-duplex VHF packet: longer, asymmetric
+        #                           # T1 (10 s) so the link doesn't stall on contention,
+        #                           # plus sane CSMA. Override any field below.
         #    transport:
         #      kind: nino-tnc
         #      device: /dev/ttyACM1
         #      baud: 57600
         #      mode: 6             # NinoTNC mode 0..15
+        #  - id: axudp
+        #    enabled: false
+        #    transport:
+        #      kind: axudp         # AX.25 frames over UDP (BPQAXIP tunnel)
+        #      host: 10.0.0.2      # remote peer to send frames to
+        #      port: 10093         # remote UDP port
+        #      localPort: 10093    # local UDP port to receive on (match for a symmetric tunnel)
+        #      includeFcs: false   # true for XRouter; false for LinBPQ's BPQAXIP
+        #    # No profile here: a UDP tunnel is fast + reliable, so the spec
+        #    # defaults are correct. Don't apply a slow-channel profile to AXUDP.
 
         # Operator-facing text. {node}/{call} are expanded.
         services:

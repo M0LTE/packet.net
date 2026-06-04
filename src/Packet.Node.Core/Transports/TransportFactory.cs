@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Packet.Kiss;
 using Packet.Kiss.NinoTnc;
 using Packet.Kiss.Serial;
@@ -16,14 +18,13 @@ namespace Packet.Node.Core.Transports;
 /// <c>SetModeAsync</c>.</item>
 /// <item><see cref="KissTcpTransport"/> → <c>KissTcpClient.ConnectAsync</c> — a
 /// softmodem / net-sim (the software-RF channel).</item>
+/// <item><see cref="AxudpTransport"/> → <c>AxudpKissModem</c> over a
+/// <c>Packet.Axudp.AxudpSocket</c> (AX.25 frames over UDP — the BPQAXIP tunnel).</item>
 /// </list>
 /// <para>
-/// AXUDP is not in slice 1 (no <c>IKissModem</c> AXUDP adapter exists), so a
-/// transport the factory does not recognise throws
-/// <see cref="NotSupportedException"/> with a clear message rather than failing
-/// obscurely. The closed union means the switch is exhaustive over the known
-/// kinds; the default arm guards against a future subtype added without a
-/// factory arm.
+/// The closed union means the switch is exhaustive over the known kinds; the
+/// default arm throws <see cref="NotSupportedException"/> with a clear message,
+/// guarding against a future subtype added without a factory arm.
 /// </para>
 /// </remarks>
 public sealed class TransportFactory : ITransportFactory
@@ -59,10 +60,33 @@ public sealed class TransportFactory : ITransportFactory
             case KissTcpTransport k:
                 return await KissTcpClient.ConnectAsync(k.Host, k.Port, cancellationToken).ConfigureAwait(false);
 
+            case AxudpTransport a:
+            {
+                var remote = await ResolveAsync(a.Host, a.Port, cancellationToken).ConfigureAwait(false);
+                return new AxudpKissModem(remote, a.LocalPort, a.IncludeFcs);
+            }
+
             default:
                 throw new NotSupportedException(
-                    $"transport kind '{transport.Kind}' is not supported in this build. " +
-                    "(AXUDP and other non-KISS transports are not available in slice 1.)");
+                    $"transport kind '{transport.Kind}' has no IKissModem implementation in this build.");
         }
+    }
+
+    // Resolve a host:port to an IPEndPoint. A literal IP short-circuits DNS;
+    // a name resolves to its first address (IPv4 preferred for AXUDP, which is
+    // overwhelmingly v4 in the field). Throws if the name doesn't resolve.
+    private static async Task<IPEndPoint> ResolveAsync(string host, int port, CancellationToken ct)
+    {
+        if (IPAddress.TryParse(host, out var literal))
+        {
+            return new IPEndPoint(literal, port);
+        }
+
+        var addresses = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
+        var address =
+            Array.Find(addresses, a => a.AddressFamily == AddressFamily.InterNetwork)
+            ?? (addresses.Length > 0 ? addresses[0] : null)
+            ?? throw new SocketException((int)SocketError.HostNotFound);
+        return new IPEndPoint(address, port);
     }
 }
