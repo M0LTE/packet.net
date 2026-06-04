@@ -48,10 +48,10 @@ jobs:
       matrix:
         rid: [linux-x64, linux-arm64, linux-arm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build .deb (${{ matrix.rid }})
         run: scripts/build-deb.sh "${{ matrix.rid }}" "${{ needs.version.outputs.version }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-${{ matrix.rid }}
           path: artifacts/packetnet_*.deb
@@ -63,7 +63,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: debs
       - name: Collect + checksum
