@@ -6,6 +6,7 @@
 
 **As of:** 2026-05-17
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-06-04 — Telnet connected-mode relay: line-buffer telnet→AX.25 so Connect sends one I-frame per line, not per keystroke (resolves #51)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-04 — Telnet relay output: complete bare-CR line endings to CR-LF so relayed node banners don't overtype the terminal (companion to #46; input-side is #51)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-04 — Node half-duplex QSO stall: honour per-port `t1Ms` through the SDL establishment path (configurable `InitialSrt`), combine banner+prompt into one I-frame, deterministic half-duplex repro (#292)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-03 — Phase 4 slice 1: a minimal but real node host (headless Generic Host + YAML config + hot-reload + transport-agnostic telnet/AX.25 console), behind the `Packet.Node.Core` library + `IConfigProvider` seam (#167)](#17-amendment-log)
@@ -894,6 +895,10 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+### 2026-06-04 — Telnet connected-mode relay: line-buffer telnet→AX.25 so Connect sends one I-frame per line, not per keystroke (resolves #51)
+
+Found live on the packetdotnet net-sim lab, companion to the CR-LF output fix below: after `C GB7RDG`, every character typed went out as its own AX.25 I-frame — char-at-a-time transmission (≈16 bytes of framing + an ack round-trip per payload byte), useless on a real channel. Root cause: #46 put the telnet client in character-at-a-time mode so the node can echo and line-edit locally, but the connected-mode `ConsoleRelay` (a deliberately dumb byte pump) forwards each read straight on, so each keystroke became a frame. Fix: a non-owning `LineBufferingNodeConnection` decorator wraps the telnet side for the relay, applied only when relaying telnet→AX.25; its `ReadAsync` feeds inner reads through the existing `LineAssembler` (so backspace/DEL editing stays in step with the server-side echo) and yields one complete line at a time terminated with a single CR — so Connect transmits one I-frame per line and the packet peer gets a clean single-CR line ending with no stray LF. This is the input half of the telnet↔AX.25 line discipline (the **#51** task); the AX.25→telnet output CR-LF fix below is the output half — both shipped together. The inner connection's per-keystroke echo is untouched, so the user still sees live typing; `WriteAsync` and metadata delegate; dispose is a no-op (the local command loop still owns the inner connection and resumes on it after the relay). 7 new unit tests (`LineBufferingNodeConnectionTests`), 122 node tests green; verified on the box — typing `echo123\r` one character at a time now produces exactly one I-frame `M9YYY>GB7RDG …echo123\r`.
 
 ### 2026-06-04 — Telnet relay output: complete bare-CR line endings to CR-LF so relayed node banners don't overtype (companion to #46; input-side is #51)
 

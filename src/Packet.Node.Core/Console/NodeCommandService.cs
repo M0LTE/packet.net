@@ -178,7 +178,16 @@ public sealed partial class NodeCommandService
         await using (outbound.ConfigureAwait(false))
         {
             await WriteLineAsync(inbound, $"Connected to {connect.Target}.", ct).ConfigureAwait(false);
-            await ConsoleRelay.PipeAsync(inbound, outbound, ct).ConfigureAwait(false);
+            // Telnet is char-at-a-time (so the node can echo / line-edit locally); a
+            // packet link wants one I-frame per line, not per keystroke. Line-buffer
+            // the telnet→AX.25 direction so Connect transmits whole lines, each with a
+            // clean single-CR terminator (cf. #51). The AX.25→telnet direction stays a
+            // raw pump (newline-normalised at the telnet output boundary).
+            var relayInbound = inbound.TransportKind == NodeTransportKind.Telnet
+                               && outbound.TransportKind == NodeTransportKind.Ax25
+                ? new LineBufferingNodeConnection(inbound)
+                : inbound;
+            await ConsoleRelay.PipeAsync(relayInbound, outbound, ct).ConfigureAwait(false);
             await WriteLineAsync(inbound, $"Disconnected from {connect.Target}.", ct).ConfigureAwait(false);
         }
     }
