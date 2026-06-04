@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  purge)
+    if [ -d /run/systemd/system ]; then
+      systemctl disable packetnet.service || true
+      systemctl daemon-reload || true
+    fi
+    rm -rf /var/lib/packetnet
+    if getent passwd packetnet >/dev/null; then
+      deluser --system packetnet || true
+    fi
+    # /etc/packetnet/packetnet.yaml is a conffile — dpkg removes it on purge.
+    ;;
+  remove)
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+esac
+
+exit 0
