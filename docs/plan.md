@@ -6,7 +6,7 @@
 
 **As of:** 2026-05-17
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
-**Latest amendment:** [§17 entry 2026-06-04 — Read-only "NET/ROM aware" slice: a hand-written `Packet.NetRom` (NODES wire parse + L3 routing table) + a node-level `NetRomService` that hears NODES via the existing frame tap and surfaces the learned routes in `Nodes`; pure read-only, can't disturb a QSO; named divergence flags, interop-proven vs XRouter NODES over net-sim (PR #TBD)](#17-amendment-log)
+**Latest amendment:** [§17 entry 2026-06-04 — Read-only "NET/ROM aware" slice: a hand-written `Packet.NetRom` (NODES wire parse + L3 routing table) + a node-level `NetRomService` that hears NODES via the existing frame tap and surfaces the learned routes in `Nodes`; pure read-only, can't disturb a QSO; named divergence flags, interop-proven vs XRouter NODES over net-sim (PR #303)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-04 — Package the pdn node host as self-contained `.deb`s (amd64/arm64/armhf, cross-published from x64) installed by a hardened systemd unit, with a `node-v*` GitHub-Release workflow; validated end-to-end on the box via a clean `apt install` (PR #296)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-04 — Node kiss-tcp ports self-heal across a TNC/softmodem bounce: `ReconnectingKissModem` (backoff + KISS-param replay), so a dropped link reconnects instead of the port silently dying (PR #295)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-04 — Telnet connected-mode relay: line-buffer telnet→AX.25 so Connect sends one I-frame per line, not per keystroke (PR #294)](#17-amendment-log)
@@ -915,7 +915,7 @@ What changed, why, where to look for details.
 ```
 
 
-### 2026-06-04 — Read-only "NET/ROM aware" slice: hear NODES, build a routing table, surface it in `Nodes` (PR #TBD)
+### 2026-06-04 — Read-only "NET/ROM aware" slice: hear NODES, build a routing table, surface it in `Nodes` (PR #303)
 
 The design-ahead recommendation from the NET/ROM research (`/home/tf/netrom-research.md`): a **strictly read-only** slice that hears NODES routing broadcasts, parses them, builds a routing table, and surfaces it — landing early (alongside the node host) because it is a pure consumer of the existing frame tap and writes nothing to the air. No TX, no L4 circuits, no NODES origination. Updates §3 (NET/ROM decision), §4.1/§4.2 (the `Packet.L3` stub is replaced by a real `Packet.NetRom`), §5.4 (slice note), §5.9 (the Phase-9 body that remains), and `docs/strict-vs-pragmatic-audit.md` (the named NET/ROM divergence flags).
 
