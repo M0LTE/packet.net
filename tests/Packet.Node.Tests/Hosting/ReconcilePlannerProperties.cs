@@ -67,6 +67,30 @@ public class ReconcilePlannerProperties
     }
 
     [Property(Arbitrary = [typeof(NodeConfigArbitraries)], MaxTest = 400)]
+    public void An_ax25_only_edit_to_one_enabled_port_only_touches_that_port_hot(NodeConfig before)
+    {
+        // Find an enabled port to perturb; if none, the property holds vacuously.
+        var target = before.Ports.FirstOrDefault(p => p.Enabled);
+        if (target is null) return;
+
+        var mutated = target with { Ax25 = BumpAx25(target.Ax25) };
+        var to = before with { Ports = before.Ports.Select(p => p.Id == target.Id ? mutated : p).ToList() };
+
+        var plan = ReconcilePlanner.Plan(before, to);
+
+        // The edit is hot-class (live-reseed): nothing restarts, only the one port
+        // is in the AX.25 bucket, and KISS is untouched.
+        plan.NodeWideReset.Should().BeFalse();
+        plan.ToRestart.Should().BeEmpty();
+        plan.ToBringUp.Should().BeEmpty();
+        plan.ToTearDown.Should().BeEmpty();
+        plan.ToDisable.Should().BeEmpty();
+        plan.ToEnable.Should().BeEmpty();
+        plan.KissParamsChanged.Should().BeEmpty();
+        plan.Ax25ParamsChanged.Select(p => p.Id).Should().Equal(target.Id);
+    }
+
+    [Property(Arbitrary = [typeof(NodeConfigArbitraries)], MaxTest = 400)]
     public void A_transport_edit_to_one_enabled_port_restarts_only_that_port(NodeConfig before)
     {
         var target = before.Ports.FirstOrDefault(p => p.Enabled);
@@ -95,5 +119,12 @@ public class ReconcilePlannerProperties
         // Produce a KissParams that definitely differs from the existing one.
         var current = existing?.TxDelay ?? 0;
         return new KissParams { TxDelay = (byte)(current + 1), Persistence = existing?.Persistence };
+    }
+
+    private static Ax25PortParams BumpAx25(Ax25PortParams? existing)
+    {
+        // Produce an Ax25PortParams that definitely differs from the existing one.
+        var current = existing?.N2 ?? 10;
+        return (existing ?? new Ax25PortParams()) with { N2 = current + 1 };
     }
 }

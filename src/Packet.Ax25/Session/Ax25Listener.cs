@@ -48,6 +48,16 @@ public sealed class Ax25Listener : IAsyncDisposable
     private readonly IKissModem modem;
     private readonly Ax25ListenerOptions options;
     private readonly TimeProvider timeProvider;
+
+    // The per-session AX.25 parameters applied to NEWLY-built sessions. Seeded
+    // from the construction-time options, but live-reseedable via
+    // UpdateSessionParameters so a node host can apply a config change to future
+    // sessions without rebuilding the listener (which would drop live sessions).
+    // Published by reference: BuildSession / EvictExcessLocked read a coherent
+    // snapshot under a single volatile read; UpdateSessionParameters swaps the
+    // whole record atomically. Existing cached sessions keep the context they
+    // were built with — object identity preserved.
+    private Ax25SessionParameters sessionParameters;
     private readonly ConcurrentDictionary<Callsign, CachedSession> sessions = new();
     private readonly LinkedList<Callsign> lruOrder = new();          // most-recently-used at the back
     private readonly Dictionary<Callsign, LinkedListNode<Callsign>> lruIndex = new();
@@ -154,6 +164,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         this.modem = modem ?? throw new ArgumentNullException(nameof(modem));
         this.options = options ?? throw new ArgumentNullException(nameof(options));
         this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        sessionParameters = Ax25SessionParameters.FromOptions(options);
     }
 
     /// <summary>
@@ -175,6 +186,46 @@ public sealed class Ax25Listener : IAsyncDisposable
         // ready can await `StartAsync` then await a brief settle.
         ct.ThrowIfCancellationRequested();
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The per-session AX.25 parameters that <em>new</em> sessions on this
+    /// listener are currently built with. Reflects the construction-time
+    /// <see cref="Ax25ListenerOptions"/> until <see cref="UpdateSessionParameters"/>
+    /// changes them.
+    /// </summary>
+    public Ax25SessionParameters CurrentSessionParameters => Volatile.Read(ref sessionParameters);
+
+    /// <summary>
+    /// Live-reseed the per-session AX.25 parameters (T1V / T2 / T3 / N2 / k /
+    /// max-cached-peers) used to build <em>future</em> sessions, without
+    /// rebuilding the listener or disturbing any session that already exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the hot path the node host's reconcile uses for an
+    /// AX.25-params-only config change: the running listener keeps its identity
+    /// and every cached <see cref="Ax25Session"/> keeps its own object identity
+    /// and its already-seeded <see cref="Ax25SessionContext"/> (and therefore its
+    /// in-flight timers, sequence variables, and SRT/T1V smoothing). The new
+    /// values apply only to sessions built <em>after</em> this call — a peer that
+    /// connects in (or out) next picks them up; current QSOs are untouched.
+    /// </para>
+    /// <para>
+    /// The swap is a single atomic reference publish, so a session being built
+    /// concurrently on the inbound pump reads either the whole old record or the
+    /// whole new one, never a torn mix. <see cref="MaxCachedPeers"/> takes effect
+    /// on the next eviction pass (the next session add) — it never evicts a live
+    /// session synchronously here.
+    /// </para>
+    /// </remarks>
+    /// <param name="parameters">The new per-session parameters. <c>null</c>-valued
+    /// members fall back to the engine's spec defaults, exactly as at construction.</param>
+    public void UpdateSessionParameters(Ax25SessionParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        EnsureNotDisposed();
+        Volatile.Write(ref sessionParameters, parameters);
     }
 
     /// <summary>
@@ -571,6 +622,11 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     private CachedSession BuildSession(Callsign peer, bool allowAccept)
     {
+        // Snapshot the live per-session parameters once (single volatile read) so a
+        // concurrent UpdateSessionParameters can't tear this build. New sessions
+        // pick up the latest reseed; sessions already cached are never rebuilt.
+        var sp = Volatile.Read(ref sessionParameters);
+
         var scheduler = new SystemTimerScheduler(timeProvider);
         var ctx = new Ax25SessionContext
         {
@@ -578,10 +634,10 @@ public sealed class Ax25Listener : IAsyncDisposable
             Remote = peer,
             AcceptIncoming = allowAccept,
         };
-        if (options.N2 is { } n2)   ctx.N2 = n2;
-        if (options.K  is { } k)    ctx.K  = k;
-        if (options.T2  is { } t2)  ctx.T2  = t2;
-        if (options.T1V is { } t1v)
+        if (sp.N2 is { } n2)   ctx.N2 = n2;
+        if (sp.K  is { } k)    ctx.K  = k;
+        if (sp.T2  is { } t2)  ctx.T2  = t2;
+        if (sp.T1V is { } t1v)
         {
             // Seed BOTH T1V and SRT so the value is coherent before any SDL
             // transition runs (T1V is what the T1 timer arms; SRT is what
@@ -670,9 +726,14 @@ public sealed class Ax25Listener : IAsyncDisposable
             // response-delay timer lands (today's figures arm no T2 — ack flush is
             // LM-SEIZE-driven), but threading it keeps the option meaningful and the
             // construction site uniform.
-            InitialSrt  = options.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
-            T3Duration  = options.T3 ?? ActionDispatcher.DefaultT3,
-            T2Duration  = options.T2 ?? ActionDispatcher.DefaultT2,
+            InitialSrt  = sp.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
+            // Seed the establishment path's `N2 := 10` so a configured N2 survives the
+            // SABM/SABME connect that would otherwise reset it to the spec default —
+            // the same clobber class as InitialSrt above (#292). Without this the
+            // listener's (N2+1)·T1V connect backstop is always the 66 s spec maximum.
+            InitialN2   = sp.N2 ?? ActionDispatcher.DefaultInitialN2,
+            T3Duration  = sp.T3 ?? ActionDispatcher.DefaultT3,
+            T2Duration  = sp.T2 ?? ActionDispatcher.DefaultT2,
         };
 
         var bindings = Ax25SessionBindings.CreateDefault(
@@ -722,7 +783,8 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     private void EvictExcessLocked()
     {
-        while (lruOrder.Count > options.MaxCachedPeers && lruOrder.First is { } oldest)
+        var maxCachedPeers = Volatile.Read(ref sessionParameters).MaxCachedPeers;
+        while (lruOrder.Count > maxCachedPeers && lruOrder.First is { } oldest)
         {
             var evicted = oldest.Value;
             lruOrder.RemoveFirst();
@@ -840,6 +902,57 @@ public sealed class Ax25ListenerOptions
     /// session creation.
     /// </summary>
     public Action<Ax25Session>? ConfigureSession { get; init; }
+}
+
+/// <summary>
+/// The subset of <see cref="Ax25ListenerOptions"/> that a running
+/// <see cref="Ax25Listener"/> can live-reseed via
+/// <see cref="Ax25Listener.UpdateSessionParameters"/> — the per-session AX.25
+/// timing / window / cache knobs that only ever affect a session at the moment
+/// it is built. Identity (<see cref="Ax25ListenerOptions.MyCall"/>) and the
+/// <see cref="Ax25ListenerOptions.ConfigureSession"/> hook are deliberately
+/// excluded: a callsign change is a different identity (a node-wide reset), and
+/// the configure hook is fixed wiring, not a tunable.
+/// </summary>
+/// <remarks>
+/// Each member mirrors the same-named member of <see cref="Ax25ListenerOptions"/>
+/// exactly, including the "<c>null</c> ⇒ engine spec default" convention. This is
+/// a value record so a reseed is a single atomic reference publish.
+/// </remarks>
+public sealed record Ax25SessionParameters
+{
+    /// <summary>Initial T1V (acknowledgement timer). <c>null</c> ⇒ spec default (2 × initial SRT = 6 s).</summary>
+    public TimeSpan? T1V { get; init; }
+
+    /// <summary>T2 (response-delay timer) override. <c>null</c> ⇒ spec default.</summary>
+    public TimeSpan? T2 { get; init; }
+
+    /// <summary>T3 (inactive-link timer) override. <c>null</c> ⇒ dispatcher default (30 s).</summary>
+    public TimeSpan? T3 { get; init; }
+
+    /// <summary>N2 (max retries) override. <c>null</c> ⇒ spec default (10).</summary>
+    public int? N2 { get; init; }
+
+    /// <summary>k (send-window size) override. <c>null</c> ⇒ spec default (4 for mod-8).</summary>
+    public int? K { get; init; }
+
+    /// <summary>LRU cap on cached per-peer sessions. Defaults to 64 (the <see cref="Ax25ListenerOptions"/> default).</summary>
+    public int MaxCachedPeers { get; init; } = 64;
+
+    /// <summary>Project the live-reseedable subset out of a full options record.</summary>
+    public static Ax25SessionParameters FromOptions(Ax25ListenerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new Ax25SessionParameters
+        {
+            T1V = options.T1V,
+            T2 = options.T2,
+            T3 = options.T3,
+            N2 = options.N2,
+            K = options.K,
+            MaxCachedPeers = options.MaxCachedPeers,
+        };
+    }
 }
 
 /// <summary>Direction tag for a frame as it crosses the listener-modem boundary.</summary>

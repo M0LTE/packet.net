@@ -27,6 +27,9 @@ public sealed class NodeHostedServiceTests
         Id = id,
         Enabled = true,
         Transport = new KissTcpTransport { Host = "mem", Port = memPort },
+        // Small N2 bounds the connect backstop at 30 s instead of the 66 s spec
+        // default under CI load; T1 stays spec default (#47).
+        Ax25 = new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
     };
 
     private static string Endpoint(int memPort) => $"kiss-tcp:mem:{memPort}";

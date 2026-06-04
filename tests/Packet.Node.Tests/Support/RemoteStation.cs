@@ -25,6 +25,11 @@ public sealed class RemoteStation : IAsyncDisposable
         {
             MyCall = myCall,
             ConfigureSession = s => s.DataLinkSignalEmitted += OnSignal,
+            // Small N2 bounds ConnectAsync's (N2+1)·T1V backstop at 30 s instead of
+            // the 66 s spec default, so a starved handshake fails fast instead of
+            // hanging the CI job. T1V stays the spec default (see TestAx25Timing /
+            // Wait.cs — the #47 flake).
+            N2 = TestAx25Timing.StationN2,
         }, TimeProvider.System);
     }
 

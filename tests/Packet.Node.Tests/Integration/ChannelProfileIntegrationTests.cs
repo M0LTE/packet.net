@@ -73,7 +73,7 @@ public sealed class ChannelProfileIntegrationTests
         var factory = new FakeTransportFactory().Provide("kiss-tcp:mem:1", nodeModem);
         await using var supervisor = new PortSupervisor(provider, factory, TimeProvider.System, NullLoggerFactory.Instance);
         await supervisor.StartAsync();
-        await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("p1"), "port p1 should come up", timeoutMs: 15000);
+        await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("p1"), "port p1 should come up");
 
         // Capture the node-side session as it is accepted.
         var nodeSession = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,12 +83,12 @@ public sealed class ChannelProfileIntegrationTests
         await remote.StartAsync();
         await remote.ConnectAsync(NodeCall);
         // Generous budgets: these listener pumps run on TimeProvider.System, so the
-        // test is real-time and tolerates a loaded CI runner (mirrors the existing
-        // Ax25 integration tests' polling shape).
-        await Wait.ForAsync(() => remote.Saw("TESTNODE"), "the node should answer the connect with its banner", timeoutMs: 15000);
+        // test is real-time and tolerates a loaded CI runner (Wait.ForAsync's default
+        // budget is timer-driven + bounded; see Wait.cs / the #47 flake analysis).
+        await Wait.ForAsync(() => remote.Saw("TESTNODE"), "the node should answer the connect with its banner");
 
-        var session = await nodeSession.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        await Wait.ForAsync(() => session.CurrentState == "Connected", "the node session should reach Connected", timeoutMs: 15000);
+        var session = await nodeSession.Task.WaitAsync(Wait.DefaultBudget);
+        await Wait.ForAsync(() => session.CurrentState == "Connected", "the node session should reach Connected");
         return session.Context.T1V;
     }
 }

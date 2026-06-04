@@ -19,11 +19,13 @@ namespace Packet.Node.Core.Hosting;
 /// the effective values cleanly).</item>
 /// <item><b>Enabled toggled</b> → bring up / tear down that port.</item>
 /// <item><b>KISS params changed</b> (only) → apply live, no restart.</item>
-/// <item><b>AX.25 params changed</b> (only) → recorded for next bring-up; the
-/// live listener and its sessions are untouched (the engine seeds options at
-/// construction and is consumed as-is, so retroactively re-seeding a running
-/// listener would mean rebuilding it — which would drop sessions, violating
-/// "don't mutate live sessions"). Documented slice-1 nuance.</item>
+/// <item><b>AX.25 params changed</b> (only) → live-reseed, no restart: the
+/// running listener's per-session parameters are updated in place
+/// (<see cref="Packet.Ax25.Session.Ax25Listener.UpdateSessionParameters"/>) so
+/// <em>new</em> sessions pick them up, while every existing session keeps its
+/// object identity and in-flight state. (Slice 1 deferred this to the next
+/// bring-up because the engine seeded options at construction only; the engine
+/// now exposes a live reseed, so this class is HOT — non-disrupting.)</item>
 /// <item><b>Telnet bind/port/enabled changed</b> → restart the telnet listener.</item>
 /// <item><b>Services text changed</b> → reference swap (read live by the console).</item>
 /// </list>

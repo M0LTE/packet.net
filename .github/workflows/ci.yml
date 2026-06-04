@@ -29,6 +29,17 @@ jobs:
     # Self-hosted Linux runners — zero GitHub Actions minutes consumed.
     strategy:
       fail-fast: false
+      # All matrix jobs land on the SAME self-hosted runner, and GitHub runs them
+      # in parallel by default. Twelve `dotnet test` processes co-resident
+      # oversubscribed the box: the CPU-heavy FsCheck property suites
+      # (Packet.Ax25.Properties / Packet.Ax25.Tests) saturated every core and
+      # scheduling-starved the real-time AX.25 pumps in Packet.Node.Tests, blowing
+      # their (bounded) connect/wait budgets — the intermittent ~66 s node-test
+      # timeout (#47). Cap concurrency so the runner is never oversubscribed; the
+      # node tests always have responsive CPU. (Same shared-runner-contention
+      # remedy as the publish-node matrix's `max-parallel: 1` in #297, but the test
+      # jobs are light enough that 4-at-a-time keeps throughput.)
+      max-parallel: 4
       matrix:
         project:
           - Packet.Agw.Tests

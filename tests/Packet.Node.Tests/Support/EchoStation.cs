@@ -23,6 +23,9 @@ public sealed class EchoStation : IAsyncDisposable
         {
             MyCall = myCall,
             ConfigureSession = WireSession,
+            // Small N2 bounds the connect backstop at 30 s, T1V stays spec default —
+            // see RemoteStation / TestAx25Timing / Wait.cs (#47 flake).
+            N2 = TestAx25Timing.StationN2,
         }, TimeProvider.System);
         listener.SessionAccepted += (_, e) => sawConnect = true;
     }

@@ -87,7 +87,7 @@ public sealed class TelnetConsoleIntegrationTests
         await Wait.ForAsync(() => Saw("73"), "Bye is acknowledged over telnet");
 
         // The server closes the socket after Bye.
-        await Wait.ForAsync(() => !client.Connected || reader.IsCompleted, "the socket closes after Bye", 4000);
+        await Wait.ForAsync(() => !client.Connected || reader.IsCompleted, "the socket closes after Bye");
         await readCts.CancelAsync();
     }
 
