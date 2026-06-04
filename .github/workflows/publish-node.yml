@@ -40,6 +40,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     strategy:
       fail-fast: false
+      # Serial: crossgen2 (ReadyToRun) is memory-hungry and the self-hosted
+      # runners share a host — three concurrent R2R cross-publishes OOM-kill
+      # crossgen2 (exit 137, arm64 is the heaviest cross-target). One arch at a
+      # time fits comfortably; the release is infrequent so the ~3x wall-time is fine.
+      max-parallel: 1
       matrix:
         rid: [linux-x64, linux-arm64, linux-arm]
     steps:
