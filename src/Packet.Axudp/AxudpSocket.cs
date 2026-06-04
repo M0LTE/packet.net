@@ -12,15 +12,31 @@ namespace Packet.Axudp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the simplest AXUDP variant in common use (matches LinBPQ's AXIP
-/// with UDP=1 and no checksum-mode prefix). Future work may add header-prefix
+/// Two on-the-wire forms exist, selected by the <c>includeFcs</c> flag on
+/// <see cref="SendAsync"/>: the AX.25 body alone, or the body followed by the
+/// 2-octet CRC-16/X.25 FCS (low byte first). Future work may add header-prefix
 /// variants if real-world interop requires them.
 /// </para>
 /// <para>
-/// FCS handling: since the UDP transport is reliable in the practical sense
-/// (frames are not corrupted in transit), AXUDP traditionally omits the FCS
-/// — the receiver doesn't need to verify it. <see cref="SendAsync"/> writes
-/// the AX.25 body only; <see cref="ReceiveAsync"/> expects the same.
+/// FCS handling — verified against the reference peers, NOT assumed:
+/// <list type="bullet">
+///   <item><b>LinBPQ's BPQAXIP driver over UDP REQUIRES the FCS.</b> Source-
+///   verified in <c>bpqaxip.c</c> (LinBPQ 6.0.25.23) and confirmed on the wire:
+///   its UDP receive path computes the FCS over the whole datagram and drops
+///   anything whose residue isn't <c>0xf0b8</c> ("BPQAXIP Invalid CRC"), and its
+///   send path appends the 2-octet FCS. There is no per-MAP "no CRC" knob — the
+///   FCS is unconditional on the UDP path. A peer talking to BPQAXIP/UDP must
+///   therefore <c>includeFcs: true</c> and must tolerate the FCS on receive.</item>
+///   <item><b>XRouter's AXUDP likewise requires the FCS</b> (it rejects FCS-less
+///   bodies as "non-AXUDP").</item>
+///   <item>The FCS-less form (<c>includeFcs: false</c>, the default) is the
+///   minimal "raw body" variant — used for pdn↔pdn tunnels and any peer that
+///   explicitly wants no FCS. It is NOT what the de-facto reference peers above
+///   accept, so do not assume it for BPQ/XRouter interop.</item>
+/// </list>
+/// <see cref="SendAsync"/> writes the body, plus the FCS when asked;
+/// <see cref="ReceiveAsync"/> returns the raw datagram bytes (a session-aware
+/// consumer strips the FCS — see <c>AxudpKissModem</c>).
 /// </para>
 /// </remarks>
 public sealed class AxudpSocket : IDisposable
@@ -46,11 +62,13 @@ public sealed class AxudpSocket : IDisposable
     /// <param name="remote">The remote endpoint to send to.</param>
     /// <param name="frame">Frame to send.</param>
     /// <param name="includeFcs">
-    /// If <c>true</c>, append the CRC-16-CCITT FCS (low-byte first) — required
-    /// by XRouter's AXUDP listener and the AXIP-with-CRC variant. If <c>false</c>
-    /// (the default), send the FCS-less form that LinBPQ's BPQAXIP driver
-    /// accepts. Set this to <c>true</c> whenever you're talking to a peer that
-    /// rejects bodies as "non-AXUDP".
+    /// If <c>true</c>, append the CRC-16-CCITT (X.25) FCS, low-byte first —
+    /// required by LinBPQ's BPQAXIP driver over UDP (source-verified: it drops
+    /// FCS-less datagrams as "Invalid CRC"), by XRouter's AXUDP listener, and by
+    /// the AXIP-with-CRC variant. Use <c>true</c> for any of those reference
+    /// peers. If <c>false</c> (the default), send the FCS-less "raw body" form —
+    /// the minimal variant for a peer that explicitly wants no FCS (e.g. a
+    /// pdn↔pdn tunnel); the de-facto reference peers above reject it.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<int> SendAsync(IPEndPoint remote, Ax25Frame frame, bool includeFcs = false, CancellationToken cancellationToken = default)
