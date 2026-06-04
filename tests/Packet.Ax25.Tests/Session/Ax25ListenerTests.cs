@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using AwesomeAssertions;
+using Microsoft.Extensions.Time.Testing;
 using Packet.Ax25.Session;
 using Packet.Core;
 using Xunit;
@@ -218,5 +219,87 @@ public class Ax25ListenerTests
             traced.Count(t => t.Dir == FrameDirection.Received).Should().BeGreaterThanOrEqualTo(2);
             traced.Count(t => t.Dir == FrameDirection.Transmitted).Should().BeGreaterThanOrEqualTo(2);
         }
+    }
+
+    // ─── T1V wiring (m0lte/packet.net#292) ──────────────────────────────
+    //
+    // Regression cover for the per-port `ax25.t1Ms` lever that silently did
+    // nothing on the live node: a configured T1V was seeded onto the session
+    // context but the figc4.1 SABM-accept transition runs
+    // `SRT := Initial Default; T1V := 2 * SRT` unconditionally, resetting T1V to
+    // the spec default (6 s) on every connect. The fix threads the option through
+    // the dispatcher's InitialSrt so `T1V := 2 * SRT` reproduces the configured
+    // value. These two tests pin both halves: the field survives the handshake,
+    // and the live T1 timer actually fires at the configured cadence on the wire.
+
+    [Fact]
+    public async Task Configured_T1V_Survives_The_Inbound_Accept_Handshake()
+    {
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            T1V = TimeSpan.FromMilliseconds(10000),
+        });
+
+        var accepted = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.SessionAccepted += (_, e) => accepted.TrySetResult(e.Session);
+        await listener.StartAsync();
+
+        modem.InjectInbound(Ax25Frame.Sabm(LocalCall, PeerCallA));
+        var session = await accepted.Task.WithTimeout(TimeSpan.FromSeconds(2));
+        await ListenerTestSupport.WaitFor(() => session.CurrentState == "Connected", TimeSpan.FromSeconds(2));
+
+        // Before the fix this asserted 6000 ms — the SABM-accept path's
+        // `SRT := Initial Default (3000); T1V := 2 * SRT` clobbered the seed.
+        session.Context.T1V.Should().Be(TimeSpan.FromMilliseconds(10000),
+            "the configured T1V must survive the figc4.1 SABM-accept establishment path");
+        session.Context.Srt.Should().Be(TimeSpan.FromMilliseconds(5000),
+            "SRT is seeded to T1V/2 so `T1V := 2 * SRT` reproduces the configured T1V");
+    }
+
+    [Fact]
+    public async Task Configured_T1V_Drives_The_T1_Poll_Cadence_On_The_Wire()
+    {
+        // A node configured with a 10 s T1 must NOT poll at the spec-default
+        // ~6 s — that is the live-observed bug: setting ax25.t1Ms did not change
+        // the poll cadence. Drive an accepted session, send one I-frame the
+        // (loopback) peer never acknowledges, and show T1 expires on the
+        // configured 10 s schedule: quiet at 6 s, polling once past 10 s.
+        var time = new FakeTimeProvider();
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            T1V = TimeSpan.FromMilliseconds(10000),
+        }, time);
+
+        var accepted = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.SessionAccepted += (_, e) => accepted.TrySetResult(e.Session);
+        await listener.StartAsync();
+
+        modem.InjectInbound(Ax25Frame.Sabm(LocalCall, PeerCallA));
+        var session = await accepted.Task.WithTimeout(TimeSpan.FromSeconds(2));
+        await modem.SentFrames.WaitForCountAsync(1, TimeSpan.FromSeconds(2)); // UA
+        await ListenerTestSupport.WaitFor(() => session.CurrentState == "Connected", TimeSpan.FromSeconds(2));
+
+        // Send an I-frame; the node arms T1 (at the configured T1V) awaiting an
+        // ack the loopback peer never sends.
+        listener.SendData(session, new byte[] { 0x41 });
+        await modem.SentFrames.WaitForCountAsync(2, TimeSpan.FromSeconds(2)); // the I-frame
+        var afterIFrame = modem.SentFrames.Count;
+
+        // 6 s in (past the SPEC default but short of the configured 10 s): a node
+        // that ignored the config would poll here. Ours must stay silent.
+        time.Advance(TimeSpan.FromMilliseconds(6500));
+        await Task.Delay(50);   // let any (erroneous) timer callback land
+        modem.SentFrames.Count.Should().Be(afterIFrame,
+            "with T1V=10s the node must not poll at the 6 s spec default — that was the live bug");
+
+        // Past 10 s total: T1 fires → the node retransmits / polls.
+        time.Advance(TimeSpan.FromMilliseconds(4000));
+        await modem.SentFrames.WaitForCountAsync(afterIFrame + 1, TimeSpan.FromSeconds(2));
+        modem.SentFrames.Count.Should().BeGreaterThan(afterIFrame,
+            "T1 must fire on the configured 10 s schedule and trigger a retransmit/poll");
     }
 }

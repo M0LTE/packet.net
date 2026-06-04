@@ -69,14 +69,42 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// </summary>
     public ISubroutineRegistry Subroutines => subroutines;
 
+    /// <summary>Spec-default response-delay timer (T2) — the fallback for <see cref="T2Duration"/>.</summary>
+    public static readonly TimeSpan DefaultT2 = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>Spec-default inactive-link timer (T3) — the fallback for <see cref="T3Duration"/>.</summary>
+    public static readonly TimeSpan DefaultT3 = TimeSpan.FromMilliseconds(30000);
+
+    /// <summary>Spec-default SRT initial default — the fallback for <see cref="InitialSrt"/> (§6.7.1.2 ⇒ T1V 6000 ms).</summary>
+    public static readonly TimeSpan DefaultInitialSrt = TimeSpan.FromMilliseconds(3000);
+
     /// <summary>Default acknowledgement timer (T1).</summary>
     public TimeSpan T1Duration { get; init; } = TimeSpan.FromMilliseconds(3000);
 
     /// <summary>Default response-delay timer (T2).</summary>
-    public TimeSpan T2Duration { get; init; } = TimeSpan.FromMilliseconds(1500);
+    public TimeSpan T2Duration { get; init; } = DefaultT2;
 
     /// <summary>Default inactive-link timer (T3).</summary>
-    public TimeSpan T3Duration { get; init; } = TimeSpan.FromMilliseconds(30000);
+    public TimeSpan T3Duration { get; init; } = DefaultT3;
+
+    /// <summary>
+    /// The "Initial Default" smoothed-round-trip-time written by the
+    /// <c>SRT := Initial Default</c> verb (figc4.1/figc4.2 link-establishment
+    /// paths) and, transitively, the initial T1V (<c>T1V := 2 * SRT</c>).
+    /// Defaults to the AX.25 v2.2 §6.7.1.2 value (3000 ms ⇒ T1V 6000 ms).
+    /// </summary>
+    /// <remarks>
+    /// §6.7.1.2 names this the SRT <em>initial default</em> — an implementation /
+    /// configuration parameter, not a wire constant. Exposing it lets a node seed
+    /// a longer (or shorter) acknowledgement-timer baseline per port without
+    /// touching the figure: the establishment transition still runs
+    /// <c>SRT := Initial Default; T1V := 2 * SRT</c> verbatim, it just starts from
+    /// the configured baseline. The previous hard-coded 3000 ms silently
+    /// overwrote any <see cref="Ax25SessionContext.T1V"/> seeded on an accepted
+    /// session (m0lte/packet.net#292), so a port's configured <c>t1Ms</c> never
+    /// reached the session's T1 timer.
+    /// </remarks>
+    public TimeSpan InitialSrt { get; init; } = DefaultInitialSrt;
 
     /// <summary>
     /// Management retry timer (TM201) duration — armed by the MDL machine's
@@ -678,13 +706,15 @@ public sealed class ActionDispatcher : IActionDispatcher
 
             // ─── Link-parameter assignments (SRT, T1V) ────────────────
             //
-            // Smoothed Round-Trip Time and T1 timeout value per §6.7.1. The
-            // dispatcher's <see cref="T1Duration"/> property is the *initial*
-            // T1V for new sessions; ctx.T1V is the *current* per-session value
-            // mutated by these verbs and (in production) by RTT smoothing in
-            // figc4.7's Select_T1_Value subroutine. T1V := 2 * SRT and the
+            // Smoothed Round-Trip Time and T1 timeout value per §6.7.1.
+            // SRT := Initial Default seeds ctx.Srt from the dispatcher's
+            // configurable <see cref="InitialSrt"/> (§6.7.1.2; default 3000 ms),
+            // and T1V := 2 * SRT derives the initial T1V from it. ctx.T1V is the
+            // *current* per-session value mutated by these verbs and (in
+            // production) by RTT smoothing in figc4.7's Select_T1_Value
+            // subroutine. T1V := 2 * SRT and the
             // figc4.7 Next T1 := 2 * SRT spelling fold to distinct members.
-            Ax25ActionVerb.SRTAssignInitialDefault => Do(() => ctx.Srt = TimeSpan.FromMilliseconds(3000)),
+            Ax25ActionVerb.SRTAssignInitialDefault => Do(() => ctx.Srt = InitialSrt),
             Ax25ActionVerb.T1VAssign2TimesSRT     => Do(() => ctx.T1V = ctx.Srt + ctx.Srt),
             Ax25ActionVerb.NextT1Assign2TimesSRT  => Do(() => ctx.T1V = ctx.Srt * 2),
             Ax25ActionVerb.NextT1AssignRCTimes025PlusSRTTimes2 => Do(() =>
