@@ -42,6 +42,9 @@ public sealed class TcpNodeConnection : INodeConnection
     private int echoLineCol;      // printable chars on the current input line (for BS)
     private bool echoLastWasCr;   // coalesce CR-LF in the echoed stream
 
+    // Outbound newline-normalisation state, carried across writes.
+    private bool outLastWasCr;    // coalesce CR-LF in the normalised terminal output
+
     public TcpNodeConnection(Socket socket)
     {
         this.socket = socket ?? throw new ArgumentNullException(nameof(socket));
@@ -68,7 +71,7 @@ public sealed class TcpNodeConnection : INodeConnection
     public async Task NegotiateAsync(CancellationToken cancellationToken = default)
     {
         byte[] negotiation = [Iac, Will, OptEcho, Iac, Will, OptSga];
-        await WriteAsync(negotiation, cancellationToken).ConfigureAwait(false);
+        await WriteRawAsync(negotiation, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -104,7 +107,22 @@ public sealed class TcpNodeConnection : INodeConnection
     }
 
     /// <inheritdoc/>
-    public async ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Terminal output is newline-normalised (see <see cref="TelnetOutputNewlines"/>):
+    /// a bare CR or lone LF is completed to CR-LF so relayed AX.25 content — a
+    /// connected node's banner ends a line with a lone CR — advances the terminal
+    /// instead of overtyping it. Idempotent on CR-LF; a prompt with no terminator
+    /// is left untouched.
+    /// </remarks>
+    public ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
+        => WriteInternalAsync(bytes, normalizeNewlines: true, cancellationToken);
+
+    // Write verbatim, no newline translation — for telnet control sequences (IAC
+    // negotiation) and the server-side echo, which BuildEcho already CR-LF-ifies.
+    private ValueTask WriteRawAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
+        => WriteInternalAsync(bytes, normalizeNewlines: false, cancellationToken);
+
+    private async ValueTask WriteInternalAsync(ReadOnlyMemory<byte> bytes, bool normalizeNewlines, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref disposed) != 0)
         {
@@ -112,7 +130,8 @@ public sealed class TcpNodeConnection : INodeConnection
         }
         // Serialise writes: server-side echo (from the read path) and command
         // output / relayed data (from the service) can otherwise interleave on
-        // the single stream during a connect-out relay.
+        // the single stream during a connect-out relay. Normalisation runs under
+        // the lock too, so outLastWasCr advances in write order.
         try
         {
             await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -123,7 +142,12 @@ public sealed class TcpNodeConnection : INodeConnection
         }
         try
         {
-            await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+            ReadOnlyMemory<byte> payload = bytes;
+            if (normalizeNewlines)
+            {
+                payload = TelnetOutputNewlines.NormalizeToCrlf(bytes.Span, ref outLastWasCr);
+            }
+            await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
             await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
@@ -145,7 +169,7 @@ public sealed class TcpNodeConnection : INodeConnection
         var echo = BuildEcho(input.Span);
         if (echo.Length > 0)
         {
-            await WriteAsync(echo, ct).ConfigureAwait(false);
+            await WriteRawAsync(echo, ct).ConfigureAwait(false);
         }
     }
 
