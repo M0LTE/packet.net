@@ -1,0 +1,47 @@
+[Unit]
+Description=Packet.NET node host (packetnet / pdn)
+Documentation=https://github.com/m0lte/packet.net
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=exec for now (the host is a plain WebApplication with no sd_notify
+# wiring). A later builder.Host.UseSystemd() upgrades this to Type=notify.
+Type=exec
+ExecStart=/opt/packetnet/app/packetnet --config /etc/packetnet/packetnet.yaml
+WorkingDirectory=/var/lib/packetnet
+User=packetnet
+Group=packetnet
+Restart=on-failure
+RestartSec=5
+
+# systemd creates + chowns /var/lib/packetnet (0750, packetnet:packetnet).
+StateDirectory=packetnet
+
+# The single-file self-contained binary extracts native libs at startup, and
+# .NET puts HOME-based state (data-protection keys etc.) under HOME. Both must
+# land somewhere writable, since ProtectSystem=strict makes the rest of the FS
+# read-only — point them at the StateDirectory. gcServer=0 keeps memory modest
+# on small/Pi targets.
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/packetnet
+Environment=HOME=/var/lib/packetnet
+Environment=DOTNET_gcServer=0
+
+# --- sandboxing (ProtectSystem=strict makes the FS read-only bar the paths below) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/packetnet
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# A serial/USB TNC (serial-kiss / nino-tnc ports) needs device access: add the
+# service user to dialout (`usermod -aG dialout packetnet`) and drop in an
+# override with DeviceAllow=/dev/ttyACM0 + SupplementaryGroups=dialout. Loopback
+# / kiss-tcp / AXUDP nodes need nothing extra.
+
+[Install]
+WantedBy=multi-user.target

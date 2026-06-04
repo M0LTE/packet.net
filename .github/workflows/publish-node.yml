@@ -1,0 +1,77 @@
+name: publish-node
+
+# Builds the pdn node-host Debian packages (amd64 / arm64 / armhf) and attaches
+# them to a GitHub Release. Triggered by `node-v*` tags — distinct from the
+# `lib-v*` tag that drives the NuGet library publish (publish-libs.yml).
+#
+# Self-hosted x64 only (no GitHub-hosted runners — see CLAUDE.md). The arm builds
+# cross-publish from x64 via crossgen2 (ReadyToRun), so no arch-native runners or
+# cross C-toolchain are needed; scripts/build-deb.sh does the publish + packaging.
+
+on:
+  push:
+    tags:
+      - 'node-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the node-v prefix, e.g. 0.1.0'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/node-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, linux-arm64, linux-arm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .deb (${{ matrix.rid }})
+        run: scripts/build-deb.sh "${{ matrix.rid }}" "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.rid }}
+          path: artifacts/packetnet_*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: [self-hosted, Linux, X64]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: debs
+      - name: Collect + checksum
+        run: |
+          mkdir -p out
+          find debs -name '*.deb' -exec cp {} out/ \;
+          ( cd out && sha256sum *.deb > SHA256SUMS && ls -l )
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "node-v${VERSION}" out/*.deb out/SHA256SUMS \
+            --repo "${{ github.repository }}" \
+            --title "pdn node-v${VERSION}" \
+            --notes "Packet.NET node host (pdn) ${VERSION} — self-contained \`.deb\`s for amd64 / arm64 / armhf. Install on Debian/Ubuntu/RaspiOS: \`sudo apt install ./packetnet_${VERSION}_<arch>.deb\` (no .NET runtime required). The service runs as a hardened systemd unit; edit /etc/packetnet/packetnet.yaml to set your callsign + ports."

@@ -1,0 +1,13 @@
+Package: packetnet
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Tom Fanning <tom@m0lte.uk>
+Depends: adduser, libc6
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/m0lte/packet.net
+Description: Packet.NET AX.25 packet-radio node (pdn)
+ A modern AX.25 v2.2 packet-radio node host built on .NET. Connected-mode
+ sessions over KISS (serial/USB or TCP) and AX.25-over-UDP, with a telnet
+ console and an HTTP management surface. Self-contained: bundles its own
+ .NET runtime, so no system runtime is required.

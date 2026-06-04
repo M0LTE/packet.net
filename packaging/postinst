@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    # Dedicated, locked, no-login system user. adduser --system is the
+    # lowest-common-denominator that works on every OARC-supported suite
+    # (bookworm/bullseye/jammy/noble).
+    if ! getent passwd packetnet >/dev/null; then
+      adduser --system --group --no-create-home \
+              --home /var/lib/packetnet --shell /usr/sbin/nologin packetnet
+    fi
+    install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet
+    ;;
+esac
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+  systemctl enable --now packetnet.service || true
+fi
+
+exit 0
