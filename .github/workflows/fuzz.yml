@@ -63,6 +63,10 @@ jobs:
           # with the same seed. Tee stdout so the log survives the run
           # for upload-on-failure (smoke prints grouped exception types
           # + sample input hex per finding).
+          # Exclusive box-wide flock so the long fuzz run doesn't oversubscribe a
+          # concurrent `ci` on the shared host (§7.2.2). flock passes the command's
+          # exit through, so PIPESTATUS[0] is still the fuzzer's code.
+          flock -x /tmp/pdn-ci-heavy.lock \
           dotnet run --project tools/Packet.Fuzz --configuration Release --no-build -- \
             --smoke "${iterations}" 305419896 \
             2>&1 | tee fuzz-smoke.log

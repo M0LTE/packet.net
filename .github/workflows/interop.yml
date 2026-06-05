@@ -91,7 +91,10 @@ jobs:
           docker compose -f docker/compose.interop.yml logs --tail=200
 
       - name: interop tests (C#) — AX.25 + general (Group!=NetRom)
-        run: dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop&Group!=NetRom"
+        # Exclusive box-wide flock: hold the host to ourselves while the AFSK
+        # net-sim stack + interop tests run, so a concurrent `ci` leg can't
+        # oversubscribe the CPU. Command-wrapped → auto-releases on exit (§7.2.2).
+        run: flock -x /tmp/pdn-ci-heavy.lock dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop&Group!=NetRom"
 
       # ── Phase B: ax25-ts integration suite ────────────────────────────────
       # ax25-ts (m0lte/ax25-ts) ships its own integration suite against LinBPQ
@@ -130,7 +133,8 @@ jobs:
           cd "${RUNNER_TEMP}/ax25-ts"
           npm ci
           npm run build
-          npm run test:integration
+          # Exclusive box-wide flock around the AFSK-stack test run (§7.2.2).
+          flock -x /tmp/pdn-ci-heavy.lock npm run test:integration
 
       # ── Phase C: NET/ROM L3/L4 scenarios (isolated, LAST) ─────────────────
       # The heavyweight group (NODES origination + bidirectional L4 circuits +
@@ -151,7 +155,8 @@ jobs:
           docker compose -f docker/compose.interop.yml logs --tail=200
 
       - name: interop tests (C#) — NET/ROM (Group=NetRom)
-        run: dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop&Group=NetRom"
+        # Exclusive box-wide flock (§7.2.2).
+        run: flock -x /tmp/pdn-ci-heavy.lock dotnet test tests/Packet.Interop.Tests --configuration Release --no-build --filter "Category=Interop&Group=NetRom"
 
       - name: tear down
         # Best-effort teardown that runs even when a phase FAILED or the job was

@@ -62,7 +62,16 @@ jobs:
         run: dotnet --version
 
       - name: test
+        # Shared (reader) box-wide flock. These matrix legs run 4-up among
+        # themselves (multiple shared holders coexist) but never overlap a
+        # CPU-heavy EXCLUSIVE workflow — interop / fuzz / deb-smoke — on the shared
+        # self-hosted host. That overlap oversubscribes the physical CPU and
+        # starves the integration suites' real-time AX.25 pumps/timers (the
+        # Packet.Node.Tests flake). Command-wrapped, so the lock releases when the
+        # test process exits (no holder to leak); it harmlessly no-ops if the
+        # runners don't actually share /tmp. See docs/plan.md §7.2.2.
         run: |
+          flock -s /tmp/pdn-ci-heavy.lock \
           dotnet test tests/${{ matrix.project }}/${{ matrix.project }}.csproj \
             --configuration Release \
             --logger "trx;LogFileName=test-results.trx" \
