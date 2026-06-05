@@ -39,8 +39,12 @@ public sealed class AgwClient : IAsyncDisposable
     private readonly Task? keepaliveLoop;
     private readonly Dictionary<(string from, string to, byte port), AgwSession> sessions = new();
     private readonly object sessionsLock = new();
-    private readonly List<TaskCompletionSource<AgwFrame>> connectWaiters = new();
+    private readonly List<FrameWaiter> waiters = new();
     private readonly object waitersLock = new();
+
+    /// <summary>A pending request/reply: the dispatch loop completes <see cref="Tcs"/>
+    /// with the first inbound frame matching <see cref="Predicate"/>.</summary>
+    private sealed record FrameWaiter(Func<AgwFrame, bool> Predicate, TaskCompletionSource<AgwFrame> Tcs);
 
     /// <summary>
     /// Default keepalive interval. BPQ closes idle AGW clients at
@@ -112,18 +116,19 @@ public sealed class AgwClient : IAsyncDisposable
     public async Task RegisterCallsignAsync(string callsign, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(callsign);
-        await framing.WriteAsync(new AgwFrame(
-            Port: 0,
-            Kind: AgwCommandKind.RegisterCallsign,
-            Pid: 0,
-            From: callsign,
-            To: "",
-            Data: ReadOnlyMemory<byte>.Empty), ct).ConfigureAwait(false);
-
         // BPQ and XRouter both reply with a single-byte status frame
         // (kind 'X'). Wait briefly so callers know whether the server
-        // acknowledged the registration before they try to use it.
-        await AwaitFirstFrameAsync(
+        // acknowledged the registration before they try to use it. The
+        // waiter is registered before the X frame is sent (see
+        // SendAndAwaitReplyAsync) so a zero-latency reply can't be missed.
+        await SendAndAwaitReplyAsync(
+            new AgwFrame(
+                Port: 0,
+                Kind: AgwCommandKind.RegisterCallsign,
+                Pid: 0,
+                From: callsign,
+                To: "",
+                Data: ReadOnlyMemory<byte>.Empty),
             predicate: f => f.Kind == AgwCommandKind.RegisterCallsign && f.From == callsign,
             timeout: TimeSpan.FromSeconds(5),
             ct).ConfigureAwait(false);
@@ -158,19 +163,20 @@ public sealed class AgwClient : IAsyncDisposable
             sessions[key] = session;
         }
 
-        await framing.WriteAsync(new AgwFrame(
-            Port: radioPort,
-            Kind: AgwCommandKind.Connect,
-            Pid: 0,
-            From: from,
-            To: to,
-            Data: ReadOnlyMemory<byte>.Empty), ct).ConfigureAwait(false);
-
         // Wait for the server's connect-ack 'C' frame. Some servers
         // include a "Connected to <callsign>" message in the body;
         // we don't require it — the frame arrival itself is the ack.
+        // The waiter is registered before the C frame is sent (see
+        // SendAndAwaitReplyAsync) so a zero-latency ack can't be missed.
         var budget = connectTimeout ?? TimeSpan.FromSeconds(30);
-        var ack = await AwaitFirstFrameAsync(
+        var ack = await SendAndAwaitReplyAsync(
+            new AgwFrame(
+                Port: radioPort,
+                Kind: AgwCommandKind.Connect,
+                Pid: 0,
+                From: from,
+                To: to,
+                Data: ReadOnlyMemory<byte>.Empty),
             predicate: f => f.Kind == AgwCommandKind.Connect
                          && f.Port == radioPort
                          && f.From == to
@@ -195,15 +201,14 @@ public sealed class AgwClient : IAsyncDisposable
     /// </summary>
     public async Task<IReadOnlyList<string>> GetPortInfoAsync(CancellationToken ct = default)
     {
-        await framing.WriteAsync(new AgwFrame(
-            Port: 0,
-            Kind: AgwCommandKind.AskPortInfo,
-            Pid: 0,
-            From: "",
-            To: "",
-            Data: ReadOnlyMemory<byte>.Empty), ct).ConfigureAwait(false);
-
-        var reply = await AwaitFirstFrameAsync(
+        var reply = await SendAndAwaitReplyAsync(
+            new AgwFrame(
+                Port: 0,
+                Kind: AgwCommandKind.AskPortInfo,
+                Pid: 0,
+                From: "",
+                To: "",
+                Data: ReadOnlyMemory<byte>.Empty),
             predicate: f => f.Kind == AgwCommandKind.AskPortInfo,
             timeout: TimeSpan.FromSeconds(5),
             ct).ConfigureAwait(false);
@@ -259,18 +264,18 @@ public sealed class AgwClient : IAsyncDisposable
 
                 // Notify generic waiters (RegisterCallsign / Connect
                 // / GetPortInfo are waiting on first-matching-frame).
-                List<TaskCompletionSource<AgwFrame>>? toComplete = null;
+                List<FrameWaiter>? toComplete = null;
                 lock (waitersLock)
                 {
-                    foreach (var w in connectWaiters)
+                    foreach (var w in waiters)
                     {
-                        if (w.Task.IsCompleted) continue;
-                        (toComplete ??= new()).Add(w);
+                        if (w.Tcs.Task.IsCompleted) continue;
+                        if (w.Predicate(frame)) (toComplete ??= new()).Add(w);
                     }
                 }
                 if (toComplete is not null)
                 {
-                    foreach (var w in toComplete) w.TrySetResult(frame);
+                    foreach (var w in toComplete) w.Tcs.TrySetResult(frame);
                 }
 
                 if (session is not null)
@@ -286,8 +291,8 @@ public sealed class AgwClient : IAsyncDisposable
             // block forever on a dead connection.
             lock (waitersLock)
             {
-                foreach (var w in connectWaiters) w.TrySetException(ex);
-                connectWaiters.Clear();
+                foreach (var w in waiters) w.Tcs.TrySetException(ex);
+                waiters.Clear();
             }
             lock (sessionsLock)
             {
@@ -326,38 +331,45 @@ public sealed class AgwClient : IAsyncDisposable
         catch (OperationCanceledException) { /* expected on dispose */ }
     }
 
-    private async Task<AgwFrame?> AwaitFirstFrameAsync(
+    /// <summary>
+    /// Send <paramref name="request"/> and await the first inbound frame matching
+    /// <paramref name="predicate"/> (returns null on timeout / lifetime cancel).
+    /// <para>
+    /// The waiter is registered with the dispatch loop <b>before</b> the request is
+    /// written. A zero-latency transport — the in-memory test pair, or a fast local
+    /// AGW server — can deliver the reply before this method resumes past the write,
+    /// so the dispatch loop must already see the waiter; otherwise the reply matches
+    /// nothing and the caller waits out the full timeout. That register-after-send
+    /// ordering was a latent race that surfaced as a flaky 30 s connect-ack timeout
+    /// under CI scheduling pressure. The dispatch loop only completes a waiter on a
+    /// predicate match, so a single registration suffices (no re-subscribe gap).
+    /// </para>
+    /// </summary>
+    private async Task<AgwFrame?> SendAndAwaitReplyAsync(
+        AgwFrame request,
         Func<AgwFrame, bool> predicate,
         TimeSpan timeout,
         CancellationToken ct)
     {
-        // Subscribe to the next batch of frames; the dispatch loop
-        // delivers every frame to every waiter, and the waiter keeps
-        // taking results until it finds one matching the predicate.
-        // Auto-removes itself from the waiter list when it completes.
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetimeCts.Token);
         linked.CancelAfter(timeout);
-        while (!linked.IsCancellationRequested)
-        {
-            var tcs = new TaskCompletionSource<AgwFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (waitersLock) connectWaiters.Add(tcs);
-            try
-            {
-                using (linked.Token.Register(() => tcs.TrySetCanceled(linked.Token)))
-                {
-                    AgwFrame frame;
-                    try { frame = await tcs.Task.ConfigureAwait(false); }
-                    catch (OperationCanceledException) { return null; }
 
-                    if (predicate(frame)) return frame;
-                }
-            }
-            finally
+        var tcs = new TaskCompletionSource<AgwFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiter = new FrameWaiter(predicate, tcs);
+        lock (waitersLock) waiters.Add(waiter);
+        try
+        {
+            await framing.WriteAsync(request, ct).ConfigureAwait(false);
+            using (linked.Token.Register(() => tcs.TrySetCanceled(linked.Token)))
             {
-                lock (waitersLock) connectWaiters.Remove(tcs);
+                try { return await tcs.Task.ConfigureAwait(false); }
+                catch (OperationCanceledException) { return null; }
             }
         }
-        return null;
+        finally
+        {
+            lock (waitersLock) waiters.Remove(waiter);
+        }
     }
 
     public async ValueTask DisposeAsync()

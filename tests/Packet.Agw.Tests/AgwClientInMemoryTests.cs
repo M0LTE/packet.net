@@ -70,6 +70,33 @@ public class AgwClientInMemoryTests
     }
 
     [Fact]
+    public async Task OpenSessionAsync_succeeds_when_the_connect_ack_races_registration()
+    {
+        // Regression test for the connect-ack ordering race. clientWriteDelay holds
+        // the client's C-frame write open for 300 ms AFTER its bytes are flushed to
+        // the server, so the server receives the connect and the client's read-loop
+        // + dispatch loop deliver the 'C' ack while OpenSessionAsync is still
+        // suspended inside its write. If the connect waiter is registered AFTER the
+        // write (the prior bug) that ack lands in an empty waiter list and the
+        // connect times out; registering before the write (the fix) means the
+        // dispatch loop finds the waiter already present. The 3 s budget makes a
+        // regression fail fast rather than hang.
+        await using var pair = new InMemoryAgwPair(clientWriteDelay: TimeSpan.FromMilliseconds(300));
+
+        var serverTask = Task.Run(async () =>
+        {
+            var c = await pair.ServerReadFrame();
+            c.Kind.Should().Be(AgwCommandKind.Connect);
+            await pair.ServerWriteFrame(MakeConnectAck());
+        });
+
+        await using var session = await pair.Client.OpenSessionAsync(
+            "M0LTE", "PN0TST", connectTimeout: TimeSpan.FromSeconds(3));
+        await serverTask;
+        session.To.Should().Be("PN0TST");
+    }
+
+    [Fact]
     public async Task Session_write_sends_a_data_frame_with_correct_callsigns_and_pid()
     {
         await using var pair = new InMemoryAgwPair();
@@ -219,9 +246,16 @@ public class AgwClientInMemoryTests
         private readonly DuplexStream serverStream;
         private readonly AgwFrameStream serverFraming;
 
-        public InMemoryAgwPair()
+        // clientWriteDelay holds the CLIENT's WriteAsync open for a beat AFTER its
+        // bytes are flushed to the server. That deterministically reproduces the
+        // connect-ack ordering race: the server receives the request and replies,
+        // and the client's read-loop + dispatch loop deliver that reply, all while
+        // the caller is still suspended inside its write — i.e. before it could
+        // register a waiter, had it (as the prior bug did) registered AFTER the
+        // write. Default zero, so the other tests keep a realistic handoff.
+        public InMemoryAgwPair(TimeSpan clientWriteDelay = default)
         {
-            clientStream = new DuplexStream(serverToClient.Reader.AsStream(), clientToServer.Writer.AsStream());
+            clientStream = new DuplexStream(serverToClient.Reader.AsStream(), clientToServer.Writer.AsStream(), clientWriteDelay);
             serverStream = new DuplexStream(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream());
             // Disable keepalive — the in-memory server doesn't service the R-ping and the unit tests are short-lived.
             Client = AgwClient.FromStream(clientStream, keepaliveInterval: TimeSpan.Zero);
@@ -257,11 +291,13 @@ public class AgwClientInMemoryTests
     {
         private readonly Stream readSide;
         private readonly Stream writeSide;
+        private readonly TimeSpan writeDelay;
 
-        public DuplexStream(Stream readSide, Stream writeSide)
+        public DuplexStream(Stream readSide, Stream writeSide, TimeSpan writeDelay = default)
         {
             this.readSide = readSide;
             this.writeSide = writeSide;
+            this.writeDelay = writeDelay;
         }
 
         public override bool CanRead => true;
@@ -278,9 +314,18 @@ public class AgwClientInMemoryTests
             => readSide.ReadAsync(buffer, cancellationToken);
         public override void Write(byte[] buffer, int offset, int count) => writeSide.Write(buffer, offset, count);
         public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            => writeSide.WriteAsync(buffer, offset, count, cancellationToken);
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-            => writeSide.WriteAsync(buffer, cancellationToken);
+            => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await writeSide.WriteAsync(buffer, cancellationToken);
+            if (writeDelay > TimeSpan.Zero)
+            {
+                // Make the bytes visible to the reader before holding, so the peer
+                // can respond during the delay — that's the point (see InMemoryAgwPair).
+                await writeSide.FlushAsync(cancellationToken);
+                await Task.Delay(writeDelay, cancellationToken);
+            }
+        }
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
     }
