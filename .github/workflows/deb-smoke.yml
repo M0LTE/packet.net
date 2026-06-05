@@ -25,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build amd64 .deb (throwaway version)
-        run: scripts/build-deb.sh linux-x64 0.0.0-ci
+        # Exclusive box-wide flock around the CPU-heavy self-contained/crossgen
+        # publish, so it doesn't oversubscribe a concurrent `ci` (§7.2.2).
+        run: flock -x /tmp/pdn-ci-heavy.lock scripts/build-deb.sh linux-x64 0.0.0-ci
       - name: Install-smoke it (Debian-stable + Ubuntu-LTS)
         run: scripts/deb-install-smoke.sh artifacts/packetnet_0.0.0-ci_amd64.deb
