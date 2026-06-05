@@ -57,8 +57,24 @@ jobs:
           path: artifacts/packetnet_*.deb
           if-no-files-found: error
 
-  release:
+  smoke:
+    # Gate: a .deb that won't install cleanly must never reach the release.
+    # Reuses the already-built amd64 artifact (no rebuild). Container-isolated,
+    # so nothing is installed onto the self-hosted runner. amd64 only (native,
+    # no QEMU); arm64/armhf are a later docker/setup-qemu matrix.
     needs: [version, build]
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb-linux-x64
+          path: artifacts
+      - name: Install-smoke the amd64 .deb (Debian-stable + Ubuntu-LTS)
+        run: scripts/deb-install-smoke.sh "artifacts/packetnet_${{ needs.version.outputs.version }}_amd64.deb"
+
+  release:
+    needs: [version, build, smoke]
     runs-on: [self-hosted, Linux, X64]
     permissions:
       contents: write

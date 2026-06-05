@@ -1,0 +1,30 @@
+name: deb-smoke
+
+# Shift-left install smoke: build an amd64 .deb and prove it installs cleanly on
+# a pristine Debian-stable + Ubuntu-LTS, on every PR that touches packaging. This
+# catches a broken control file / maintainer script / layout BEFORE you cut a
+# `node-v*` tag (publish-node.yml also gates the release with the same script, but
+# that fails only after the tag is pushed). amd64 only — native on the x64 runner,
+# no QEMU; that's the "at least one .deb installs cleanly" guarantee.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/build-deb.sh'
+      - 'scripts/deb-install-smoke.sh'
+      - 'packaging/**'
+      - '.github/workflows/deb-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build amd64 .deb (throwaway version)
+        run: scripts/build-deb.sh linux-x64 0.0.0-ci
+      - name: Install-smoke it (Debian-stable + Ubuntu-LTS)
+        run: scripts/deb-install-smoke.sh artifacts/packetnet_0.0.0-ci_amd64.deb
