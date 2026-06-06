@@ -213,15 +213,20 @@ public sealed record HttpConfig
 /// <b>originates</b> its own NODES broadcast on the NODESINTERVAL schedule, and
 /// with <see cref="Connect"/> on it can establish <b>L4 virtual circuits</b> over
 /// connected-mode AX.25 interlinks so <c>connect &lt;alias&gt;</c> routes a user to
-/// a distant node across the network.
+/// a distant node across the network, and (<see cref="Forward"/>, on by default
+/// under <see cref="Connect"/>) it <b>forwards transit datagrams</b> for other
+/// stations — the full network-layer routing role.
 /// </summary>
 /// <remarks>
 /// The knobs are exposed because NET/ROM has no single normative standard — the
 /// canonical defaults apply unless the operator overrides, never a silent BPQ-ism.
 /// Default <see cref="Enabled"/> is <c>true</c> (hearing is free + harmless), but
-/// the TX-bearing options (<see cref="Broadcast"/>, <see cref="Connect"/>) default
-/// <c>false</c>: a stock node does not transmit on the air or open circuits until
-/// the operator opts in (spec-faithful + safe-by-default).
+/// the TX-bearing gates (<see cref="Broadcast"/>, <see cref="Connect"/>) default
+/// <c>false</c>: a stock node does not transmit on the air or open interlinks until
+/// the operator opts in (spec-faithful + safe-by-default). <see cref="Forward"/>
+/// defaults <c>true</c> but rides on <see cref="Connect"/>, so it too is silent
+/// until the operator opts into interlinks — at which point the node behaves as a
+/// real NET/ROM node and relays transit traffic.
 /// </remarks>
 public sealed record NetRomConfig
 {
@@ -244,6 +249,21 @@ public sealed record NetRomConfig
     /// Requires <see cref="Enabled"/>.
     /// </summary>
     public bool Connect { get; init; }
+
+    /// <summary>
+    /// Whether this node <b>forwards transit datagrams</b> — relays a NET/ROM L3
+    /// datagram whose destination node is not us onward toward its destination's best
+    /// neighbour (TTL-decremented, hop-by-hop). This is the network-layer routing
+    /// role: without it the node is an endpoint only (it originates + terminates
+    /// circuits but never carries third-party traffic). Default <c>true</c>, but it
+    /// is <b>only effective when <see cref="Connect"/> is on</b> — forwarding needs
+    /// the connected-mode interlink machinery that <see cref="Connect"/> gates, and a
+    /// node that has not opted into on-air interlinks cannot relay. So a stock node
+    /// (<see cref="Connect"/> off) stays silent; a connect-enabled node is a full
+    /// NET/ROM node and forwards by default; set this <c>false</c> to run an
+    /// originate-only node that does not carry transit traffic.
+    /// </summary>
+    public bool Forward { get; init; } = true;
 
     /// <summary>
     /// Our NET/ROM node alias / mnemonic, advertised in our NODES broadcast (the
