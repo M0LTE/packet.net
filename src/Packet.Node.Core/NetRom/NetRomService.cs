@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Ax25;
 using Packet.Ax25.Session;
 using Packet.Core;
+using Packet.NetRom;
 using Packet.NetRom.Routing;
 using Packet.NetRom.Transport;
 using Packet.NetRom.Wire;
@@ -83,6 +84,12 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
     /// <summary>True if NET/ROM L4 connect-routing is enabled (interlinks + circuits).</summary>
     public bool ConnectEnabled => config.Enabled && config.Connect;
+
+    /// <summary>True if this node forwards transit datagrams (the network-layer
+    /// routing role). Rides on <see cref="ConnectEnabled"/> — forwarding needs the
+    /// interlink machinery connect-routing provides — and on
+    /// <see cref="NetRomConfig.Forward"/> (default on); off ⇒ endpoint-only node.</summary>
+    public bool ForwardEnabled => config.Enabled && config.Connect && config.Forward;
 
     /// <summary>
     /// The hook the supervisor supplies to run a node console over an inbound NET/ROM
@@ -506,9 +513,23 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         }
         try
         {
-            if (NetRomPacket.TryParse(info.Span, out var packet))
+            if (!NetRomPacket.TryParse(info.Span, out var packet))
             {
-                circuits.OnPacket(packet!);
+                return;
+            }
+
+            // L3 dispatch (mirrors BPQ L4Code.c): a datagram addressed to this node
+            // terminates here — up to the L4 circuit layer; one addressed to another
+            // node is forwarded toward its destination (the network-layer routing
+            // role); if this node is endpoint-only it is silently dropped (we don't
+            // relay third-party traffic we didn't opt into carrying).
+            if (nodeCallSet && packet!.Network.Destination.Equals(nodeCall))
+            {
+                circuits.OnPacket(packet);
+            }
+            else if (ForwardEnabled)
+            {
+                ForwardDatagram(packet!, session.Context.Remote);
             }
         }
         catch (Exception ex)
@@ -516,6 +537,87 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             var peerText = session.Context.Remote.ToString();
             LogInterlinkFault(ex, peerText);
         }
+    }
+
+    /// <summary>
+    /// Forward a transit datagram (one whose destination node is not us) one hop
+    /// toward its destination, mirroring the BPQ <c>L4Code.c</c> forward decision:
+    /// decrement the hop-limit TTL (discard at zero), cap it, drop a datagram that
+    /// has looped back to its own origin, resolve the destination's best next-hop
+    /// neighbour that is not the one it just arrived from (don't bounce it straight
+    /// back), ensure the interlink to that neighbour, and re-send. Synchronous when
+    /// the interlink is already up (the common transit path — preserves datagram
+    /// order); a cold-start interlink is dialled on a background task first.
+    /// </summary>
+    private void ForwardDatagram(NetRomPacket packet, Callsign receivedFrom)
+    {
+        // The forward decision (TTL decrement/cap, loop guard, next-hop resolution)
+        // is the pure NetRomForwarding.Decide; this method does only the I/O it asks
+        // for. destText is a local (not an inline log arg) so it isn't evaluated when
+        // the trace is disabled (CA1873).
+        var destText = packet.Network.Destination.ToString();
+        var decision = NetRomForwarding.Decide(packet, receivedFrom, nodeCall, table.Snapshot(), circuitOptions.TimeToLive);
+
+        switch (decision.Outcome)
+        {
+            case NetRomForwarding.ForwardOutcome.DropTtlExpired:
+                LogForwardTtlExpired(destText);
+                return;
+            case NetRomForwarding.ForwardOutcome.DropLooped:
+                LogForwardLoop(destText);
+                return;
+            case NetRomForwarding.ForwardOutcome.DropNoRoute:
+                LogForwardNoRoute(destText);
+                return;
+        }
+
+        var neighbour = decision.NextHop;
+        var forwarded = decision.Packet;
+
+        // If the interlink is already up, send now (in order); otherwise dial it on a
+        // background task and send when it comes up.
+        if (TrySendOverInterlink(neighbour, forwarded))
+        {
+            var neighbourText = neighbour.ToString();
+            LogForwarded(destText, neighbourText, forwarded.Network.TimeToLive);
+            return;
+        }
+
+        _ = ForwardOverColdInterlinkAsync(forwarded, neighbour);
+    }
+
+    private async Task ForwardOverColdInterlinkAsync(NetRomPacket forwarded, Callsign neighbour)
+    {
+        var neighbourText = neighbour.ToString();
+        try
+        {
+            await EnsureInterlinkAsync(neighbour, CancellationToken.None).ConfigureAwait(false);
+            if (TrySendOverInterlink(neighbour, forwarded))
+            {
+                var destText = forwarded.Network.Destination.ToString();
+                LogForwarded(destText, neighbourText, forwarded.Network.TimeToLive);
+            }
+            else
+            {
+                LogNoInterlink(neighbourText);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogSendFault(ex);
+        }
+    }
+
+    /// <summary>Send an encoded datagram over an existing interlink to
+    /// <paramref name="neighbour"/>. Returns <c>false</c> if no interlink is up.</summary>
+    private bool TrySendOverInterlink(Callsign neighbour, NetRomPacket packet)
+    {
+        if (interlinks.TryGetValue(neighbour, out var link) && link.Session is not null && link.Listener is not null)
+        {
+            link.Listener.SendData(link.Session, packet.ToBytes(), Ax25Frame.PidNetRom);
+            return true;
+        }
+        return false;
     }
 
     private void OnIncomingCircuit(object? sender, IncomingCircuitEventArgs e)
@@ -795,6 +897,18 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: no interlink to {Neighbour} for an outbound datagram.")]
     private partial void LogNoInterlink(string neighbour);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: forwarded transit datagram for {Destination} via {Neighbour} (ttl {TimeToLive}).")]
+    private partial void LogForwarded(string destination, string neighbour, byte timeToLive);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: dropped transit datagram for {Destination} — TTL expired.")]
+    private partial void LogForwardTtlExpired(string destination);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: dropped transit datagram for {Destination} — looped back to its origin.")]
+    private partial void LogForwardLoop(string destination);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: dropped transit datagram for {Destination} — no onward route.")]
+    private partial void LogForwardNoRoute(string destination);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "NET/ROM: frame tap on port {PortId} faulted (frame ignored).")]
     private partial void LogTapFault(Exception ex, string portId);

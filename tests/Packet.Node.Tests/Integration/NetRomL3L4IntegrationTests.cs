@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Ax25.Session;
 using Packet.Core;
+using Packet.Kiss;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
@@ -27,6 +28,7 @@ public sealed class NetRomL3L4IntegrationTests
 {
     private static readonly Callsign ANodeCall = new("GB7AAA", 0);
     private static readonly Callsign BNodeCall = new("GB7BBB", 0);
+    private static readonly Callsign CNodeCall = new("GB7CCC", 0);
     private static readonly Callsign UserCall = new("M0LTE", 7);
 
     private static NodeConfig NodeConfig(Callsign call, string alias) => new()
@@ -76,6 +78,51 @@ public sealed class NetRomL3L4IntegrationTests
         return new Node(supervisor, netRom);
     }
 
+    /// <summary>
+    /// Start a node with one or more ports, each on a different software-RF channel —
+    /// so a node can <b>bridge</b> two channels (the transit topology). Each port maps
+    /// to a distinct transport endpoint (<c>kiss-tcp:{base}:{port}</c>) backed by the
+    /// supplied modem.
+    /// </summary>
+    private static async Task<Node> StartBridgeNodeAsync(
+        Callsign call, string alias, params (string PortId, int Port, IKissModem Modem)[] ports)
+    {
+        var nodeConfig = new NodeConfig
+        {
+            Identity = new Identity { Callsign = call.ToString(), Alias = alias },
+            NetRom = new NetRomConfig
+            {
+                Enabled = true,
+                Broadcast = true,
+                Connect = true,   // Forward defaults on under Connect — the transit role
+                Alias = alias,
+                TransportTimeoutSeconds = 2,
+            },
+            Ports = [.. ports.Select(p => new PortConfig
+            {
+                Id = p.PortId,
+                Enabled = true,
+                Transport = new KissTcpTransport { Host = call.Base, Port = p.Port },
+                Ax25 = new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
+            })],
+        };
+
+        var netRom = new NetRomService(nodeConfig.NetRom, TimeProvider.System, NullLogger<NetRomService>.Instance);
+        var config = new TestConfigProvider(nodeConfig);
+        var factory = new FakeTransportFactory();
+        foreach (var p in ports)
+        {
+            factory.Provide($"kiss-tcp:{call.Base}:{p.Port}", p.Modem);
+        }
+        var supervisor = new PortSupervisor(config, factory, TimeProvider.System, NullLoggerFactory.Instance, netRom);
+        await supervisor.StartAsync();
+        foreach (var p in ports)
+        {
+            await Wait.ForAsync(() => supervisor.RunningPortIds.Contains(p.PortId), $"{alias} port {p.PortId} should come up");
+        }
+        return new Node(supervisor, netRom);
+    }
+
     [Fact]
     public async Task Two_nodes_exchange_NODES_and_a_user_routes_across_an_L4_circuit_to_the_distant_node()
     {
@@ -121,6 +168,68 @@ public sealed class NetRomL3L4IntegrationTests
         // The interlink + circuit are live on both nodes.
         a.NetRom.Circuits!.Circuits.Should().NotBeEmpty("node A holds the originating circuit");
         await Wait.ForAsync(() => b.NetRom.Circuits!.Circuits.Count > 0, "node B holds the accepted circuit");
+    }
+
+    [Fact]
+    public async Task A_transit_node_forwards_an_L4_circuit_between_two_channels_it_bridges_without_terminating_it()
+    {
+        // The transit topology: A is on channel 1, C is on channel 2, and B bridges
+        // the two (a port on each). A can NOT hear C directly — it learns C only from
+        // B's NODES, so A's only route to C is *via B*. When a user routes `C CNODE`
+        // from A, A originates an L4 circuit whose datagrams are addressed to C; B
+        // forwards them across the ch1↔ch2 bridge (the network-layer routing role)
+        // without ever terminating the circuit, and C accepts it. This is the thing a
+        // leaf node cannot do.
+        var ch1 = new SharedRadioBus();   // A ↔ B
+        var ch2 = new SharedRadioBus();   // B ↔ C
+
+        await using var a = await StartNodeAsync(ch1, ANodeCall, "ANODE");
+        await using var b = await StartBridgeNodeAsync(BNodeCall, "BNODE", ("p1", 1, ch1.Attach()), ("p2", 2, ch2.Attach()));
+        await using var c = await StartNodeAsync(ch2, CNodeCall, "CNODE");
+
+        var generous = TimeSpan.FromSeconds(60);
+
+        // NODES propagation must settle BOTH ways so the circuit can establish and
+        // its acks return: B hears A (ch1) + C (ch2) directly, then re-advertises so
+        // A learns C-via-B and C learns A-via-B (neither hears the other directly).
+        // (Broadcasts driven directly, not via the real-time NODESINTERVAL timer.)
+        a.NetRom.BroadcastNodes();
+        b.NetRom.BroadcastNodes();
+        c.NetRom.BroadcastNodes();
+        await Wait.ForAsync(
+            () => b.NetRom.Snapshot().ResolveDestination("ANODE") is not null
+               && b.NetRom.Snapshot().ResolveDestination("CNODE") is not null,
+            "node B (the bridge) should hear node A on channel 1 and node C on channel 2", generous);
+
+        b.NetRom.BroadcastNodes();   // re-advertise both ends now B knows both
+        await Wait.ForAsync(
+            () => a.NetRom.Snapshot().ResolveDestination("CNODE")?.BestRoute?.Neighbour.Equals(BNodeCall) == true
+               && c.NetRom.Snapshot().ResolveDestination("ANODE")?.BestRoute?.Neighbour.Equals(BNodeCall) == true,
+            "A learns C via B (ch1) and C learns A via B (ch2) — neither hears the other directly", generous);
+
+        // A user dials node A and routes to C by alias.
+        await using var user = new RemoteStation(ch1.Attach(), UserCall);
+        await user.StartAsync();
+        await user.ConnectAsync(ANodeCall);
+        await Wait.ForAsync(() => user.Saw("ANODE"), "node A's banner should arrive");
+
+        user.SendLine("C CNODE");
+        await Wait.ForAsync(() => user.Saw("CNODE") && user.Saw("Connected"),
+            "the user is routed across a NET/ROM L4 circuit — forwarded by B — to node C's prompt", generous);
+
+        // Data round-trips end-to-end through the transit node.
+        user.SendLine("I");
+        await Wait.ForAsync(() => user.Saw("Software: Packet.NET"),
+            "an Info command runs on node C over the forwarded L4 circuit and the reply relays back", generous);
+
+        // The headline: A holds the originating circuit and C the accepted one, but
+        // B holds NONE — it forwarded the circuit's datagrams as a transit node,
+        // never terminating one. (B's OnInterlinkData routes a datagram addressed to
+        // C onward instead of handing it to B's circuit manager.)
+        a.NetRom.Circuits!.Circuits.Should().NotBeEmpty("node A holds the originating circuit");
+        await Wait.ForAsync(() => c.NetRom.Circuits!.Circuits.Count > 0, "node C holds the accepted circuit", generous);
+        b.NetRom.Circuits!.Circuits.Should().BeEmpty(
+            "node B is a transit node — it forwarded the circuit's datagrams between its two channels without terminating one");
     }
 
     [Fact]
