@@ -24,6 +24,7 @@ public sealed partial class NodeHostedService : BackgroundService
     private readonly TimeProvider timeProvider;
     private readonly ILoggerFactory loggerFactory;
     private readonly ILogger<NodeHostedService> logger;
+    private readonly INetRomRoutingStore? routingStore;
     private readonly SemaphoreSlim reconcileSignal = new(0);
     private readonly object swapGate = new();
 
@@ -38,12 +39,14 @@ public sealed partial class NodeHostedService : BackgroundService
         IConfigProvider config,
         ITransportFactory? transportFactory = null,
         TimeProvider? timeProvider = null,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        INetRomRoutingStore? routingStore = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.transportFactory = transportFactory ?? TransportFactory.Instance;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        this.routingStore = routingStore;
         logger = this.loggerFactory.CreateLogger<NodeHostedService>();
         appliedConfig = config.Current;
     }
@@ -68,7 +71,7 @@ public sealed partial class NodeHostedService : BackgroundService
         // The NET/ROM read-only service is created once at start from the initial
         // config. It's a pure consumer of each port's frame-trace tap (subscribed
         // by the supervisor as ports come up), so it can never disturb a session.
-        netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>());
+        netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>(), routingStore);
 
         supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom);
         await supervisor.StartAsync(stoppingToken).ConfigureAwait(false);

@@ -186,6 +186,62 @@ public sealed class NetRomAwareIntegrationTests
         remote.Saw("NET/ROM").Should().BeFalse("no NET/ROM section when disabled");
     }
 
+    [Fact]
+    public async Task A_node_restored_from_its_store_keeps_the_routes_it_learned_before_a_restart()
+    {
+        // The marquee persistence proof: a node hears a NODES broadcast, learns the
+        // routes, and shuts down (flushing the table to its pdn.db store); a fresh node
+        // over the SAME store hydrates those routes at startup instead of going blind.
+        var dbPath = Path.Combine(Path.GetTempPath(), "pdn-restart-" + Guid.NewGuid().ToString("N") + ".db");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 6, 6, 12, 0, 0, TimeSpan.Zero));
+        try
+        {
+            // ── Run 1: hear a broadcast, learn the routes, then shut down cleanly. ──
+            {
+                var bus = new SharedRadioBus();
+                var nodeModem = bus.Attach();
+                var broadcaster = bus.Attach();
+                var netRom = new NetRomService(
+                    new NetRomConfig { Enabled = true }, clock, NullLogger<NetRomService>.Instance,
+                    new SqliteNetRomRoutingStore(dbPath));
+                var supervisor = new PortSupervisor(
+                    new TestConfigProvider(Config()),
+                    new FakeTransportFactory().Provide("kiss-tcp:mem:1", nodeModem),
+                    clock, NullLoggerFactory.Instance, netRom);
+                await supervisor.StartAsync();
+                await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("p1"), "port p1 should come up");
+
+                var info = BuildNodesInfo("RDGBPQ", (DestSot, "SOT", ViaXyz, 200));
+                await BroadcastNodesAsync(broadcaster, Neighbour, info);
+                await Wait.ForAsync(() => netRom.Snapshot().DestinationCount >= 2, "routes should be learned");
+
+                // Graceful shutdown flushes the learned table to the store.
+                await netRom.DisposeAsync();
+                await supervisor.DisposeAsync();
+            }
+
+            // ── Run 2: a fresh node over the SAME store hydrates the routes at boot. ──
+            {
+                await using var netRom = new NetRomService(
+                    new NetRomConfig { Enabled = true }, clock, NullLogger<NetRomService>.Instance,
+                    new SqliteNetRomRoutingStore(dbPath));
+
+                var snap = netRom.Snapshot();
+                snap.Destinations.Should().Contain(d => d.Destination == DestSot,
+                    "the restarted node remembers the destination it learned before the restart");
+                snap.Neighbours.Should().Contain(n => n.Neighbour == Neighbour,
+                    "and the neighbour it heard it from");
+            }
+        }
+        finally
+        {
+            foreach (var p in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+            {
+                try { if (File.Exists(p)) File.Delete(p); } catch { /* best effort */ }
+            }
+        }
+    }
+
     // ─── Helpers: build + broadcast a NODES UI frame on the shared bus ───
 
     private static async Task BroadcastNodesAsync(IKissModem broadcaster, Callsign source, byte[] info)

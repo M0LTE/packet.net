@@ -1,6 +1,7 @@
 using System.Net;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
+using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Transports;
 
 // The composition root for the Packet.NET node. This IS a Generic Host (the
@@ -10,6 +11,7 @@ using Packet.Node.Core.Transports;
 // UI arrive in later slices.
 
 var configPath = ResolveConfigPath(args);
+var dbPath = ResolveDbPath(args);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +27,15 @@ var configProvider = new FileConfigProvider(
     TimeProvider.System,
     bootstrapLoggers.CreateLogger<FileConfigProvider>());
 builder.Services.AddSingleton<IConfigProvider>(configProvider);
+
+// The routing-table persistence store (pdn.db). Created eagerly so it can hydrate
+// NetRomService at start; registered as the singleton INetRomRoutingStore the hosted
+// service injects. A store fault degrades to in-memory — it never fails the node.
+var routingStore = new SqliteNetRomRoutingStore(
+    dbPath,
+    bootstrapLoggers.CreateLogger<SqliteNetRomRoutingStore>());
+builder.Services.AddSingleton<INetRomRoutingStore>(routingStore);
+
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<NodeHostedService>();
@@ -57,6 +68,21 @@ static string ResolveConfigPath(string[] args)
     }
     var env = Environment.GetEnvironmentVariable("PACKETNET_CONFIG");
     return !string.IsNullOrWhiteSpace(env) ? env : Path.Combine(Directory.GetCurrentDirectory(), "packetnet.yaml");
+}
+
+static string ResolveDbPath(string[] args)
+{
+    // --db <path> wins, then PACKETNET_DB, then pdn.db in the working directory —
+    // which on the packaged node is the writable StateDirectory (/var/lib/packetnet).
+    for (int i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i] is "--db")
+        {
+            return args[i + 1];
+        }
+    }
+    var env = Environment.GetEnvironmentVariable("PACKETNET_DB");
+    return !string.IsNullOrWhiteSpace(env) ? env : Path.Combine(Directory.GetCurrentDirectory(), "pdn.db");
 }
 
 /// <summary>Exposed so the WebApplicationFactory-based host test can boot this

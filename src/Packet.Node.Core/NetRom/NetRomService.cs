@@ -54,6 +54,10 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     // is healthy.
     private static readonly TimeSpan InterlinkDisconnectGrace = TimeSpan.FromSeconds(8);
 
+    // How long after the last NODES ingest to wait before persisting the table — a
+    // debounce so a burst of broadcast frames produces one write, not dozens.
+    private static readonly TimeSpan PersistDebounce = TimeSpan.FromSeconds(30);
+
     private readonly NetRomConfig config;
     private readonly NetRomRoutingTable table;
     private readonly NetRomRoutingOptions routingOptions;
@@ -62,6 +66,8 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     private readonly ILogger<NetRomService> logger;
     private readonly ITimer? sweepTimer;
     private readonly CircuitManager? circuits;
+    private readonly INetRomRoutingStore? store;
+    private readonly ITimer? persistTimer;
 
     // Live port attachments: portId -> attachment. Concurrent because attach/detach
     // run on the reconcile worker while FrameTraced fires on listener pump threads.
@@ -113,12 +119,22 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// for the outbound connector + tests.</summary>
     public CircuitManager? Circuits => circuits;
 
-    /// <summary>Construct the service from the node's NET/ROM config.</summary>
-    public NetRomService(NetRomConfig config, TimeProvider? timeProvider = null, ILogger<NetRomService>? logger = null)
+    /// <summary>Construct the service from the node's NET/ROM config. When
+    /// <paramref name="store"/> is supplied the learned routing table is persisted to it
+    /// — hydrated (downtime-aged) on construction and saved on the sweep tick, after a
+    /// debounced ingest, and on graceful dispose — so a restart does not lose the
+    /// learned topology. Null = in-memory only (the default; every existing call site
+    /// and test is unchanged).</summary>
+    public NetRomService(
+        NetRomConfig config,
+        TimeProvider? timeProvider = null,
+        ILogger<NetRomService>? logger = null,
+        INetRomRoutingStore? store = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.logger = logger ?? NullLogger<NetRomService>.Instance;
+        this.store = store;
 
         routingOptions = ResolveRoutingOptions(config);
         circuitOptions = ResolveCircuitOptions(config);
@@ -126,11 +142,26 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
         if (config.Enabled)
         {
-            var interval = TimeSpan.FromSeconds(config.SweepIntervalSeconds is > 0 ? config.SweepIntervalSeconds.Value : 3600);
+            var interval = SweepInterval(config);
+
+            // Hydrate the table from the store BEFORE the sweep timer arms, ageing the
+            // persisted routes by however many broadcast intervals elapsed while we
+            // were down (so a long-dead route is not restored at full obsolescence).
+            HydrateFromStore(interval);
+
             // The NODESINTERVAL tick: ages the table (obsolescence) and, when
             // broadcast is on, originates our NODES broadcast. It never disturbs a
             // session — broadcasts are UI frames, the sweep is pure table maintenance.
             sweepTimer = this.timeProvider.CreateTimer(_ => OnInterval(), state: null, dueTime: interval, period: interval);
+
+            // A one-shot debounce that persists the table a short while after the last
+            // ingest, so routes learned between sweeps survive an ungraceful crash.
+            // Idle until ArmPersist() fires it.
+            if (store is not null)
+            {
+                persistTimer = this.timeProvider.CreateTimer(
+                    _ => SaveSnapshot(), state: null, dueTime: Timeout.InfiniteTimeSpan, period: Timeout.InfiniteTimeSpan);
+            }
 
             if (config.Connect)
             {
@@ -139,6 +170,30 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
                 circuits.IncomingCircuit += OnIncomingCircuit;
             }
         }
+    }
+
+    private static TimeSpan SweepInterval(NetRomConfig config) =>
+        TimeSpan.FromSeconds(config.SweepIntervalSeconds is > 0 ? config.SweepIntervalSeconds.Value : 3600);
+
+    // Load the persisted routing table (if any) into the fresh table, ageing each route
+    // by the elapsed downtime measured in sweep intervals. Resilient: the store returns
+    // null on any failure, and Restore of an empty/odd snapshot is harmless.
+    private void HydrateFromStore(TimeSpan sweepInterval)
+    {
+        if (store is null || store.Load() is not { } persisted)
+        {
+            return;
+        }
+
+        int decay = 0;
+        var elapsed = timeProvider.GetUtcNow() - persisted.SavedAt;
+        if (elapsed > TimeSpan.Zero && sweepInterval > TimeSpan.Zero)
+        {
+            decay = (int)Math.Min(elapsed.Ticks / sweepInterval.Ticks, int.MaxValue);
+        }
+
+        table.Restore(persisted.Snapshot, decay);
+        LogRestored(persisted.Snapshot.DestinationCount, persisted.Snapshot.NeighbourCount, decay);
     }
 
     private static NetRomRoutingOptions ResolveRoutingOptions(NetRomConfig config)
@@ -355,6 +410,36 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// <summary>Age the routing table by one obsolescence tick (test-driven decay).</summary>
     public int Sweep() => config.Enabled ? table.Sweep() : 0;
 
+    // (Re)arm the debounce so the table is persisted shortly after the last ingest.
+    private void ArmPersist() => persistTimer?.Change(PersistDebounce, Timeout.InfiniteTimeSpan);
+
+    // Persist the current table snapshot. No-op without a store; resilient — the store
+    // swallows + logs its own faults and we guard here too, so a persist can never
+    // disturb the node.
+    private void SaveSnapshot()
+    {
+        if (store is null || !config.Enabled)
+        {
+            return;
+        }
+        try
+        {
+            store.Save(table.Snapshot(), timeProvider.GetUtcNow());
+        }
+        catch (Exception ex)
+        {
+            LogPersistFault(ex);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "NET/ROM: restored {Destinations} destination(s) + {Neighbours} neighbour(s) from the routing store (obsolescence aged {Decay} interval(s)).")]
+    private partial void LogRestored(int destinations, int neighbours, int decay);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "NET/ROM: failed to persist the routing table; continuing in-memory.")]
+    private partial void LogPersistFault(Exception ex);
+
     // ─── L3: the read-only tap ──────────────────────────────────────────
 
     private void OnFrameTraced(string portId, Callsign myCall, Ax25FrameEventArgs e)
@@ -381,6 +466,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
             table.Ingest(originator, myCall, portId, broadcast);
             LogHeard(portId, originatorText, broadcast.SenderAlias, broadcast.Entries.Count);
+            ArmPersist();
         }
         catch (Exception ex)
         {
@@ -407,6 +493,9 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             {
                 BroadcastNodes();
             }
+
+            // Persist the freshly-aged table (no-op without a store).
+            SaveSnapshot();
         }
         catch (Exception ex)
         {
@@ -812,6 +901,8 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         {
             return;
         }
+        SaveSnapshot();             // final flush before teardown
+        persistTimer?.Dispose();
         sweepTimer?.Dispose();
         circuits?.Dispose();
         foreach (var portId in attachments.Keys.ToArray())
@@ -837,6 +928,8 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         {
             return;
         }
+        SaveSnapshot();             // final flush before teardown
+        persistTimer?.Dispose();
         sweepTimer?.Dispose();
         // Tear the L4 circuits down first so their Disconnect Requests ride the
         // interlinks while those AX.25 sessions are still up.

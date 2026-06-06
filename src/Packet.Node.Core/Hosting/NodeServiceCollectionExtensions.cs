@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Packet.Node.Core.Configuration;
+using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Transports;
 
 namespace Packet.Node.Core.Hosting;
@@ -21,7 +22,9 @@ public static class NodeServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configPath">Path to the YAML config file.</param>
-    public static IServiceCollection AddPacketNode(this IServiceCollection services, string configPath)
+    /// <param name="dbPath">Path to the SQLite store (<c>pdn.db</c>) for routing-table
+    /// persistence; null skips persistence (the table is in-memory only).</param>
+    public static IServiceCollection AddPacketNode(this IServiceCollection services, string configPath, string? dbPath = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configPath);
@@ -33,6 +36,13 @@ public static class NodeServiceCollectionExtensions
 
         services.TryAddSingleton<ITransportFactory>(TransportFactory.Instance);
         services.TryAddSingleton(TimeProvider.System);
+
+        if (!string.IsNullOrWhiteSpace(dbPath))
+        {
+            services.TryAddSingleton<INetRomRoutingStore>(sp => new SqliteNetRomRoutingStore(
+                dbPath,
+                sp.GetService<ILoggerFactory>()?.CreateLogger<SqliteNetRomRoutingStore>()));
+        }
 
         services.AddHostedService<NodeHostedService>();
         return services;
