@@ -215,6 +215,76 @@ public sealed class NetRomRoutingTable
     }
 
     /// <summary>
+    /// Replace the table's contents with a persisted <see cref="NetRomRoutingSnapshot"/>
+    /// — the hydrate path a node host uses at startup to restore the routing table it
+    /// had learned before a restart, so the node is not blind until the next NODES
+    /// broadcast. Pure table maintenance (no I/O). Each restored route's obsolescence
+    /// is reduced by <paramref name="obsolescenceDecay"/> (the number of broadcast
+    /// intervals that elapsed while the node was down), so a route last refreshed long
+    /// ago is not resurrected at full strength; a route decaying to ≤ 0 is dropped, a
+    /// destination left with no routes is not restored, and a neighbour left with no
+    /// route is pruned — matching what the elapsed <see cref="Sweep"/>s would have
+    /// produced. Intended to run once on a fresh table before any ingest.
+    /// </summary>
+    /// <param name="snapshot">The persisted snapshot to load.</param>
+    /// <param name="obsolescenceDecay">Obsolescence to subtract from every route
+    /// (elapsed-downtime aging); 0 restores the snapshot verbatim.</param>
+    public void Restore(NetRomRoutingSnapshot snapshot, int obsolescenceDecay = 0)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var decay = Math.Max(0, obsolescenceDecay);
+
+        lock (gate)
+        {
+            destinations.Clear();
+            neighbours.Clear();
+
+            foreach (var n in snapshot.Neighbours)
+            {
+                neighbours[n.Neighbour] = new NeighbourState
+                {
+                    Alias = n.Alias,
+                    PortId = n.PortId,
+                    PathQuality = n.PathQuality,
+                    LastHeard = n.LastHeard,
+                };
+            }
+
+            foreach (var d in snapshot.Destinations)
+            {
+                var routes = new Dictionary<Callsign, RouteState>(d.Routes.Count);
+                foreach (var r in d.Routes)
+                {
+                    int obs = r.Obsolescence - decay;
+                    if (obs <= 0)
+                    {
+                        continue;   // aged out during the downtime
+                    }
+                    routes[r.Neighbour] = new RouteState
+                    {
+                        Neighbour = r.Neighbour,
+                        Quality = r.Quality,
+                        Obsolescence = obs,
+                    };
+                }
+                if (routes.Count == 0)
+                {
+                    continue;       // every route to this destination aged out
+                }
+                destinations[d.Destination] = new DestinationState
+                {
+                    Alias = d.Alias,
+                    Routes = routes,
+                };
+            }
+
+            // A neighbour whose only routes aged out is now an orphan — drop it, so the
+            // restored table matches what the elapsed live Sweeps would have produced.
+            PruneOrphanNeighbours();
+        }
+    }
+
+    /// <summary>
     /// Build the destination entries to advertise in our own NODES broadcast — the
     /// L3-origination view of the table. For each known destination we advertise its
     /// best route's quality via its best next-hop neighbour, gated by

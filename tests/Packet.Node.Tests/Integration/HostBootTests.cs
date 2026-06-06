@@ -38,6 +38,9 @@ public sealed class HostBootTests : IDisposable
                 port: 8080
             """);
         Environment.SetEnvironmentVariable("PACKETNET_CONFIG", configPath);
+        // Point the routing store at the same temp dir so the WAF-hosted node doesn't
+        // create a pdn.db in the test working directory (or clash across test classes).
+        Environment.SetEnvironmentVariable("PACKETNET_DB", Path.Combine(dir, "pdn.db"));
     }
 
     private sealed class NodeAppFactory : WebApplicationFactory<Program>
@@ -76,6 +79,7 @@ public sealed class HostBootTests : IDisposable
     {
         GC.SuppressFinalize(this);
         Environment.SetEnvironmentVariable("PACKETNET_CONFIG", null);
+        Environment.SetEnvironmentVariable("PACKETNET_DB", null);
         try
         {
             var dir = Path.GetDirectoryName(configPath);

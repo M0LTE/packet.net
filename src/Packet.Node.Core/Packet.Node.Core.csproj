@@ -24,6 +24,9 @@
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- Routing-table persistence (pdn.db). Raw SQL + Dapper, no EF (plan §3). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Dapper" />
   </ItemGroup>
 
   <PropertyGroup>
