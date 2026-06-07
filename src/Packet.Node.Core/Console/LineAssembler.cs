@@ -12,7 +12,9 @@ namespace Packet.Node.Core.Console;
 /// Line-terminator handling is permissive on purpose: telnet clients send
 /// CR-LF, raw TCP tools send LF, and AX.25 terminals send a bare CR. All three
 /// resolve to "one line". An empty line (a lone terminator) is yielded as an
-/// empty string so the console re-prompts.
+/// empty string so the console re-prompts. A telnet "CR alone" arrives as
+/// CR-NUL (RFC 854); the NUL (also telnet's NOP) is dropped, never treated as
+/// content — otherwise it would prepend to the following line.
 /// </remarks>
 public sealed class LineAssembler
 {
@@ -40,6 +42,16 @@ public sealed class LineAssembler
         var span = chunk.Span;
         foreach (var b in span)
         {
+            // Telnet sends NUL both as NOP and as the second byte of "CR alone"
+            // (CR-NUL, RFC 854) — it is never line content, so drop it. Without
+            // this, a CR-NUL "Enter" leaves the NUL behind to prepend to the next
+            // line, so a relayed command such as "/quit" reaches the peer as
+            // "\0/quit" and isn't recognised.
+            if (b == 0)
+            {
+                continue;
+            }
+
             // Coalesce CR-LF: an LF immediately after a CR is swallowed (the CR
             // already ended the line).
             if (b == (byte)'\n' && lastWasCr)
