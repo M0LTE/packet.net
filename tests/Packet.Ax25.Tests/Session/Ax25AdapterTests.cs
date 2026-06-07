@@ -195,4 +195,49 @@ public class Ax25AdapterTests
         // and emitted a UA back to A.
         b.Session.CurrentState.Should().Be("Connected");
     }
+
+    /// <summary>
+    /// m0lte/packet.net#327, adapter construction site: an I-frame received
+    /// while the session has no reply data must still elicit the figc4.x
+    /// delayed-ack RR. The adapter's <c>sendLinkMux</c> grants the SDL's
+    /// <c>LM-SEIZE Request</c> by posting <c>LM-SEIZE Confirm</c> back
+    /// (deferred by PostEvent's run-to-completion queue, so it dispatches
+    /// after t26 has set Ack-Pending); t22 then flushes the RR via
+    /// <c>Enquiry Response (F=0)</c>. The listener-site equivalent lives in
+    /// <c>Ax25ListenerDelayedAckTests</c>.
+    /// </summary>
+    [Fact]
+    public void Idle_Received_I_Frame_Is_Acknowledged_With_RR()
+    {
+        var emittedBytes = new List<byte[]>();
+        var ctx = NewContext(local: "M0LTE", remote: "G7XYZ");
+        var time = new FakeTimeProvider();
+        var scheduler = new SystemTimerScheduler(time);
+
+        // Default (frame-aware) bindings; session parked directly in
+        // Connected with a fresh context (V(s)=V(r)=V(a)=0).
+        var adapter = new Ax25Adapter(
+            context:      ctx,
+            scheduler:    scheduler,
+            transitions:  RealTransitions,
+            initialState: "Connected",
+            sendBytes:    b => emittedBytes.Add(b.ToArray()));
+
+        // Peer sends an in-sequence I-frame (N(s)=0, P=0). We send nothing.
+        var inbound = Ax25Frame.I(
+            new Callsign("M0LTE", 0), new Callsign("G7XYZ", 0),
+            nr: 0, ns: 0, info: "QSL?"u8.ToArray(), pollBit: false);
+        adapter.OnReceivedAx25Bytes(inbound.ToBytes()).Should().BeTrue();
+
+        // The delayed ack must have flushed synchronously (the deferred
+        // LM-SEIZE Confirm dispatches in the same PostEvent drain): exactly
+        // one RR response, N(R)=1, F=0 — and no runaway re-seize loop.
+        emittedBytes.Should().ContainSingle("the only emission is the delayed-ack RR");
+        Ax25Frame.TryParse(emittedBytes[0], out var ack).Should().BeTrue();
+        (ack!.Control & 0x0F).Should().Be(0x01, "the ack is an RR S-frame");
+        ack.Nr.Should().Be(1, "the RR acknowledges the received I-frame");
+        ack.IsResponse.Should().BeTrue("Enquiry Response (F=0) emits a response frame");
+        ack.PollFinal.Should().BeFalse("a delayed ack is F=0, not a poll answer");
+        ctx.AcknowledgePending.Should().BeFalse("t22 clears Ack-Pending when the RR flushes");
+    }
 }

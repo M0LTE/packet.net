@@ -143,7 +143,6 @@ public class Ax25ListenerRejectAndEdgeTests
         modem.InjectInbound(Ax25Frame.Sabm(LocalCall, PeerCallA));
         var sessionA = await aAccepted.Task.WithTimeout(TimeSpan.FromSeconds(2));
         await modem.SentFrames.WaitForCountAsync(1, TimeSpan.FromSeconds(2));
-        var uaCount = modem.SentFrames.Count;
 
         // Flip the door shut.
         listener.AcceptIncoming = false;
@@ -162,13 +161,17 @@ public class Ax25ListenerRejectAndEdgeTests
         await ListenerTestSupport.WaitFor(() => !aData.IsEmpty, TimeSpan.FromSeconds(2),
             "peer A's existing session must keep processing I-frames even after AcceptIncoming flips to false");
 
-        // Peer B (new) is rejected — DM, no SessionAccepted.
+        // Peer B (new) is rejected — DM, no SessionAccepted. Don't index the
+        // modem positionally: peer A's I-frame above also elicits its
+        // delayed-ack RR (#327), so the reply to B is found by destination.
         modem.InjectInbound(Ax25Frame.Sabm(LocalCall, PeerCallB));
-        await modem.SentFrames.WaitForCountAsync(uaCount + 1, TimeSpan.FromSeconds(2));
+        await ListenerTestSupport.WaitFor(
+            () => FramesTo(modem, PeerCallB).Any(),
+            TimeSpan.FromSeconds(2), "peer B's SABM must elicit a reply");
 
-        var rejectFrame = modem.SentFrames[modem.SentFrames.Count - 1];
-        Ax25Frame.TryParse(rejectFrame.Span, out var reply).Should().BeTrue();
-        (reply!.Control & 0xEF).Should().Be(0x0F, "peer B's SABM must elicit DM (rejection), not UA");
+        var repliesToB = FramesTo(modem, PeerCallB).ToList();
+        repliesToB.Should().ContainSingle("peer B gets exactly one reply — the rejection");
+        (repliesToB[0].Control & 0xEF).Should().Be(0x0F, "peer B's SABM must elicit DM (rejection), not UA");
 
         // bAccepted must not have fired.
         bAccepted.Task.IsCompleted.Should().BeFalse(
@@ -531,5 +534,21 @@ public class Ax25ListenerRejectAndEdgeTests
         // the wire.
         await modem.SentFrames.WaitForCountAsync(2, TimeSpan.FromSeconds(2));
         modem.SentFrames.Count.Should().Be(2);
+    }
+
+    /// <summary>
+    /// Parsed outbound frames addressed to <paramref name="peer"/> —
+    /// destination-keyed so assertions stay valid when unrelated traffic
+    /// (e.g. another peer's delayed-ack RR, #327) shares the modem.
+    /// </summary>
+    private static IEnumerable<Ax25Frame> FramesTo(LoopbackModem modem, Callsign peer)
+    {
+        foreach (var bytes in modem.SentFrames.SnapshotList())
+        {
+            if (Ax25Frame.TryParse(bytes.Span, out var frame) && frame!.Destination.Callsign == peer)
+            {
+                yield return frame;
+            }
+        }
     }
 }
