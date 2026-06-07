@@ -1,0 +1,113 @@
+namespace Packet.NetRom.Wire;
+
+/// <summary>
+/// The tunable knobs of the INP3 link-timing overlay — the probe cadence, the
+/// reflection-timeout reset window, the SNTT smoother gain, optimistic-probe
+/// policy, and the advertised capability text. Mirrors
+/// <see cref="NetRomCircuitOptions"/> / <see cref="Packet.NetRom.Routing.NetRomRoutingOptions"/>:
+/// a <see cref="Default"/> preset and validated ranges, every divergence a named
+/// knob defaulted to an interoperable value (CLAUDE.md "spec-faithful core,
+/// pragmatism is a named flag").
+/// </summary>
+/// <remarks>
+/// <para>
+/// All durations are driven by an injected <see cref="System.TimeProvider"/> (the
+/// engine converts them to milliseconds against a <em>monotonic</em> source) — no
+/// wall-clock anywhere in the INP3 layer.
+/// </para>
+/// <para>
+/// The SNTT gain (<see cref="SnttGainShift"/>) is interop-<em>tuning</em>, not
+/// wire-compat: two nodes never exchange their smoothing constant, only the
+/// resulting (advisory) SNTT-derived target times in RIPs. It does not have to
+/// match a peer to interoperate — but cross-stack parity requires all three stacks
+/// (C# / TS / Rust) use the same configured value (the "identical given identical
+/// config" discipline, like the quality floor).
+/// </para>
+/// </remarks>
+public sealed record NetRomInp3Options
+{
+    /// <summary>
+    /// How often to probe each (capable / optimistically-probed) interlink
+    /// neighbour with an L3RTT datagram. Plan §8 <c>l3RttIntervalSeconds</c> default
+    /// <b>60 s</b>.
+    /// </summary>
+    public TimeSpan L3RttInterval { get; init; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Reflection-timeout → reset: how long a neighbour may go without reflecting a
+    /// probe before its INP3 state is torn down (and, for an INP3-capable
+    /// neighbour, <c>NeighbourDown</c> is raised). Plan §8 <c>l3RttResetSeconds</c>
+    /// default <b>180 s</b> (the spec value). Must exceed
+    /// <see cref="L3RttInterval"/> — a reset window shorter than one probe interval
+    /// would tear down a live neighbour before it could answer.
+    /// </summary>
+    public TimeSpan L3RttResetWindow { get; init; } = TimeSpan.FromSeconds(180);
+
+    /// <summary>
+    /// The SNTT IIR gain expressed as a right-shift: <c>gain = 1 / (1 &lt;&lt; SnttGainShift)</c>.
+    /// Default <b>3</b> ⇒ gain <c>1/8</c> (the AX.25 SRT convention; shift-by-3, no
+    /// multiply). Interop-tuning, <b>not</b> wire-compat (AMBIGUITY-I2-1). Valid
+    /// range <b>1..8</b> (gain 1/2 .. 1/256): 0 means gain 1 = no smoothing
+    /// (pointless) and &gt; 8 is sluggish past usefulness.
+    /// </summary>
+    public int SnttGainShift { get; init; } = 3;
+
+    /// <summary>
+    /// Probe interlink neighbours whose INP3 capability is not yet known, to
+    /// bootstrap discovery (we only learn a peer speaks INP3 by receiving its
+    /// probe — AMBIGUITY-I2-2, so we must probe first). Default <b>true</b>. A
+    /// never-capable neighbour that never reflects is dropped from probing silently
+    /// after one reset window — it is <em>never</em> <c>MarkNeighbourDown</c>'d
+    /// (AMBIGUITY-I2-3 guard); only an INP3-capable neighbour that goes silent
+    /// raises <c>NeighbourDown</c>.
+    /// </summary>
+    public bool ProbeUnknownCapability { get; init; } = true;
+
+    /// <summary>
+    /// The IP version to advertise in our probes' <c>$IX</c> capability token (e.g.
+    /// <c>4</c>), or <c>null</c> for none (<c>$N</c> only). Plan §8
+    /// <c>advertiseIp</c>; off unless we run IP-over-NET/ROM. Must be a single
+    /// decimal digit 0–9 when set.
+    /// </summary>
+    public int? AdvertiseIpAccept { get; init; }
+
+    /// <summary>
+    /// The emit-side capability-text pad width for probes we build
+    /// (AMBIGUITY-L3RTT-3). Default <see cref="Inp3L3RttFrame.DefaultCapabilityTextWidth"/>.
+    /// The recogniser is width-independent, so this is purely cosmetic on the wire.
+    /// </summary>
+    public int CapabilityTextWidth { get; init; } = Inp3L3RttFrame.DefaultCapabilityTextWidth;
+
+    /// <summary>The canonical / widely-interoperable defaults.</summary>
+    public static NetRomInp3Options Default { get; } = new();
+
+    /// <summary>
+    /// Validate the option ranges. Mirrors the other options records' guards; the
+    /// host's config validator surfaces out-of-range YAML (plan §8).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Any field is out of its valid range.</exception>
+    public void Validate()
+    {
+        if (L3RttInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(L3RttInterval), L3RttInterval, "L3RTT probe interval must be positive");
+        }
+        if (L3RttResetWindow <= L3RttInterval)
+        {
+            throw new ArgumentOutOfRangeException(nameof(L3RttResetWindow), L3RttResetWindow,
+                "L3RTT reset window must exceed the probe interval (a shorter window tears down a live neighbour before it can answer)");
+        }
+        if (SnttGainShift is < 1 or > 8)
+        {
+            throw new ArgumentOutOfRangeException(nameof(SnttGainShift), SnttGainShift, "SNTT gain shift must be in [1, 8] (gain 1/2 .. 1/256)");
+        }
+        if (AdvertiseIpAccept is < 0 or > 9)
+        {
+            throw new ArgumentOutOfRangeException(nameof(AdvertiseIpAccept), AdvertiseIpAccept, "advertised IP-accept version must be a single decimal digit 0–9");
+        }
+        if (CapabilityTextWidth < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(CapabilityTextWidth), CapabilityTextWidth, "capability text width must be non-negative");
+        }
+    }
+}
