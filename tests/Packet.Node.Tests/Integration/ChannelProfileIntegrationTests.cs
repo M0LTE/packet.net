@@ -75,9 +75,18 @@ public sealed class ChannelProfileIntegrationTests
         await supervisor.StartAsync();
         await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("p1"), "port p1 should come up");
 
-        // Capture the node-side session as it is accepted.
-        var nodeSession = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
-        supervisor.GetPort("p1")!.Listener.SessionAccepted += (_, e) => nodeSession.TrySetResult(e.Session);
+        // Capture the node-side session — and its T1V — as it is accepted.
+        // The read must happen HERE, synchronously inside the accept dispatch,
+        // not after the banner exchange: since #327 the remote delayed-acks the
+        // node's banner I-frame, which gives the node a live RTT sample and the
+        // figc4.7 SRT IIR correctly adapts T1V (to 7/8 of the seed on a
+        // same-process ~0 RTT). These tests verify the CONFIG PLUMBING — that
+        // the configured value seeds the session — so they must observe T1V
+        // before the first ack lands. At accept time the establishment path
+        // (T1V := 2 x SRT seed) has run and no I-frame can have been acked yet
+        // (the remote's RR needs a later inbound pump iteration).
+        var nodeSession = new TaskCompletionSource<(Ax25Session Session, TimeSpan T1VAtAccept)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        supervisor.GetPort("p1")!.Listener.SessionAccepted += (_, e) => nodeSession.TrySetResult((e.Session, e.Session.Context.T1V));
 
         await using var remote = new RemoteStation(bus.Attach(), RemoteCall);
         await remote.StartAsync();
@@ -87,8 +96,8 @@ public sealed class ChannelProfileIntegrationTests
         // budget is timer-driven + bounded; see Wait.cs / the #47 flake analysis).
         await Wait.ForAsync(() => remote.Saw("TESTNODE"), "the node should answer the connect with its banner");
 
-        var session = await nodeSession.Task.WaitAsync(Wait.DefaultBudget);
+        var (session, t1VAtAccept) = await nodeSession.Task.WaitAsync(Wait.DefaultBudget);
         await Wait.ForAsync(() => session.CurrentState == "Connected", "the node session should reach Connected");
-        return session.Context.T1V;
+        return t1VAtAccept;
     }
 }

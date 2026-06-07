@@ -31,6 +31,13 @@ public sealed class Ax25Session
     private readonly ITimerScheduler scheduler;
     private readonly Action<Ax25Event>? onUnhandledEvent;
 
+    // Run-to-completion machinery: events posted re-entrantly (from inside an
+    // action's signal handler — e.g. a construction site granting LM-SEIZE by
+    // posting LM-SEIZE-confirm back) are queued here and dispatched after the
+    // in-flight transition commits. See PostEvent's remarks. (#327)
+    private readonly Queue<Ax25Event> deferredEvents = new();
+    private bool dispatching;
+
     /// <summary>The session's mutable per-connection state.</summary>
     public Ax25SessionContext Context { get; }
 
@@ -168,15 +175,55 @@ public sealed class Ax25Session
     /// <c>Next</c>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Events with no matching transition are passed to
     /// <see cref="onUnhandledEvent"/> (or silently dropped). The current
     /// state is unchanged in that case.
+    /// </para>
+    /// <para>
+    /// Dispatch is run-to-completion: a <see cref="PostEvent"/> issued from
+    /// <em>inside</em> a dispatch (an action's signal handler posting back into
+    /// the session — e.g. the construction sites granting <c>LM-SEIZE</c> by
+    /// answering the <c>LM-SEIZE Request</c> signal with an
+    /// <see cref="LmSeizeConfirm"/>) is deferred and dispatched after the
+    /// in-flight transition commits, in post order. Inline re-entrant dispatch
+    /// would corrupt <see cref="CurrentTrigger"/>/<see cref="CurrentState"/>
+    /// (the outer transition's <c>Next</c> would clobber the inner's), and in
+    /// figc4.3's I-frame path the <c>LM-SEIZE Request</c> action runs
+    /// <em>before</em> <c>Set Ack Pending</c>, so an inline confirm would
+    /// match the no-ack-pending branch and silently drop the delayed ack
+    /// (m0lte/packet.net#327). If a dispatch throws, any not-yet-dispatched
+    /// deferred events are dropped — consistent with the #225 contract where a
+    /// failed transition keeps the session alive and leaves recovery to
+    /// T1/N2 rather than running follow-on work against half-applied state.
+    /// </para>
     /// </remarks>
     public void PostEvent(Ax25Event evt)
     {
         ArgumentNullException.ThrowIfNull(evt);
-        DispatchEvent(evt);
-        DrainIFrameQueue();
+
+        if (dispatching)
+        {
+            deferredEvents.Enqueue(evt);
+            return;
+        }
+
+        dispatching = true;
+        try
+        {
+            DispatchEvent(evt);
+            DrainIFrameQueue();
+            while (deferredEvents.TryDequeue(out var deferred))
+            {
+                DispatchEvent(deferred);
+                DrainIFrameQueue();
+            }
+        }
+        finally
+        {
+            dispatching = false;
+            deferredEvents.Clear();
+        }
     }
 
     private void DispatchEvent(Ax25Event evt)

@@ -170,7 +170,17 @@ public class KissAx25BridgeTests
         // becomes the other adapter's inbound. Verifies the full path:
         //   adapter A sendBytes → modem A.SendFrameAsync (captures)
         //   → loopback delivery → adapter B.OnReceivedAx25Frame
-        //   → A goes to AwaitingConnection, B goes to Connected.
+        //   → BOTH sides reach Connected: the loopback is synchronous, so
+        //   B's UA arrives back at A while A's DL-CONNECT dispatch is still
+        //   in flight; PostEvent's run-to-completion queue (#327) defers it
+        //   and dispatches it right after t03 commits, completing A's
+        //   connect in the same drain.
+        //
+        // (Before #327 this test pinned the re-entrancy corruption: the UA
+        // dispatched INLINE mid-transition, advanced A to Connected, and
+        // then t03's commit clobbered the state back to AwaitingConnection
+        // — the previous assertion here. That was the artifact, not the
+        // contract.)
         var time = new FakeTimeProvider();
         var ctxA = new Ax25SessionContext { Local = Local,  Remote = Remote };
         var ctxB = new Ax25SessionContext { Local = Remote, Remote = Local  };
@@ -211,7 +221,8 @@ public class KissAx25BridgeTests
 
         aRef.Session.PostEvent(new DlConnectRequest());
 
-        aRef.Session.CurrentState.Should().Be("AwaitingConnection");
+        aRef.Session.CurrentState.Should().Be("Connected",
+            "the synchronously-looped UA is deferred and dispatched after t03 commits — A's connect completes in one drain");
         bRef.Session.CurrentState.Should().Be("Connected");
     }
 

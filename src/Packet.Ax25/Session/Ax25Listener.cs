@@ -757,7 +757,18 @@ public sealed class Ax25Listener : IAsyncDisposable
             sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendUpward:    SendUpward,
-            sendLinkMux:   _ => { },
+            // Grant LM-SEIZE immediately: the listener fronts a KISS modem
+            // (TCP / serial / loopback), so the medium is contention-free from
+            // the session's point of view — real channel access (CSMA
+            // persist/slottime) is the TNC's job, and it buffers. Without the
+            // grant the figc4.x delayed ack (Set Ack Pending + LM-SEIZE
+            // Request → RR on LM-SEIZE Confirm) never flushes, so a session
+            // with no reply data never acknowledges received I-frames and the
+            // peer retries into link failure (#327). The post is deferred by
+            // PostEvent's run-to-completion queue, so the confirm dispatches
+            // after the in-flight transition (with Ack-Pending set). Bounded:
+            // the confirm path only emits LM-RELEASE, never a re-seize.
+            sendLinkMux:   signal => { if (signal is LinkMultiplexerSeizeRequest) sessionRef!.PostEvent(new LmSeizeConfirm()); },
             // The data-link figc4.6 UA-received path raises MDL-NEGOTIATE Request
             // after a successful v2.2 connect; hand it to the MDL driver to open
             // the XID exchange. (Other internal signals — push_I_frame_queue — are

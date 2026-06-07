@@ -93,7 +93,18 @@ public sealed class Ax25Adapter
             sendUiFrame:   SendUi,
             sendIFrame:    SendI,
             sendUpward:    _ => { /* DL-layer signals stay in-memory for the caller to subscribe to via Context */ },
-            sendLinkMux:   _ => { /* LM signals: medium-access; passthrough to a wider link layer not yet wired */ },
+            // Grant LM-SEIZE immediately: the media this adapter fronts
+            // (AXUDP / KISS-TCP / KISS-serial) are contention-free from the
+            // session's point of view — any real channel access (CSMA
+            // persist/slottime) is the TNC's job, and it buffers. Without the
+            // grant the figc4.x delayed ack (Set Ack Pending + LM-SEIZE
+            // Request → RR on LM-SEIZE Confirm) never flushes, so a session
+            // with no reply data never acknowledges received I-frames and the
+            // peer retries into link failure (#327). The post is deferred by
+            // PostEvent's run-to-completion queue, so the confirm dispatches
+            // after the in-flight transition (with Ack-Pending set). Bounded:
+            // the confirm path only emits LM-RELEASE, never a re-seize.
+            sendLinkMux:   signal => { if (signal is LinkMultiplexerSeizeRequest) Session!.PostEvent(new LmSeizeConfirm()); },
             sendInternal:  _ => { /* internal signals: queue-management already mutates Context directly */ },
             subroutines:   subroutines);
 
