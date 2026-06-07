@@ -177,6 +177,52 @@ public sealed class NetRomRoutingTable
     }
 
     /// <summary>
+    /// React to a neighbour going down — its interlink could not be raised (it did
+    /// not answer the connect) or its quality collapsed — by immediately dropping
+    /// every route that forwards through it, and the neighbour entry itself. This is
+    /// the explicit link-down failover signal: instead of waiting for the
+    /// obsolescence <see cref="Sweep"/> to age the now-dead routes out over the
+    /// broadcast interval (during which forwarding / connect-routing would keep
+    /// choosing a route that can't carry traffic), the dead routes leave the table at
+    /// once, so the very next forward or connect decision fails over to an alternate
+    /// next hop. A destination that loses all its routes is removed; it and the
+    /// neighbour re-learn naturally from the next NODES broadcast if the neighbour
+    /// returns. Idempotent — marking an unknown / already-removed neighbour down is a
+    /// no-op returning 0.
+    /// </summary>
+    /// <param name="neighbour">The neighbour whose routes to drop.</param>
+    /// <returns>The number of routes dropped (across all destinations).</returns>
+    public int MarkNeighbourDown(Callsign neighbour)
+    {
+        lock (gate)
+        {
+            int dropped = 0;
+            var emptyDestinations = new List<Callsign>();
+
+            foreach (var (destCall, dest) in destinations)
+            {
+                if (dest.Routes.Remove(neighbour))
+                {
+                    dropped++;
+                }
+                if (dest.Routes.Count == 0)
+                {
+                    emptyDestinations.Add(destCall);
+                }
+            }
+
+            foreach (var dc in emptyDestinations)
+            {
+                destinations.Remove(dc);
+            }
+
+            neighbours.Remove(neighbour);
+            PruneOrphanNeighbours();
+            return dropped;
+        }
+    }
+
+    /// <summary>
     /// Take an immutable snapshot of the current table — destinations with their
     /// best-first routes, and the directly-heard neighbours. Ordering is stable
     /// (alias-or-callsign for destinations, callsign for neighbours) so the
