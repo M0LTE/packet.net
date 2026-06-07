@@ -58,6 +58,11 @@ public static class NodeConfigTemplate
         #      txDelay: 30         # units of 10 ms
         #      persistence: 63
         #      slotTime: 10
+        #      txTail: 5           # units of 10 ms. Needed by SOFTWARE modems
+        #                          # (direwolf/samoyed/soundcard) or they clip the
+        #                          # end of a transmission; a hardware TNC with an
+        #                          # analogue audio path needs none. The
+        #                          # slow-afsk1200 profile sets this for you.
         #  - id: hf
         #    enabled: false
         #    transport:
@@ -68,7 +73,8 @@ public static class NodeConfigTemplate
         #    enabled: false
         #    profile: slow-afsk1200 # slow half-duplex VHF packet: longer, asymmetric
         #                           # T1 (10 s) so the link doesn't stall on contention,
-        #                           # plus sane CSMA. Override any field below.
+        #                           # plus sane CSMA + a software-modem TX tail.
+        #                           # Override any field below.
         #    transport:
         #      kind: nino-tnc
         #      device: /dev/ttyACM1
