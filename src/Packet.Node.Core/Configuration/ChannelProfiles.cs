@@ -2,9 +2,9 @@ namespace Packet.Node.Core.Configuration;
 
 /// <summary>
 /// Named, <b>opt-in</b> per-port channel-tuning profiles. A profile is a small,
-/// documented bundle of AX.25 timer + KISS CSMA defaults suited to a class of
-/// physical channel. It only ever <em>fills in fields the operator left unset</em>
-/// — an explicit value on the port always wins.
+/// documented bundle of AX.25 timer + KISS CSMA/TX-timing defaults suited to a
+/// class of physical channel. It only ever <em>fills in fields the operator left
+/// unset</em> — an explicit value on the port always wins.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -94,9 +94,21 @@ public static class ChannelProfiles
             // AFSK1200 TX warm-up — less than the over-conservative 500 ms spec
             // default, comfortably above a fast modem's floor (operator should
             // tune down for a known-fast TNC).
+            //
+            // TXTAIL=5 (50 ms). A modern AFSK1200 port is almost always a SOFTWARE
+            // modem (direwolf / samoyed / a soundcard) — and a software modem
+            // clips the end of its own transmission without a non-zero TX tail
+            // (the net-sim lab: GB7RDG sending TxTail=0 caused decode collapse;
+            // see docs/plan.md and the lab notes). So a sane tail belongs in the
+            // software-modem channel profile, not as a global node default: a
+            // hardware TNC with an analogue audio path needs no tail, and pinning
+            // one node-wide would be wrong for it (and isn't spec-clean). A 50 ms
+            // tail is harmless to a hardware TNC, so scoping it to this profile is
+            // safe both ways; absent a profile a port still asserts no tail and
+            // gets the modem's own default. Matches GB7RDG's validated TXTAIL=5.
             "slowafsk1200" => (
                 new Ax25PortParams { T1Ms = 10000, N2 = 15 },
-                new KissParams { TxDelay = 30, Persistence = 63, SlotTime = 10 }),
+                new KissParams { TxDelay = 30, Persistence = 63, SlotTime = 10, TxTail = 5 }),
             _ => null,
         };
     }
