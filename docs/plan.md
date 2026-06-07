@@ -6,6 +6,7 @@
 
 **As of:** 2026-05-17
 **Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**Latest amendment:** [§17 entry 2026-06-07 — Captured TOTP (RFC 6238) as an ecosystem-wide on-air authentication direction (new §10.1): authentication-without-encryption is the one auth amateur radio permits, making TOTP a near-ideal gate for privileged on-air commands (pico-node's unauthenticated SET/SAVE/REBOOT; a pdn sysop mode; the BPQ-PASSWORD replacement), trusted peer/interlink + INP3 routing input, and a Phase-4 web/REST/MCP second factor. Idea captured, not scheduled (Tom) (PR TBD)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-07 — Correction: TX tail is a modem + radio-audio-path property, not a channel one — pulled TXTAIL back OFF the `slow-afsk1200` profile (a NinoTNC into a fully analogue path needs no tail even on that exact slow channel; software modems / latency paths do). `kiss.txTail` stays an explicit per-port operator setting, documented; no profile/global default (Tom) (PR TBD)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-07 — NET/ROM link-down failover signal + inbound-interlink hardening: `MarkNeighbourDown` drops a dead neighbour's routes on interlink dial-failure so forward / `connect` re-routes at once (connect runs a failover loop); investigated the Connect-Request-races-SABM/UA case (our side already robust — residual is BPQ-side) + shipped a 0xCF tap-hygiene cleanup. Cross-stack core (C# now; TS/Rust to follow) (PR TBD)](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-07 — Give the `slow-afsk1200` profile a TXTAIL=5 (50 ms) — SUPERSEDED the same day by the correction above; see PR #329 then the revert (PR #329)](#17-amendment-log)
@@ -835,6 +836,16 @@ All write endpoints audit-logged (actor, IP, scope, payload hash) into `config.d
 
 JWT scopes: `frames:read`, `ports:read`, `ports:write`, `sessions:write`, `system:admin`, `mcp:invoke`.
 
+### 10.1 On-air authentication — TOTP (future direction)
+
+Amateur radio forbids *encryption* (obscuring the meaning of a transmission) but **permits — and needs — authentication**; the two are separable, and TOTP (RFC 6238) sits squarely on the allowed side. A TOTP code is a short, time-bound, single-use value derived from a pre-shared seed via HMAC: it travels in cleartext on the air, yet proves liveness + possession of the seed *without ever transmitting a reusable secret*, and can't be replayed after its time step. That makes it a near-ideal authenticator for a cleartext-mandated medium — and a primitive worth weaving through the whole ecosystem (pdn, pico-node, ax25-ts), not only the IP-side management surfaces in the table above. Where it could earn its place:
+
+1. **Privileged on-air commands.** The console already exposes destructive verbs over a cleartext link — pico-node's `SET`/`SAVE`/`REBOOT` (flash config + reboot) are unauthenticated today, and a sysop-mode / remote-config story is coming for pdn. A TOTP challenge would gate those so a passer-by who can merely *reach* the node can't reconfigure or reboot it. This is the modern replacement for BPQ's positional-challenge `PASSWORD` (which we already drive for `SENDNODES` — see the NET/ROM interop notes): same "prove you hold the secret" goal, but standard, non-replayable, and authenticator-app-friendly.
+2. **Trusted peer / interlink authentication.** A node could require a valid TOTP from a neighbour before accepting privileged routing input — a `SENDNODES`-style push, an INP3 peering (see [`netrom-inp3-plan.md`](netrom-inp3-plan.md)), or a trusted interlink — so a rogue station can't inject false routes or impersonate a known node. A per-neighbour shared seed; verification is local and offline.
+3. **Web / REST / MCP second factor.** The conventional use: a TOTP factor alongside the passkey/JWT auth in the table above for the Phase-4 admin surfaces (§5.4 Slice-3). Slots in with no on-air implications.
+
+Design notes / open questions: TOTP needs a roughly-synced clock at both ends — pdn has system time; pico-node has no RTC and would lean on NTP-over-WiFi (or a wider validation window). The step/skew window trades clock tolerance against the replay opportunity (a code is live for its whole step). Seed provisioning + rotation, and the per-node vs per-user vs per-neighbour seed model, are the substantive design decisions. Implementation is small and portable (HMAC-SHA1/SHA-256 + a time counter — fits `no_std` pico-node). **Captured as a direction, not scheduled.**
+
 ---
 
 ## 11. Out of scope for v1
@@ -1004,6 +1015,10 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+
+### 2026-06-07 — TOTP captured as an ecosystem-wide on-air authentication direction (new §10.1) (PR TBD)
+
+Tom: "I could see TOTP playing a really useful part in this whole ecosystem." Captured as a forward-looking direction in a new **§10.1** under the security threat model. The load-bearing insight: amateur radio forbids *encryption* (obscuring meaning) but **permits authentication**, and TOTP (RFC 6238) is authentication-without-encryption — a cleartext, time-bound, single-use, non-replayable code proving possession of a pre-shared seed without ever sending a reusable secret. That makes it a near-ideal fit for a cleartext-mandated medium. §10.1 records three uses spanning pdn / pico-node / ax25-ts: (1) gating **privileged on-air commands** — pico-node's `SET`/`SAVE`/`REBOOT` are unauthenticated today, and it's the modern replacement for BPQ's positional-challenge `PASSWORD`; (2) **trusted peer / interlink / INP3 routing-input authentication** so a rogue station can't inject false routes; (3) a **web/REST/MCP second factor** for the Phase-4 admin surfaces. Plus the design notes (clock-sync dependency — pico-node has no RTC; step/skew vs replay window; seed provisioning + per-node/user/neighbour model; small + `no_std`-portable HMAC implementation). **Idea captured, not scheduled** — no code, no phase commitment yet.
 
 ### 2026-06-07 — NET/ROM link-down failover signal + inbound-interlink hardening (the two Phase-9 follow-ups) (PR TBD)
 
