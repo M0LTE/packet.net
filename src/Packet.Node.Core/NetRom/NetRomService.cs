@@ -119,6 +119,11 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// for the outbound connector + tests.</summary>
     public CircuitManager? Circuits => circuits;
 
+    /// <summary>Test seam (InternalsVisibleTo <c>Packet.Node.Tests</c>): the live
+    /// routing table, so a test can prime routes and inspect link-down failover
+    /// directly instead of staging NODES traffic over a bus.</summary>
+    internal NetRomRoutingTable RoutingTable => table;
+
     /// <summary>Construct the service from the node's NET/ROM config. When
     /// <paramref name="store"/> is supplied the learned routing table is persisted to it
     /// — hydrated (downtime-aged) on construction and saved on the sweep tick, after a
@@ -571,7 +576,18 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         var listener = attachments.TryGetValue(portId, out var a) ? a.Listener : null;
         var peer = session.Context.Remote;
 
-        session.DataLinkSignalEmitted += (_, sig) =>
+        // The tap is declared as a self-referencing local so it can DETACH itself on
+        // disconnect. A cached Ax25Session is reused across disconnect/reconnect (the
+        // listener re-runs figc4.1 on a re-SABM and re-fires SessionAccepted), so if
+        // the tap merely dropped its `tapped` membership on disconnect, the next
+        // accept would add a SECOND closure to the same session and every inbound
+        // datagram would be processed twice. (Today the lower layers absorb it — the
+        // circuit dedups a stale-sequence datagram and byPeerKey dedups a Connect
+        // Request — so it's currently benign, but a duplicated tap is a latent
+        // footgun on exactly the fresh/re-established interlinks this guards.) Detach
+        // on disconnect + remove from `tapped`, so a reconnect re-attaches exactly one.
+        EventHandler<DataLinkSignal> tap = null!;
+        tap = (_, sig) =>
         {
             if (sig is DataLinkDataIndication di && di.Pid == Ax25Frame.PidNetRom)
             {
@@ -585,6 +601,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             }
             else if (sig is DataLinkDisconnectIndication or DataLinkDisconnectConfirm)
             {
+                session.DataLinkSignalEmitted -= tap;
                 tapped.TryRemove(session, out byte _);
                 if (interlinks.TryGetValue(peer, out var link) && ReferenceEquals(link.Session, session))
                 {
@@ -592,6 +609,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
                 }
             }
         };
+        session.DataLinkSignalEmitted += tap;
     }
 
     private void OnInterlinkData(Ax25Session session, ReadOnlyMemory<byte> info)
@@ -764,19 +782,54 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         {
             throw new InvalidOperationException("NET/ROM connect-routing is not enabled on this node.");
         }
-        var best = destination.BestRoute
-            ?? throw new InvalidOperationException($"no usable NET/ROM route to {destination.Destination}.");
+        var destCall = destination.Destination;
 
-        // Ensure the interlink to the best neighbour is up before originating.
-        await EnsureInterlinkAsync(best.Neighbour, ct).ConfigureAwait(false);
+        // Failover loop: try the best route; if the interlink to its neighbour can't
+        // be raised (the neighbour is down), EnsureInterlinkAsync has already marked
+        // that neighbour down — which drops its routes from the table — so re-resolve
+        // the destination's now-best route and try again, until one connects or the
+        // destination has no routes left. This is the connect-side of the link-down
+        // failover signal: a `connect <alias>` re-routes around a dead next hop
+        // instead of failing outright. Bounded by the dwindling route set (each
+        // failure removes a route) with a hard cap as a backstop.
+        for (int attempt = 0; attempt < 1 + NetRomRoutingOptions.Default.MaxRoutesPerDestination; attempt++)
+        {
+            var liveDest = table.Snapshot().ResolveDestination(destCall.ToString());
+            var best = liveDest?.BestRoute
+                ?? throw new InvalidOperationException($"no usable NET/ROM route to {destCall}.");
 
-        var circuit = circuits.OpenCircuit(destination.Destination);
+            try
+            {
+                // Ensure the interlink to the best neighbour is up before originating.
+                await EnsureInterlinkAsync(best.Neighbour, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // EnsureInterlinkAsync marked the neighbour down already; loop to the
+                // next-best route. If that was the last route, the next ResolveDestination
+                // returns null → the throw above surfaces the no-route failure.
+                var failedNeighbour = best.Neighbour.ToString();
+                var failedDest = destCall.ToString();
+                LogConnectFailoverRetry(failedNeighbour, failedDest, ex);
+                continue;
+            }
+
+            return await OriginateCircuitAsync(destCall, originatingUser, ct).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException($"no usable NET/ROM route to {destCall} (all next hops are down).");
+    }
+
+    private async Task<INodeConnection> OriginateCircuitAsync(
+        Callsign destCall, Callsign originatingUser, CancellationToken ct)
+    {
+        var circuit = circuits!.OpenCircuit(destCall);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         circuit.Connected += () => connected.TrySetResult();
         circuit.Closed += r => connected.TrySetException(
-            new IOException($"NET/ROM circuit to {destination.Destination} {r.ToString().ToLowerInvariant()}."));
+            new IOException($"NET/ROM circuit to {destCall} {r.ToString().ToLowerInvariant()}."));
 
-        var connection = new NetRomNodeConnection(circuit, destination.Destination);
+        var connection = new NetRomNodeConnection(circuit, destCall);
         circuit.Connect(originatingUser);
 
         // Wait for Connected (or close), bounded by the cancellation token.
@@ -818,10 +871,27 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
         // Dial the interlink. Prefer the supervisor's claim-aware hook (so no console
         // is started against the neighbour — see OpenInterlink); fall back to a direct
-        // listener dial when no supervisor is wired (unit tests).
-        var session = OpenInterlink is { } open
-            ? await open(attachment.PortId, neighbour, ct).ConfigureAwait(false)
-            : await attachment.Listener.ConnectAsync(neighbour, ct).ConfigureAwait(false);
+        // listener dial when no supervisor is wired (unit tests). A dial that fails
+        // (the neighbour never answered the SABM — ConnectAsync exhausts N2 and throws)
+        // is the explicit link-down signal: mark the neighbour down so its now-dead
+        // routes leave the table at once and the caller (forward / connect failover)
+        // re-routes to an alternate next hop instead of re-dialling a link that isn't
+        // there. A pre-dial setup fault (no port) is a local-config problem, not a
+        // neighbour-down — only the dial itself is guarded.
+        Ax25Session session;
+        try
+        {
+            session = OpenInterlink is { } open
+                ? await open(attachment.PortId, neighbour, ct).ConfigureAwait(false)
+                : await attachment.Listener.ConnectAsync(neighbour, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            int dropped = table.MarkNeighbourDown(neighbour);
+            var downText = neighbour.ToString();
+            LogNeighbourDown(downText, dropped);
+            throw;
+        }
         // Tap the session for inbound NET/ROM (the tap is idempotent — TryAdd guards
         // it — so OnSessionAccepted firing for the dial too is harmless).
         OnSessionAccepted(attachment.PortId, session);
@@ -981,6 +1051,12 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
     [LoggerMessage(Level = LogLevel.Information, Message = "NET/ROM: interlink to {Neighbour} disconnected (clean teardown).")]
     private partial void LogInterlinkClosed(string neighbour);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "NET/ROM: neighbour {Neighbour} down (interlink unreachable) — dropped {Dropped} route(s); failing over.")]
+    private partial void LogNeighbourDown(string neighbour, int dropped);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "NET/ROM: connect via {Neighbour} to {Destination} failed (neighbour down); trying next route.")]
+    private partial void LogConnectFailoverRetry(string neighbour, string destination, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "NET/ROM: inbound circuit from {OriginatingUser} via {RemoteNode}.")]
     private partial void LogInboundCircuit(string remoteNode, string originatingUser);

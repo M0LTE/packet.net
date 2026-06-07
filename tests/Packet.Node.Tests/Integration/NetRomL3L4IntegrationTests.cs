@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Ax25.Session;
 using Packet.Core;
 using Packet.Kiss;
+using Packet.NetRom.Wire;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
@@ -328,5 +329,58 @@ public sealed class NetRomL3L4IntegrationTests
         await Wait.ForAsync(() => user.Saw("timed out") || user.Saw("failed"),
             "the routing-miss fallback dial fails (fast) and is reported");
         user.CurrentState.Should().Be("Connected", "a routing miss must not drop the user's session");
+    }
+
+    [Fact]
+    public async Task A_connect_marks_a_down_next_hop_down_and_fails_over_to_the_alternate_route()
+    {
+        // The link-down failover signal at the connect path: a `connect <alias>`
+        // whose best next-hop neighbour can't be reached marks that neighbour down
+        // (dropping its routes) and re-routes to the destination's next-best route —
+        // instead of failing outright or re-dialling a dead link. See
+        // NetRomService.ConnectCircuitAsync + EnsureInterlinkAsync, and the routing
+        // primitive NetRomRoutingTable.MarkNeighbourDown.
+        var bus = new SharedRadioBus();
+        await using var a = await StartNodeAsync(bus, ANodeCall, "ANODE");
+
+        // Prime A's table with TWO routes to GB7CCC, as if it had heard NODES from
+        // both neighbours: via GB7NB1 (higher quality → best) and via GB7NB2.
+        var nb1 = new Callsign("GB7NB1", 0);
+        var nb2 = new Callsign("GB7NB2", 0);
+        IngestRoute(a.NetRom, originator: nb1, dest: CNodeCall, quality: 250);
+        IngestRoute(a.NetRom, originator: nb2, dest: CNodeCall, quality: 150);
+
+        // Both interlinks are dead: the dial hook throws immediately (deterministic —
+        // no real N2 timeout). Record the dial order to prove the failover walked
+        // from the best route to the alternate.
+        var dialed = new List<Callsign>();
+        a.NetRom.OpenInterlink = (_, neighbour, _) =>
+        {
+            dialed.Add(neighbour);
+            throw new IOException($"{neighbour} did not answer");
+        };
+
+        var dest = a.NetRom.Snapshot().ResolveDestination(CNodeCall.ToString());
+        dest.Should().NotBeNull();
+
+        Func<Task> connect = async () => await a.NetRom.ConnectCircuitAsync(dest!, UserCall);
+        await connect.Should().ThrowAsync<InvalidOperationException>(
+            "with every next hop down, the connect exhausts its routes");
+
+        dialed.Should().Equal([nb1, nb2],
+            "the best route is tried first, then it fails over to the alternate once nb1 is marked down");
+        a.NetRom.Snapshot().ResolveDestination(CNodeCall.ToString())
+            .Should().BeNull("both dead next hops were marked down, so the destination has no routes left");
+    }
+
+    // Prime a route to <paramref name="dest"/> via <paramref name="originator"/> by
+    // ingesting a NODES broadcast as if heard firsthand from that neighbour.
+    private static void IngestRoute(NetRomService svc, Callsign originator, Callsign dest, byte quality)
+    {
+        var info = NodesBroadcastBuilder.Build(
+            originator.Base,
+            [new NodesBroadcastBuilder.Entry(dest, dest.Base, originator, quality)])[0];
+        NodesBroadcast.TryParse(info, out var bc).Should().BeTrue();
+        svc.RoutingTable.Ingest(originator, ANodeCall, "p1", bc!);
     }
 }

@@ -179,6 +179,56 @@ public class NetRomRoutingTableTests
         snap.Neighbours.Should().BeEmpty("a neighbour with no surviving route is an orphan");
     }
 
+    // ─── Link-down failover signal (MarkNeighbourDown) ───
+
+    [Fact]
+    public void Marking_a_neighbour_down_drops_its_routes_at_once_without_waiting_for_the_sweep()
+    {
+        // RDG (NbrA) advertises SOT via itself; the assumed-direct route to RDG is
+        // also via NbrA. Both routes forward through NbrA.
+        var table = NewTable(out _);
+        table.Ingest(NbrA, Me, "vhf", Broadcast("RDG", (DestSot, "SOT", NbrA, 200)));
+        table.Snapshot().Destinations.Should().Contain(d => d.Destination == DestSot);
+
+        int dropped = table.MarkNeighbourDown(NbrA);
+
+        dropped.Should().BeGreaterThan(0, "the routes via the down neighbour are removed");
+        var snap = table.Snapshot();
+        snap.Destinations.Should().BeEmpty("every route forwarded through the down neighbour");
+        snap.Neighbours.Should().NotContain(n => n.Neighbour == NbrA, "the down neighbour is removed too");
+    }
+
+    [Fact]
+    public void Marking_a_neighbour_down_leaves_an_alternate_route_to_the_same_destination()
+    {
+        // SOT is reachable via two neighbours; one goes down, the other survives so a
+        // forward / connect fails over to it immediately.
+        var table = NewTable(out _);
+        table.Ingest(NbrA, Me, "vhf", Broadcast("RDG", (DestSot, "SOT", NbrA, 250)));   // route via NbrA (best)
+        table.Ingest(NbrB, Me, "vhf", Broadcast("XYZ", (DestSot, "SOT", NbrB, 150)));   // route via NbrB
+
+        var before = table.Snapshot().Destinations.Single(d => d.Destination == DestSot);
+        before.BestRoute!.Neighbour.Should().Be(NbrA, "NbrA is the higher-quality next hop");
+
+        table.MarkNeighbourDown(NbrA);
+
+        var after = table.Snapshot().Destinations.Single(d => d.Destination == DestSot);
+        after.Routes.Should().NotContain(r => r.Neighbour == NbrA, "the down neighbour's route is gone");
+        after.BestRoute!.Neighbour.Should().Be(NbrB, "the surviving route is now best — failed over");
+    }
+
+    [Fact]
+    public void Marking_an_unknown_neighbour_down_is_a_noop()
+    {
+        var table = NewTable(out _);
+        table.Ingest(NbrA, Me, "vhf", Broadcast("RDG", (DestSot, "SOT", NbrA, 200)));
+
+        int dropped = table.MarkNeighbourDown(NbrB);   // NbrB is not in the table
+
+        dropped.Should().Be(0);
+        table.Snapshot().Destinations.Should().Contain(d => d.Destination == DestSot, "an unrelated neighbour's routes are untouched");
+    }
+
     // ─── Quality floor (MINQUAL) ───
 
     [Fact]
