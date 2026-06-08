@@ -3,15 +3,69 @@ using Packet.Core;
 namespace Packet.NetRom.Routing;
 
 /// <summary>
+/// The INP3 metric for a learned route — the <em>second</em> metric space a route
+/// can carry, alongside the vanilla NODES quality. Where <see cref="NetRomRoute.Quality"/>
+/// is the multiplicative per-hop quality learned from NODES broadcasts (best =
+/// highest), the INP3 metric is a <em>measured target time</em> learned from a RIF:
+/// the summed transport time along the path (lowest = best) plus the hop count.
+/// Immutable; present on a <see cref="NetRomRoute"/> only when that route was learned
+/// (or refreshed) from INP3 RIF ingestion.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Units &amp; range.</b> <see cref="TargetTimeMs"/> is milliseconds, in
+/// <c>[0, <see cref="Wire.Inp3Rip.HorizonMs"/>)</c> — i.e. strictly below the 600 s
+/// routing horizon. A route at or over the horizon is <em>unreachable</em> and is
+/// withdrawn rather than held (plan §5.3), so a stored <see cref="Inp3RouteMetric"/>
+/// is always a live, finite-time route. The on-wire 10 ms granularity is a codec
+/// concern (<see cref="Wire.Inp3Rip"/>); locally we carry plain milliseconds because
+/// the per-hop increment and the neighbour SNTT need not be multiples of 10.
+/// </para>
+/// <para>
+/// <b>Ordering.</b> Best INP3 route = lowest <see cref="TargetTimeMs"/> (ties broken
+/// by lowest <see cref="HopCount"/>, then by neighbour callsign for determinism — the
+/// time-space analogue of the quality-space "highest quality, then callsign"
+/// ordering).
+/// </para>
+/// </remarks>
+/// <param name="TargetTimeMs">The measured target time to the destination via this
+/// route, in milliseconds (lower is better; always below the 600 s horizon).</param>
+/// <param name="HopCount">The hop count to the destination along this route.</param>
+public sealed record Inp3RouteMetric(int TargetTimeMs, byte HopCount);
+
+/// <summary>
 /// One learned route to a NET/ROM destination: the next-hop neighbour to forward
 /// through, the quality we derived for it, and its obsolescence count. Immutable
 /// — a member of a <see cref="NetRomDestination"/> in a
 /// <see cref="NetRomRoutingSnapshot"/>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Dual-metric routes (INP3).</b> A route can carry an <em>optional</em>
+/// <see cref="Inp3"/> metric (target time + hop count) learned from an INP3 RIF, in
+/// addition to its NODES-learned <see cref="Quality"/>. The two metric spaces are
+/// independent: a destination can simultaneously hold quality-routes (from NODES) and
+/// time-routes (from RIF), and the selection policy (plan §5.2) decides which space
+/// wins per the <c>preferInp3Routes</c> knob. <see cref="Inp3"/> is <c>null</c> on a
+/// route that was only ever learned from NODES — which is every route until INP3 is
+/// enabled, so the default keeps today's behaviour exactly.
+/// </para>
+/// <para>
+/// <b>Persistence.</b> <see cref="Inp3"/> is deliberately <em>not</em> persisted by
+/// the SQLite routing store: INP3 routes re-learn from RIF (and the underlying link
+/// SNTTs re-measure) within an L3RTT/RIF interval of restart, so persisting a stale
+/// measured time would be worse than re-learning it. The store round-trips only the
+/// vanilla <c>(Neighbour, Quality, Obsolescence)</c> triple; a restored route's
+/// <see cref="Inp3"/> is therefore <c>null</c> until the next RIF refreshes it.
+/// </para>
+/// </remarks>
 /// <param name="Neighbour">The neighbour we forward through for this route.</param>
 /// <param name="Quality">Our derived quality for this route (0..255), best first within a destination.</param>
 /// <param name="Obsolescence">Obsolescence count; decremented each sweep, purged at 0.</param>
-public sealed record NetRomRoute(Callsign Neighbour, byte Quality, int Obsolescence);
+/// <param name="Inp3">The optional INP3 metric (target time + hop count) for this
+/// route, or <c>null</c> if the route was not learned from an INP3 RIF. Present iff
+/// the route is INP3-learned; never persisted (re-learnt from RIF).</param>
+public sealed record NetRomRoute(Callsign Neighbour, byte Quality, int Obsolescence, Inp3RouteMetric? Inp3 = null);
 
 /// <summary>
 /// A destination known to the table — its callsign + alias and its kept routes

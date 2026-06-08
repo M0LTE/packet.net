@@ -78,6 +78,41 @@ public sealed record NetRomInp3Options
     /// </summary>
     public int CapabilityTextWidth { get; init; } = Inp3L3RttFrame.DefaultCapabilityTextWidth;
 
+    /// <summary>
+    /// Prefer INP3 (measured target-time) routes over NODES quality routes when
+    /// selecting the active route for a destination — BPQ's <c>PREFERINP3ROUTES</c>
+    /// knob (plan §8). Default <b>false</b>: even with the INP3 overlay enabled, the
+    /// conservative default keeps quality primary, so a node "turns INP3 on"
+    /// (ingesting + advertising time-routes) without changing where traffic flows;
+    /// flip this once the measured times are trusted. When <c>true</c>, a destination
+    /// that has <em>any</em> INP3 route forwards over its lowest-target-time INP3
+    /// route, falling back to the best-quality route only when no INP3 route exists
+    /// (the selection truth table, plan risk #4 / <c>docs/netrom-inp3-i3-design.md</c>
+    /// §3). When <c>false</c> the <see cref="Packet.NetRom.Routing.NetRomRoute.Inp3"/>
+    /// metric is ignored by selection entirely (routes are still ingested + visible
+    /// for monitoring and re-advertisement). Consumed by
+    /// <see cref="Packet.NetRom.Routing.Inp3RouteSelector.SelectActiveRoute"/>.
+    /// </summary>
+    public bool PreferInp3Routes { get; init; }
+
+    /// <summary>
+    /// Master switch for the whole INP3 overlay (plan §8 <c>inp3.enabled</c>).
+    /// Default <b>false</b>: the node behaves exactly as it does today — no L3RTT
+    /// probing, no RIF ingestion or emission, no INP3 routes — so enabling the
+    /// feature is a deliberate opt-in. This is the host-layer gate that sits above
+    /// the (always-correct, host-free) engine + selector; when <c>false</c> the host
+    /// simply never drives them.
+    /// </summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// The INP3 routing horizon in hops (plan §8 <c>hopLimit</c>): a RIP whose
+    /// local hop count would exceed this is not learned, bounding loop blast-radius.
+    /// Default <b>30</b>. The host passes this into
+    /// <see cref="Packet.NetRom.Routing.NetRomRoutingTable"/>'s RIF ingestion.
+    /// </summary>
+    public int HopLimit { get; init; } = 30;
+
     /// <summary>The canonical / widely-interoperable defaults.</summary>
     public static NetRomInp3Options Default { get; } = new();
 
@@ -108,6 +143,10 @@ public sealed record NetRomInp3Options
         if (CapabilityTextWidth < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(CapabilityTextWidth), CapabilityTextWidth, "capability text width must be non-negative");
+        }
+        if (HopLimit < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(HopLimit), HopLimit, "INP3 hop limit must be at least 1");
         }
     }
 }
