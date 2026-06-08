@@ -69,6 +69,14 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     private readonly INetRomRoutingStore? store;
     private readonly ITimer? persistTimer;
 
+    // The INP3 routing overlay (link timing + RIF ingest/emit + triggered updates).
+    // Null ⇔ INP3 disabled ⇔ the node is byte-for-byte today: no Inp3Engine, no
+    // Inp3UpdateScheduler, no INP3 timer, no SendL3Rtt/Advertise/NeighbourDown wiring.
+    // Created only under config.Enabled && config.Connect && config.Inp3.Enabled. Every
+    // seam in NetRomService is `inp3?.` so the default-off guarantee is structural, not a
+    // scatter of `if`s. The implementation lives in NetRomService.Inp3.cs.
+    private readonly Inp3Host? inp3;
+
     // Live port attachments: portId -> attachment. Concurrent because attach/detach
     // run on the reconcile worker while FrameTraced fires on listener pump threads.
     private readonly ConcurrentDictionary<string, Attachment> attachments = new(StringComparer.Ordinal);
@@ -173,6 +181,15 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
                 circuits = new CircuitManager(default, circuitOptions, this.timeProvider, tickInterval: TimeSpan.FromSeconds(1));
                 circuits.SendPacket = SendNetRomPacket;
                 circuits.IncomingCircuit += OnIncomingCircuit;
+
+                // INP3 rides on the connected-mode interlink machinery (the L3RTT / RIF
+                // frames are 0xCF I-frames on the same interlink sessions L4 uses), so it
+                // is created only under Connect — and then only when the operator opts in.
+                // When inp3 is null the node is byte-for-byte today (design §1).
+                if (config.Inp3.Enabled)
+                {
+                    inp3 = new Inp3Host(this, config.Inp3, this.timeProvider);
+                }
             }
         }
     }
@@ -246,6 +263,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             nodeCall = myCall;
             nodeCallSet = true;
             circuits?.SetLocalNode(myCall);
+            inp3?.SetLocalNode(myCall);   // INP3 engine stamps it into probes + the reflection self-test
         }
 
         void FrameHandler(object? sender, Ax25FrameEventArgs e) => OnFrameTraced(portId, myCall, e);
@@ -494,6 +512,14 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
                 LogSwept(purged);
             }
 
+            // The NODESINTERVAL sweep may have aged out the last INP3 route to some
+            // destination (table.Sweep populates recentlyWithdrawn). Escalate those to the
+            // scheduler NEGATIVE so the withdrawal fans out promptly rather than waiting for
+            // the periodic RIF. Also nudge the INP3 ticks so a node whose own 1 s timer is
+            // somehow starved still makes progress on the coarse cadence. No-op when INP3 is
+            // off (inp3 == null). (The 1 s Inp3Host timer is the primary driver — design §5.)
+            inp3?.OnNodesInterval();
+
             if (config.Broadcast)
             {
                 BroadcastNodes();
@@ -614,35 +640,65 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
     private void OnInterlinkData(Ax25Session session, ReadOnlyMemory<byte> info)
     {
-        if (circuits is null)
-        {
-            return;
-        }
+        var fromNeighbour = session.Context.Remote;
         try
         {
+            // ── INP3 taps come FIRST, and only when the overlay is on (inp3 != null ⇔
+            //    config.Inp3.Enabled). A RIF (0xFF-led) or an L3RTT (a NetRomPacket to
+            //    L3RTT-0) must be peeled off here so it can NEVER reach circuits /
+            //    forwarding. When the frame is consumed, we return; otherwise we fall
+            //    through to the existing L4 dispatch with the already-parsed packet
+            //    (no double-parse). See docs/netrom-inp3-host-integration-design.md §3.2.
+            if (inp3 is not null)
+            {
+                if (DispatchInp3(fromNeighbour, info, out var l4Packet))
+                {
+                    return;   // consumed as a RIF or an L3RTT (or dropped as malformed) — never L4.
+                }
+                if (l4Packet is not null)
+                {
+                    DispatchL4(l4Packet, fromNeighbour);   // a normal L4 datagram — reuse the parsed packet.
+                }
+                return;
+            }
+
+            // ── INP3 off: EXACTLY today's body, unchanged (the default-off guarantee).
+            if (circuits is null)
+            {
+                return;
+            }
             if (!NetRomPacket.TryParse(info.Span, out var packet))
             {
                 return;
             }
-
-            // L3 dispatch (mirrors BPQ L4Code.c): a datagram addressed to this node
-            // terminates here — up to the L4 circuit layer; one addressed to another
-            // node is forwarded toward its destination (the network-layer routing
-            // role); if this node is endpoint-only it is silently dropped (we don't
-            // relay third-party traffic we didn't opt into carrying).
-            if (nodeCallSet && packet!.Network.Destination.Equals(nodeCall))
-            {
-                circuits.OnPacket(packet);
-            }
-            else if (ForwardEnabled)
-            {
-                ForwardDatagram(packet!, session.Context.Remote);
-            }
+            DispatchL4(packet!, fromNeighbour);
         }
         catch (Exception ex)
         {
-            var peerText = session.Context.Remote.ToString();
+            var peerText = fromNeighbour.ToString();
             LogInterlinkFault(ex, peerText);
+        }
+    }
+
+    // The existing dest-==-us → circuits / else forward switch, extracted verbatim so it
+    // is shared by the INP3-on and INP3-off paths (a pure extract-method; no behaviour
+    // change). L3 dispatch mirrors BPQ L4Code.c: a datagram addressed to this node
+    // terminates here (up to the L4 circuit layer); one addressed to another node is
+    // forwarded toward its destination (the network-layer routing role); an endpoint-only
+    // node silently drops it (we don't relay third-party traffic we didn't opt into).
+    private void DispatchL4(NetRomPacket packet, Callsign receivedFrom)
+    {
+        if (circuits is null)
+        {
+            return;
+        }
+        if (nodeCallSet && packet.Network.Destination.Equals(nodeCall))
+        {
+            circuits.OnPacket(packet);
+        }
+        else if (ForwardEnabled)
+        {
+            ForwardDatagram(packet, receivedFrom);
         }
     }
 
@@ -718,13 +774,51 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// <summary>Send an encoded datagram over an existing interlink to
     /// <paramref name="neighbour"/>. Returns <c>false</c> if no interlink is up.</summary>
     private bool TrySendOverInterlink(Callsign neighbour, NetRomPacket packet)
+        => TrySendOverInterlinkBytes(neighbour, packet.ToBytes());
+
+    /// <summary>
+    /// Send raw 0xCF info-field bytes over an existing interlink to
+    /// <paramref name="neighbour"/> — the byte-shaped sibling of
+    /// <see cref="TrySendOverInterlink"/>, used by the INP3 host because a RIF is an
+    /// <c>Inp3Rif</c> (not a <see cref="NetRomPacket"/>) and an L3RTT frame is already
+    /// bytes. Both funnel to the same <c>SendData(session, bytes, 0xCF)</c> seam L4 uses.
+    /// Returns <c>false</c> if no interlink is up (the INP3 cold-interlink policy is
+    /// drop-don't-dial — design §4.1, so the host treats false as "not probed/advertised
+    /// this round," not a failure). A test seam (<see cref="interlinkSendSinkForTest"/>)
+    /// captures the bytes instead of touching a real listener when set.
+    /// </summary>
+    private bool TrySendOverInterlinkBytes(Callsign neighbour, byte[] info)
     {
+        if (interlinkSendSinkForTest is { } sink)
+        {
+            return sink(neighbour, info);
+        }
         if (interlinks.TryGetValue(neighbour, out var link) && link.Session is not null && link.Listener is not null)
         {
-            link.Listener.SendData(link.Session, packet.ToBytes(), Ax25Frame.PidNetRom);
+            link.Listener.SendData(link.Session, info, Ax25Frame.PidNetRom);
             return true;
         }
         return false;
+    }
+
+    // Test seam (InternalsVisibleTo Packet.Node.Tests): when set, every interlink send
+    // (L4 and INP3) is captured here instead of being posted to a real Ax25Session, so a
+    // deterministic node test can drive the INP3 host on a FakeTimeProvider and assert what
+    // went on the wire without standing up real AX.25 handshakes. Returns the "did it send"
+    // result TrySendOverInterlinkBytes would have returned (true = an interlink was up).
+    internal Func<Callsign, byte[], bool>? interlinkSendSinkForTest;
+
+    // The shared neighbour-down path. With INP3 off (inp3 == null) this is EXACTLY today's
+    // table.MarkNeighbourDown — the L4 dial-failure failover, byte-for-byte. With INP3 on it
+    // additionally drops the engine's per-neighbour timing state and escalates every
+    // destination that just lost its last INP3 route to the scheduler (NEGATIVE → immediate
+    // fan-out), so an L4 dial failure also propagates the INP3 withdrawal promptly. The 180 s
+    // INP3 reflection-timeout uses Inp3Host's own NeighbourDown handler (which calls this too).
+    private int MarkNeighbourDownShared(Callsign neighbour)
+    {
+        int dropped = table.MarkNeighbourDown(neighbour);
+        inp3?.OnNeighbourGone(neighbour);
+        return dropped;
     }
 
     private void OnIncomingCircuit(object? sender, IncomingCircuitEventArgs e)
@@ -887,7 +981,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            int dropped = table.MarkNeighbourDown(neighbour);
+            int dropped = MarkNeighbourDownShared(neighbour);
             var downText = neighbour.ToString();
             LogNeighbourDown(downText, dropped);
             throw;
@@ -974,6 +1068,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         SaveSnapshot();             // final flush before teardown
         persistTimer?.Dispose();
         sweepTimer?.Dispose();
+        inp3?.Dispose();            // stop INP3 ticking + tear down engine/scheduler
         circuits?.Dispose();
         foreach (var portId in attachments.Keys.ToArray())
         {
@@ -1001,6 +1096,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         SaveSnapshot();             // final flush before teardown
         persistTimer?.Dispose();
         sweepTimer?.Dispose();
+        inp3?.Dispose();            // stop INP3 ticking before the interlinks go down
         // Tear the L4 circuits down first so their Disconnect Requests ride the
         // interlinks while those AX.25 sessions are still up.
         circuits?.Dispose();

@@ -1,5 +1,6 @@
 using FluentValidation;
 using Packet.Core;
+using Packet.NetRom.Wire;
 
 namespace Packet.Node.Core.Configuration;
 
@@ -172,7 +173,11 @@ public sealed class Ax25ParamsValidator : AbstractValidator<Ax25PortParams>
 /// range); OBSINIT/OBSMIN, the sweep interval, the L4 window/timeout/retries, and
 /// the TTL are positive (TTL ≤ 255 — a 1-octet header field). Broadcast/connect
 /// require the service enabled. A typo'd value is rejected here rather than
-/// silently clamped, matching the per-port tuning discipline.
+/// silently clamped, matching the per-port tuning discipline. The nested INP3
+/// overlay's ranges are delegated to <see cref="NetRomInp3Options.Validate"/>
+/// (one validation authority), and <c>inp3.enabled</c> requires both the service
+/// enabled and <c>connect</c> on (INP3 rides the connected-mode interlink, so it is
+/// only constructed under Connect).
 /// </summary>
 public sealed class NetRomValidator : AbstractValidator<NetRomConfig>
 {
@@ -211,6 +216,57 @@ public sealed class NetRomValidator : AbstractValidator<NetRomConfig>
         RuleFor(c => c)
             .Must(c => !(c.Connect && !c.Enabled))
             .WithMessage("netrom.connect requires netrom.enabled.");
+
+        // INP3 overlay: delegate the range + cross-field checks to the record's own
+        // Validate() (one source of truth for the knob ranges — the same "one
+        // validation authority" discipline the callsign rule uses by round-tripping
+        // through Callsign.TryParse), surfaced as a FluentValidation failure so a bad
+        // nested inp3: block rejects the whole candidate config atomically.
+        RuleFor(c => c.Inp3)
+            .NotNull()
+            .Must(BeValidInp3Options)
+            .WithMessage(c => $"netrom.inp3 is invalid: {DescribeInp3Fault(c.Inp3)}");
+
+        // inp3.enabled requires netrom.enabled — a routing overlay on a deaf node is
+        // meaningless (mirrors the broadcast/connect-require-enabled guards above).
+        RuleFor(c => c)
+            .Must(c => !(c.Inp3.Enabled && !c.Enabled))
+            .WithMessage("netrom.inp3.enabled requires netrom.enabled.");
+
+        // inp3.enabled requires netrom.connect — INP3 rides on the connected-mode interlink
+        // machinery (L3RTT / RIF are 0xCF I-frames on the same sessions L4 uses), so the host
+        // constructs the overlay only under Connect. Without this rule, inp3.enabled + connect:false
+        // would pass validation and then silently no-op (the overlay never built) — reject it
+        // explicitly rather than accept-then-ignore (the named-flag discipline).
+        RuleFor(c => c)
+            .Must(c => !(c.Inp3.Enabled && !c.Connect))
+            .WithMessage("netrom.inp3.enabled requires netrom.connect.");
+    }
+
+    private static bool BeValidInp3Options(NetRomInp3Options o)
+    {
+        try
+        {
+            o.Validate();
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    private static string DescribeInp3Fault(NetRomInp3Options o)
+    {
+        try
+        {
+            o.Validate();
+            return "ok";
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return ex.Message;
+        }
     }
 }
 

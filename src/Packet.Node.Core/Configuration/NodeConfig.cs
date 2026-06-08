@@ -1,4 +1,5 @@
 using Packet.NetRom;
+using Packet.NetRom.Wire;
 namespace Packet.Node.Core.Configuration;
 
 /// <summary>
@@ -320,4 +321,33 @@ public sealed record NetRomConfig
     /// <summary>Initial L3 network-header time-to-live (hop limit) on circuits we
     /// originate (BPQ <c>L3TIMETOLIVE</c>). Null = default (25).</summary>
     public int? TimeToLive { get; init; }
+
+    /// <summary>
+    /// The INP3 link-timing routing overlay (default-off). When
+    /// <see cref="NetRomInp3Options.Enabled"/> is <c>false</c> — which is the
+    /// default, since the property initialises to <c>new()</c> ⇒
+    /// <see cref="NetRomInp3Options.Default"/> — the node behaves byte-for-byte as
+    /// today: no L3RTT probing, no RIF ingest/emit, no INP3 routes. INP3 is an
+    /// opt-in overlay on the vanilla quality-based NET/ROM stack; it requires both
+    /// <see cref="Enabled"/> and <see cref="Connect"/> (the L3RTT / RIF frames ride
+    /// the connected-mode interlink machinery <see cref="Connect"/> gates, so the host
+    /// constructs the overlay only under Connect — the validator rejects
+    /// <c>inp3.enabled</c> without <c>connect</c> rather than silently no-op).
+    /// </summary>
+    /// <remarks>
+    /// Unlike the nullable-overlay knobs above (<see cref="Window"/> etc., which are
+    /// resolved field-by-field against a lib <c>Default</c>), this binds the whole
+    /// <see cref="NetRomInp3Options"/> record directly: it is one validated record
+    /// (its own <see cref="NetRomInp3Options.Validate"/> is the single source of
+    /// truth for the knob ranges), it is pure durations / ints / bools (no
+    /// discriminated union, no <c>Callsign</c> struct), and an absent nested
+    /// <c>inp3:</c> key simply leaves the C# default in place under the existing
+    /// <c>IgnoreUnmatchedProperties</c> + camel-case deserializer. The
+    /// <see cref="System.TimeSpan"/>-typed knobs (<see cref="NetRomInp3Options.L3RttInterval"/>,
+    /// <see cref="NetRomInp3Options.L3RttResetWindow"/>, <see cref="NetRomInp3Options.RifInterval"/>,
+    /// <see cref="NetRomInp3Options.PositiveDebounce"/>) carry as YAML duration scalars
+    /// (e.g. <c>l3RttInterval: 00:01:00</c>) via YamlDotNet's built-in
+    /// <c>TimeSpan</c> converter. See docs/netrom-inp3-host-integration-design.md §2.
+    /// </remarks>
+    public NetRomInp3Options Inp3 { get; init; } = new();
 }

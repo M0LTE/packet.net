@@ -75,6 +75,21 @@ public sealed class NetRomRoutingTable
     // neighbour callsign -> directly-heard neighbour state.
     private readonly Dictionary<Callsign, NeighbourState> neighbours = new();
 
+    // INP3 invariant (W): destinations that have lost their LAST Inp3-bearing route
+    // (withdrawn at horizon, dropped by MarkNeighbourDown, or aged out by Sweep) since
+    // the host last DRAINED this set. The host DrainRecentlyWithdrawn()s it ONCE at the
+    // start of each fan-out round (atomic snapshot+clear under `gate`) and hands the
+    // snapshot to every neighbour's BuildRif, so the one-shot horizon RIP reaches each
+    // neighbour exactly once. Draining atomically (rather than read-then-clear-after-round)
+    // closes the host-thread race: a concurrent IngestRif / MarkNeighbourDown / Sweep that
+    // withdraws a destination mid-round lands in the live set AFTER the snapshot was taken,
+    // so it is captured by the NEXT round's drain instead of being cleared unadvertised.
+    // Populated under `gate` only when an Inp3-bearing route fully leaves — so a vanilla
+    // (quality-only) MarkNeighbourDown / Sweep, the INP3-off path, never touches it (the
+    // default-off guarantee, design §7.1). RecentlyWithdrawn() is a read-only peek (tests /
+    // monitoring); the host never reads it directly — only DrainRecentlyWithdrawn().
+    private readonly HashSet<Callsign> recentlyWithdrawn = new();
+
     /// <summary>Construct a table with the canonical default options and the system clock.</summary>
     public NetRomRoutingTable()
         : this(NetRomRoutingOptions.Default, TimeProvider.System)
@@ -289,7 +304,20 @@ public sealed class NetRomRoutingTable
 
             foreach (var (destCall, dest) in destinations)
             {
+                // Did this destination hold an Inp3-bearing route before the sweep? (Cheaper
+                // to test before than to diff after, and the predicate is pre-mutation.)
+                bool hadInp3Before = false;
+                foreach (var route in dest.Routes.Values)
+                {
+                    if (route.Inp3 is not null)
+                    {
+                        hadInp3Before = true;
+                        break;
+                    }
+                }
+
                 var survivors = new Dictionary<Callsign, RouteState>(dest.Routes.Count);
+                bool hasInp3After = false;
                 foreach (var (via, route) in dest.Routes)
                 {
                     int next = route.Obsolescence - 1;
@@ -299,11 +327,24 @@ public sealed class NetRomRoutingTable
                         continue;
                     }
                     survivors[via] = route with { Obsolescence = next };
+                    if (route.Inp3 is not null)
+                    {
+                        hasInp3After = true;
+                    }
                 }
                 dest.Routes = survivors;
                 if (survivors.Count == 0)
                 {
                     emptyDestinations.Add(destCall);
+                }
+
+                // Invariant (W): an Inp3-bearing destination whose last time-route aged out
+                // this sweep leaves the INP3 space → record the one-shot horizon withdrawal.
+                // Guarded on "had an Inp3 route before," so a quality-only sweep (INP3 off)
+                // never touches the set (the default-off guard, design §7.1).
+                if (hadInp3Before && !hasInp3After)
+                {
+                    recentlyWithdrawn.Add(destCall);
                 }
             }
 
@@ -342,6 +383,11 @@ public sealed class NetRomRoutingTable
 
             foreach (var (destCall, dest) in destinations)
             {
+                // Note whether the route we are about to drop carried an INP3 metric —
+                // only then can dropping it cost the destination its last time-route.
+                bool removedRouteHadInp3 =
+                    dest.Routes.TryGetValue(neighbour, out var removed) && removed.Inp3 is not null;
+
                 if (dest.Routes.Remove(neighbour))
                 {
                     dropped++;
@@ -349,6 +395,16 @@ public sealed class NetRomRoutingTable
                 if (dest.Routes.Count == 0)
                 {
                     emptyDestinations.Add(destCall);
+                }
+
+                // Invariant (W): a destination that just lost its LAST Inp3-bearing route
+                // leaves the INP3 time-space → record it for the one-shot horizon RIP. Guarded
+                // on "the removed route carried an Inp3 metric," so a vanilla (quality-only)
+                // MarkNeighbourDown — the L4 dial-failure path that runs with INP3 off — never
+                // populates the set (the load-bearing default-off guard, design §7.1).
+                if (removedRouteHadInp3 && !HasAnyInp3Route(destCall))
+                {
+                    recentlyWithdrawn.Add(destCall);
                 }
             }
 
@@ -569,12 +625,16 @@ public sealed class NetRomRoutingTable
     /// <param name="toTargetNeighbour">N — the neighbour this RIF is built <em>for</em>: any
     /// destination whose selected route is via N is poison-reversed (advertised at the horizon)
     /// in this RIF (design §1.4).</param>
-    /// <param name="preferInp3Routes">Resolve each destination's <em>selected</em> route via
-    /// <see cref="Inp3RouteSelector.SelectActiveRoute"/> with this knob (BPQ's
-    /// <c>PREFERINP3ROUTES</c>; <see cref="Wire.NetRomInp3Options.PreferInp3Routes"/>).</param>
+    /// <param name="recentlyWithdrawn">The recently-withdrawn snapshot the host
+    /// <see cref="DrainRecentlyWithdrawn"/>ed once at the start of this fan-out round and passes to
+    /// every neighbour's RIF — one explicit horizon RIP is appended per entry (minus any that were
+    /// re-learned finite this round, and our own node). <c>null</c> (or empty) appends no
+    /// withdrawal RIPs (the default for callers that don't drive the withdrawn set, e.g. unit
+    /// tests of pure poison-reverse). Passing the host-drained snapshot — not reading the live set
+    /// — is what makes the fan-out race-free (design §6.4).</param>
     /// <returns>The poison-reversed INP3 RIF to advertise toward
     /// <paramref name="toTargetNeighbour"/>.</returns>
-    public Inp3Rif BuildRif(Callsign myCall, Callsign toTargetNeighbour)
+    public Inp3Rif BuildRif(Callsign myCall, Callsign toTargetNeighbour, IReadOnlyCollection<Callsign>? recentlyWithdrawn = null)
     {
         lock (gate)
         {
@@ -643,11 +703,13 @@ public sealed class NetRomRoutingTable
             var ordered = destRips
                 .OrderBy(x => x.LocalTargetTimeMs)
                 .ThenBy(x => x.Rip.Destination.ToString(), StringComparer.Ordinal)
-                .Select(x => x.Rip);
+                .Select(x => x.Rip)
+                .ToList();
 
             // Own-node RIP first (the source seed: 0/0, no TLVs, never poisoned), then the
             // ordered destination RIPs.
-            var rips = new List<Inp3Rip>(destRips.Count + 1)
+            int withdrawnCount = recentlyWithdrawn?.Count ?? 0;
+            var rips = new List<Inp3Rip>(ordered.Count + withdrawnCount + 1)
             {
                 new()
                 {
@@ -659,7 +721,80 @@ public sealed class NetRomRoutingTable
             };
             rips.AddRange(ordered);
 
+            // Invariant (W): append one explicit horizon RIP per recently-withdrawn destination so
+            // the peer withdraws it immediately (rather than waiting for its obsolescence sweep).
+            // The set is the snapshot the host DRAINED once at the start of this fan-out round and
+            // passes to every neighbour's BuildRif, so every neighbour's RIF carries the withdrawal
+            // exactly once (the host-thread race fix — design §6.4). A destination that was
+            // withdrawn-then-relearned in the same round is carried by its FINITE RIP above (it's in
+            // `emitted`), not poisoned; and our own node is never withdrawn (the Source invariant).
+            if (withdrawnCount > 0)
+            {
+                var emitted = new HashSet<Callsign>(ordered.Select(r => r.Destination));
+                foreach (var wd in recentlyWithdrawn!.OrderBy(c => c.ToString(), StringComparer.Ordinal))
+                {
+                    if (wd.Equals(myCall) || emitted.Contains(wd))
+                    {
+                        continue;
+                    }
+                    rips.Add(new Inp3Rip
+                    {
+                        Destination = wd,
+                        HopCount = 0,
+                        TargetTimeMs = Inp3Rip.HorizonMs,
+                        Tlvs = [],
+                    });
+                }
+            }
+
             return new Inp3Rif { Rips = rips };
+        }
+    }
+
+    /// <summary>
+    /// A read-only <b>peek</b> at the recently-withdrawn destinations (INP3 invariant W) —
+    /// destinations that have lost their last <see cref="Inp3RouteMetric"/>-bearing route since the
+    /// host last <see cref="DrainRecentlyWithdrawn"/>ed the set. Does <b>not</b> clear — for tests
+    /// and monitoring only. The host never reads this on the fan-out path; it
+    /// <see cref="DrainRecentlyWithdrawn"/>s once at the start of a round and hands the snapshot to
+    /// each neighbour's <see cref="BuildRif"/> (so reading and clearing are a single atomic step,
+    /// closing the host-thread race). Stable ordinal ordering for deterministic, cross-stack
+    /// comparison.
+    /// </summary>
+    public IReadOnlyList<Callsign> RecentlyWithdrawn()
+    {
+        lock (gate)
+        {
+            return recentlyWithdrawn
+                .OrderBy(c => c.ToString(), StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Atomically snapshot <b>and clear</b> the recently-withdrawn set (INP3 invariant W) under a
+    /// single <c>gate</c> hold. The host calls this <b>once</b> at the start of a fan-out round and
+    /// hands the returned snapshot to every neighbour's <see cref="BuildRif"/> — so the one-shot
+    /// horizon RIP reaches each neighbour exactly once. Draining as one atomic step (rather than the
+    /// old read-then-clear-after-round) closes the host-thread race: a concurrent
+    /// <see cref="IngestRif"/> / <see cref="MarkNeighbourDown"/> / <see cref="Sweep"/> that withdraws
+    /// a destination mid-round lands in the live set AFTER this snapshot was taken, so it is captured
+    /// by the NEXT round's drain instead of being cleared unadvertised. Stable ordinal ordering for
+    /// deterministic, cross-stack-comparable RIFs; an empty list when nothing is pending.
+    /// </summary>
+    public IReadOnlyList<Callsign> DrainRecentlyWithdrawn()
+    {
+        lock (gate)
+        {
+            if (recentlyWithdrawn.Count == 0)
+            {
+                return Array.Empty<Callsign>();
+            }
+            var snapshot = recentlyWithdrawn
+                .OrderBy(c => c.ToString(), StringComparer.Ordinal)
+                .ToList();
+            recentlyWithdrawn.Clear();
+            return snapshot;
         }
     }
 
@@ -838,6 +973,34 @@ public sealed class NetRomRoutingTable
                 destinations.Remove(destination);
             }
         }
+
+        // Invariant (W): if the destination now holds NO Inp3-bearing route at all, it has
+        // left the INP3 time-space — record it so the next RIF to every neighbour carries a
+        // one-shot horizon withdrawal. (We had an Inp3 metric on this route a moment ago, so
+        // this add is only ever reached on a genuine INP3 withdrawal.)
+        if (!HasAnyInp3Route(destination))
+        {
+            recentlyWithdrawn.Add(destination);
+        }
+    }
+
+    // True iff some kept route to `destination` still carries an Inp3 metric. A destination
+    // that is gone from the table holds no route, so it has no Inp3 route either. The
+    // "lost its LAST INP3 route" predicate for invariant (W) (design §6.3). Caller holds the lock.
+    private bool HasAnyInp3Route(Callsign destination)
+    {
+        if (!destinations.TryGetValue(destination, out var dest))
+        {
+            return false;
+        }
+        foreach (var route in dest.Routes.Values)
+        {
+            if (route.Inp3 is not null)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Drop neighbours that are no longer the next hop for any kept route. Caller
