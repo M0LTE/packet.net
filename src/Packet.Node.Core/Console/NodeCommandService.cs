@@ -292,6 +292,13 @@ public sealed partial class NodeCommandService
                 {
                     sb.Append(" via ").Append(r.Neighbour)
                       .Append('(').Append(r.Quality).Append(',').Append(r.Obsolescence).Append(')');
+                    // Surface the INP3 measured-time metric when the overlay has learned one for
+                    // this route (a RIF time-route) — the time-space companion to the quality pair.
+                    if (r.Inp3 is { } inp3)
+                    {
+                        sb.Append(" [inp3 ").Append(inp3.TargetTimeMs).Append("ms/")
+                          .Append(inp3.HopCount).Append("h]");
+                    }
                 }
             }
         }

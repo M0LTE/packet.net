@@ -1,0 +1,26 @@
+# net-sim topology for the standalone INP3 two-node lab.
+#
+#   a <-> b   two pdn nodes on one afsk1200 channel (KISS ports 8100 / 8101).
+#             Both run the real Packet.Node host with the INP3 overlay ON; they
+#             discover each other via NODES, raise a connected-mode interlink on
+#             the first `connect`, then INP3 (L3RTT probe/reflect + RIF) converges
+#             over that interlink.
+mixer_mode: fm_capture
+capture_db: 6.0
+collision_mode: silence
+
+nodes:
+  - id: a
+    ports:
+      - id: vhf
+        modem: { mode: afsk1200 }
+        kiss_port: 8100
+  - id: b
+    ports:
+      - id: vhf
+        modem: { mode: afsk1200 }
+        kiss_port: 8101
+
+links:
+  - { from: a.vhf, to: b.vhf, loss_db: 10 }
+  - { from: b.vhf, to: a.vhf, loss_db: 10 }

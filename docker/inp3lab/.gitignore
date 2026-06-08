@@ -1,0 +1,3 @@
+# self-contained publish output (built locally before compose up)
+app/
+pdn.db*
