@@ -9,7 +9,7 @@ namespace Packet.NetRom.Tests.Routing;
 
 /// <summary>
 /// Tests for INP3 RIF <b>emission</b>
-/// (<see cref="NetRomRoutingTable.BuildRif(Callsign, Callsign)"/>) — the
+/// (<see cref="NetRomRoutingTable.BuildRif"/>) — the
 /// poison-reversed, per-target-neighbour RIF the node advertises (the time-space analogue
 /// of <see cref="NetRomRoutingTable.BuildAdvertisement(int)"/>). The locked emission rules
 /// are <c>docs/netrom-inp3-i4-design.md</c> §1 (content) / §2 (poison-reverse): own node

@@ -1,4 +1,5 @@
 using Packet.Node.Core.Configuration;
+using Packet.NetRom.Wire;
 
 namespace Packet.Node.Tests.Configuration;
 
@@ -298,5 +299,109 @@ public class NodeConfigYamlTests
         var config = NodeConfigYaml.Parse("# just a comment\n");
         config.Should().NotBeNull();
         config.Ports.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Netrom_inp3_defaults_to_disabled_when_no_inp3_block()
+    {
+        // The default-off proof at the config layer: a config with no inp3: block at
+        // all yields Inp3 == NetRomInp3Options.Default ⇒ Enabled == false, so the
+        // host creates no Inp3Host and behaves byte-for-byte as today.
+        var config = NodeConfigYaml.Parse("identity:\n  callsign: M0LTE-1\n");
+        config.NetRom.Inp3.Should().NotBeNull();
+        config.NetRom.Inp3.Enabled.Should().BeFalse();
+        config.NetRom.Inp3.Should().Be(NetRomInp3Options.Default);
+    }
+
+    [Fact]
+    public void Parses_a_netrom_inp3_block_with_all_knobs()
+    {
+        const string yaml = """
+            identity:
+              callsign: M0LTE-1
+            netRom:
+              enabled: true
+              inp3:
+                enabled: true
+                preferInp3Routes: true
+                snttGainShift: 4
+                probeUnknownCapability: false
+                advertiseIpAccept: 4
+                capabilityTextWidth: 12
+                hopLimit: 20
+                worsenThresholdMs: 750
+                l3RttInterval: 00:01:30
+                l3RttResetWindow: 00:05:00
+                rifInterval: 00:10:00
+                positiveDebounce: 00:00:03
+            """;
+
+        var inp3 = NodeConfigYaml.Parse(yaml).NetRom.Inp3;
+
+        inp3.Enabled.Should().BeTrue();
+        inp3.PreferInp3Routes.Should().BeTrue();
+        inp3.SnttGainShift.Should().Be(4);
+        inp3.ProbeUnknownCapability.Should().BeFalse();
+        inp3.AdvertiseIpAccept.Should().Be(4);
+        inp3.CapabilityTextWidth.Should().Be(12);
+        inp3.HopLimit.Should().Be(20);
+        inp3.WorsenThresholdMs.Should().Be(750);
+        inp3.L3RttInterval.Should().Be(TimeSpan.FromSeconds(90));
+        inp3.L3RttResetWindow.Should().Be(TimeSpan.FromMinutes(5));
+        inp3.RifInterval.Should().Be(TimeSpan.FromMinutes(10));
+        inp3.PositiveDebounce.Should().Be(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
+    public void Round_trips_a_netrom_inp3_block_through_serialise_then_parse()
+    {
+        // A populated inp3: overlay survives serialise → parse intact — including the
+        // TimeSpan-typed duration knobs (via YamlDotNet's built-in TimeSpan converter)
+        // and the nullable advertiseIpAccept.
+        var original = new NodeConfig
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            NetRom = new NetRomConfig
+            {
+                Enabled = true,
+                Inp3 = new NetRomInp3Options
+                {
+                    Enabled = true,
+                    PreferInp3Routes = true,
+                    SnttGainShift = 5,
+                    ProbeUnknownCapability = false,
+                    AdvertiseIpAccept = 6,
+                    CapabilityTextWidth = 10,
+                    HopLimit = 15,
+                    WorsenThresholdMs = 1500,
+                    L3RttInterval = TimeSpan.FromSeconds(45),
+                    L3RttResetWindow = TimeSpan.FromSeconds(200),
+                    RifInterval = TimeSpan.FromSeconds(600),
+                    PositiveDebounce = TimeSpan.FromSeconds(7),
+                },
+            },
+        };
+
+        var yaml = NodeConfigYaml.Serialize(original);
+        var reparsed = NodeConfigYaml.Parse(yaml);
+
+        reparsed.NetRom.Inp3.Should().Be(original.NetRom.Inp3,
+            "the whole inp3 overlay should round-trip\nYAML:\n{0}", yaml);
+    }
+
+    [Fact]
+    public void Round_trips_a_default_disabled_inp3_overlay()
+    {
+        // The common case: INP3 left at its default (disabled). Serialising the
+        // default config and parsing it back must still yield the disabled default —
+        // OmitNull drops advertiseIpAccept, and the rest is the record default.
+        var original = new NodeConfig { Identity = new Identity { Callsign = "M0LTE-1" } };
+
+        var yaml = NodeConfigYaml.Serialize(original);
+        var reparsed = NodeConfigYaml.Parse(yaml);
+
+        reparsed.NetRom.Inp3.Should().Be(NetRomInp3Options.Default,
+            "the default disabled overlay should round-trip\nYAML:\n{0}", yaml);
+        reparsed.NetRom.Inp3.Enabled.Should().BeFalse();
     }
 }

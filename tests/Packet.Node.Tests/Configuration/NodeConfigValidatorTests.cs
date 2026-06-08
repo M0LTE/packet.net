@@ -1,4 +1,5 @@
 using Packet.Node.Core.Configuration;
+using Packet.NetRom.Wire;
 
 namespace Packet.Node.Tests.Configuration;
 
@@ -247,5 +248,115 @@ public class NodeConfigValidatorTests
             .IsValid.Should().BeFalse("broadcast requires the service enabled");
         Validator.Validate(Valid() with { NetRom = new NetRomConfig { Enabled = false, Connect = true } })
             .IsValid.Should().BeFalse("connect requires the service enabled");
+    }
+
+    [Fact]
+    public void Default_netrom_inp3_overlay_validates_disabled()
+    {
+        // The default-off proof at the validator: a config with no inp3: overrides
+        // (Inp3 == NetRomInp3Options.Default ⇒ Enabled == false) validates fine.
+        Validator.Validate(Valid()).IsValid.Should().BeTrue();
+        Valid().NetRom.Inp3.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Accepts_a_valid_enabled_inp3_overlay()
+    {
+        var ok = Valid() with
+        {
+            NetRom = new NetRomConfig
+            {
+                Enabled = true,
+                Connect = true,   // INP3 rides the connected-mode interlink
+                Inp3 = new NetRomInp3Options
+                {
+                    Enabled = true,
+                    L3RttInterval = TimeSpan.FromSeconds(60),
+                    L3RttResetWindow = TimeSpan.FromSeconds(180),
+                    RifInterval = TimeSpan.FromSeconds(300),
+                    PositiveDebounce = TimeSpan.FromSeconds(5),
+                    SnttGainShift = 3,
+                    HopLimit = 30,
+                },
+            },
+        };
+        Validator.Validate(ok).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Rejects_out_of_range_inp3_values_via_the_records_own_Validate()
+    {
+        // A simple scalar out of range (SnttGainShift valid 1..8).
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Inp3 = new NetRomInp3Options { SnttGainShift = 0 } },
+        }).IsValid.Should().BeFalse("snttGainShift must be in 1..8");
+
+        // The HopLimit floor.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Inp3 = new NetRomInp3Options { HopLimit = 0 } },
+        }).IsValid.Should().BeFalse("hopLimit must be at least 1");
+
+        // Cross-field: the reset window must exceed the probe interval.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig
+            {
+                Enabled = true,
+                Inp3 = new NetRomInp3Options
+                {
+                    L3RttInterval = TimeSpan.FromSeconds(180),
+                    L3RttResetWindow = TimeSpan.FromSeconds(60),
+                },
+            },
+        }).IsValid.Should().BeFalse("l3RttResetWindow must exceed l3RttInterval");
+
+        // Cross-field: the positive debounce must be strictly less than the RIF interval.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig
+            {
+                Enabled = true,
+                Inp3 = new NetRomInp3Options
+                {
+                    RifInterval = TimeSpan.FromSeconds(5),
+                    PositiveDebounce = TimeSpan.FromSeconds(5),
+                },
+            },
+        }).IsValid.Should().BeFalse("positiveDebounce must be < rifInterval");
+    }
+
+    [Fact]
+    public void Inp3_enabled_requires_netrom_enabled()
+    {
+        // The cross-field guard mirroring broadcast/connect: an overlay on a deaf
+        // node is meaningless.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = false, Connect = true, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeFalse("inp3.enabled requires netrom.enabled");
+
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Connect = true, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeTrue("inp3.enabled with netrom.enabled + connect is fine");
+    }
+
+    [Fact]
+    public void Inp3_enabled_requires_netrom_connect()
+    {
+        // INP3 rides the connected-mode interlink machinery, so the host only constructs the
+        // overlay under Connect. Without this guard, inp3.enabled + connect:false would validate
+        // and then silently no-op — reject it explicitly (the named-flag discipline).
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Connect = false, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeFalse("inp3.enabled requires netrom.connect");
+
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Connect = true, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeTrue("inp3.enabled with netrom.connect is fine");
     }
 }

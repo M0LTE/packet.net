@@ -19,12 +19,20 @@ public static class NodeConfigYaml
         // surface); YamlDotNet has no deserializer for the interface, so map it to
         // the concrete List it will populate then expose read-only.
         .WithTypeMapping<IReadOnlyList<PortConfig>, List<PortConfig>>()
+        // The nested netRom.inp3 block (a Packet.NetRom.Wire.NetRomInp3Options
+        // record) needs NO custom converter: it is pure durations / ints / bools, so
+        // the camel-case mapping + YamlDotNet's built-in TimeSpan converter bind it
+        // directly. An absent inp3: key leaves the record's C# default (Disabled) in
+        // place under IgnoreUnmatchedProperties. See NodeConfig.Inp3 + the design §2.
         .IgnoreUnmatchedProperties()
         .Build();
 
     private static readonly ISerializer Serializer = new SerializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .WithTypeConverter(new TransportConfigYamlConverter())
+        // OmitNull drops netRom.inp3.advertiseIpAccept when unset; the rest of the
+        // nested inp3: record serialises through the default (camel-case + TimeSpan)
+        // path — symmetrical with the read side, no custom converter needed.
         .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
         .Build();
 
