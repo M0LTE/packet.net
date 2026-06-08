@@ -50,6 +50,22 @@ namespace Packet.NetRom.Routing;
 /// </remarks>
 public sealed class NetRomRoutingTable
 {
+    /// <summary>
+    /// The fixed INP3 per-hop target-time increment, in milliseconds (design §2.2,
+    /// plan §6.3). Added to every learned time-route so target time is strictly
+    /// increasing per hop even across a ~0 ms link (a loopback or same-host fleet) —
+    /// the loop-safety invariant "target time monotonic-nondecreasing per hop".
+    /// </summary>
+    public const int PerHopIncrementMs = 10;
+
+    /// <summary>
+    /// The default INP3 hop horizon (plan §8 <c>hopLimit</c>, canonical 30): a RIP
+    /// whose learned hop count would exceed this is not learned. The hop-count analogue
+    /// of the 600 s time horizon. Used when <see cref="IngestRif"/> is called without an
+    /// explicit limit (the host passes its configured <c>NetRomInp3Options.HopLimit</c>).
+    /// </summary>
+    public const int DefaultHopLimit = 30;
+
     private readonly NetRomRoutingOptions options;
     private readonly TimeProvider timeProvider;
     private readonly object gate = new();
@@ -129,6 +145,131 @@ public sealed class NetRomRoutingTable
                     alias: entry.DestinationAlias,
                     viaNeighbour: originator,
                     quality: quality);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ingest an INP3 <see cref="Inp3Rif"/> heard on a connected interlink from
+    /// <paramref name="receivedFromNeighbour"/>, learning a measured <em>target-time</em>
+    /// route (the second metric space) per RIP. This is the time-space analogue of
+    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/> for the quality
+    /// space: it mirrors <see cref="UpsertRoute"/>'s discipline (per-destination route
+    /// cap, best-first ordering, the trivial-loop guard) and is pure table maintenance —
+    /// it never transmits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Host-free.</b> The table never reaches for the INP3 engine; the caller (the
+    /// node host) supplies the smoothed neighbour transport time
+    /// (<paramref name="neighbourSnttMs"/>) it read from <c>Inp3Engine</c>, exactly as
+    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/> takes
+    /// <c>myCall</c>/<c>portId</c> rather than reaching for them.
+    /// </para>
+    /// <para>
+    /// <b>Per-RIP math</b> (design §2.2 / §5.2). For each RIP, the local INP3 metric for
+    /// its destination <em>via <paramref name="receivedFromNeighbour"/></em> is
+    /// <c>localTargetTimeMs = rip.TargetTimeMs + neighbourSnttMs + 10</c> (the peer's
+    /// advertised target time, plus the measured cost of this link, plus a fixed
+    /// <see cref="PerHopIncrementMs"/> per-hop increment that keeps target time strictly
+    /// increasing per hop even across a ~0 ms link) and <c>localHopCount = rip.HopCount + 1</c>.
+    /// </para>
+    /// <para>
+    /// <b>Horizon = withdrawal</b> (design §2.3). If the RIP is at/over the 600 s horizon
+    /// (<see cref="Inp3Rip.IsHorizon"/>), or the computed <c>localTargetTimeMs</c> reaches
+    /// the horizon, the INP3 metric for <c>(destination via receivedFromNeighbour)</c> is
+    /// <em>withdrawn</em> — its <see cref="Inp3RouteMetric"/> is cleared, leaving any
+    /// coexisting quality route intact; a route then left with neither a usable quality
+    /// nor an INP3 metric is removed, and a destination left with no route is removed.
+    /// Withdrawal feeds the same next-decision failover as <see cref="MarkNeighbourDown"/>.
+    /// </para>
+    /// <para>
+    /// <b>Skips</b> (no learn, no withdraw). A RIP is skipped when the link cost is not yet
+    /// measured (<paramref name="neighbourSnttMs"/> == <see cref="Inp3Sntt.Unset"/> — an
+    /// un-probed link must never <em>remove</em> a time-route it never learned), when
+    /// <c>localHopCount</c> exceeds <paramref name="hopLimit"/> (the hop horizon), or when
+    /// the destination is <paramref name="myCall"/> (the receive-side trivial-loop guard,
+    /// mirroring <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/>).
+    /// </para>
+    /// <para>
+    /// <b>Coexistence (does not disturb quality ingestion).</b> An INP3 upsert only sets
+    /// the <see cref="Inp3RouteMetric"/> on the <c>(dest via neighbour)</c> route, creating
+    /// the route as a pure time-route (quality 0) if none existed, or attaching the metric
+    /// to an existing quality route without touching its quality/obsolescence. The
+    /// per-destination cap evicts by quality (an INP3-only route counts as quality 0 for
+    /// eviction ordering only — design AMBIGUITY-I3-2), so a node that never prefers INP3
+    /// routes evicts byte-identically to today. Best INP3 route per destination = lowest
+    /// <see cref="Inp3RouteMetric.TargetTimeMs"/>, then lowest hop count, then neighbour
+    /// callsign (projected by <see cref="Snapshot"/>).
+    /// </para>
+    /// </remarks>
+    /// <param name="receivedFromNeighbour">The interlink neighbour the RIF arrived on — the
+    /// next-hop (via) for every route this RIF teaches.</param>
+    /// <param name="myCall">Our own node callsign — a RIP whose destination is us is skipped
+    /// (the trivial-loop guard).</param>
+    /// <param name="neighbourSnttMs">The smoothed transport time to
+    /// <paramref name="receivedFromNeighbour"/> in milliseconds (<c>Inp3Sntt.Ms</c>);
+    /// <see cref="Inp3Sntt.Unset"/> (<c>uint.MaxValue</c>) means "no measurement yet" — every
+    /// RIP is then skipped (no time-route learned, none withdrawn).</param>
+    /// <param name="rif">The parsed RIF (the I-1 wire type).</param>
+    /// <param name="hopLimit">The maximum learned hop count (the hop horizon, plan §8
+    /// <c>hopLimit</c>, canonical 30): a RIP whose <c>localHopCount</c> exceeds this is not
+    /// learned. Values &lt; 1 are treated as 1.</param>
+    public void IngestRif(
+        Callsign receivedFromNeighbour,
+        Callsign myCall,
+        uint neighbourSnttMs,
+        Inp3Rif rif,
+        int hopLimit = DefaultHopLimit)
+    {
+        ArgumentNullException.ThrowIfNull(rif);
+        int effectiveHopLimit = Math.Max(1, hopLimit);
+
+        lock (gate)
+        {
+            // An un-probed link has no measured cost — learn no time-route, and (crucially)
+            // withdraw none either: an Unset SNTT must never remove a route it never taught.
+            bool linkMeasured = neighbourSnttMs != Inp3Sntt.Unset;
+
+            foreach (var rip in rif.Rips)
+            {
+                // localTargetTimeMs = peer target + this link's measured cost + per-hop floor;
+                // computed in long to keep the horizon comparison overflow-free even if the
+                // peer advertised right up against the horizon (SNTT is clamped to ≤ 600_000).
+                long localTargetTime = (long)rip.TargetTimeMs + neighbourSnttMs + PerHopIncrementMs;
+
+                // Horizon = withdrawal (clears the INP3 metric only), independent of the SNTT
+                // measurement — a peer advertising the horizon withdraws regardless. The
+                // computed-over-horizon case only applies once the link is measured (an Unset
+                // SNTT would trivially overflow the horizon, which we must NOT treat as a
+                // withdrawal — hence the linkMeasured guard on the second clause).
+                if (rip.IsHorizon || (linkMeasured && localTargetTime >= Inp3Rip.HorizonMs))
+                {
+                    WithdrawInp3(rip.Destination, receivedFromNeighbour);
+                    continue;
+                }
+
+                if (!linkMeasured)
+                {
+                    continue;   // link cost unknown — learn no time-route (and withdrew none)
+                }
+
+                int localHopCount = rip.HopCount + 1;
+                if (localHopCount > effectiveHopLimit)
+                {
+                    continue;   // hop horizon — path too long to learn
+                }
+
+                if (rip.Destination.Equals(myCall))
+                {
+                    continue;   // trivial-loop guard: a route to ourselves is never learned
+                }
+
+                UpsertInp3Route(
+                    destination: rip.Destination,
+                    alias: rip.Alias ?? string.Empty,
+                    viaNeighbour: receivedFromNeighbour,
+                    metric: new Inp3RouteMetric((int)localTargetTime, (byte)Math.Min(localHopCount, byte.MaxValue)));
             }
         }
     }
@@ -239,7 +380,7 @@ public sealed class NetRomRoutingTable
                     .OrderByDescending(r => r.Quality)
                     .ThenBy(r => r.Neighbour.ToString(), StringComparer.Ordinal)
                     .Take(options.MaxRoutesPerDestination)
-                    .Select(r => new NetRomRoute(r.Neighbour, r.Quality, r.Obsolescence))
+                    .Select(r => new NetRomRoute(r.Neighbour, r.Quality, r.Obsolescence, r.Inp3))
                     .ToList();
 
                 dests.Add(new NetRomDestination(destCall, dest.Alias, routes));
@@ -421,23 +562,126 @@ public sealed class NetRomRoutingTable
             return;
         }
 
+        // Preserve any INP3 metric already learned for this (dest via neighbour)
+        // route — a NODES quality refresh must not wipe a coexisting time-route
+        // (the two metric spaces are independent; see IngestRif).
+        dest.Routes.TryGetValue(viaNeighbour, out var existing);
         dest.Routes[viaNeighbour] = new RouteState
         {
             Neighbour = viaNeighbour,
             Quality = quality,
             Obsolescence = options.ObsoleteInitial,
+            Inp3 = existing?.Inp3,
         };
 
-        // Heuristic 7: keep only the N best routes. If we now exceed the cap,
-        // evict the lowest-quality route(s).
-        if (dest.Routes.Count > options.MaxRoutesPerDestination)
+        EnforceRouteCap(dest);
+    }
+
+    // Heuristic 7 (and its INP3 analogue): keep only the N best routes per
+    // destination. When the cap is exceeded, evict by the SAME key the quality
+    // selection orders by — lowest-quality-first, ties by neighbour callsign — so a
+    // node that never prefers INP3 routes evicts byte-identically to today; an
+    // INP3-only route (quality 0) sorts as a quality-0 route for eviction ordering
+    // only (design AMBIGUITY-I3-2). Caller holds the lock.
+    private void EnforceRouteCap(DestinationState dest)
+    {
+        if (dest.Routes.Count <= options.MaxRoutesPerDestination)
         {
-            var keep = dest.Routes.Values
-                .OrderByDescending(r => r.Quality)
-                .ThenBy(r => r.Neighbour.ToString(), StringComparer.Ordinal)
-                .Take(options.MaxRoutesPerDestination)
-                .ToDictionary(r => r.Neighbour);
-            dest.Routes = keep;
+            return;
+        }
+
+        var keep = dest.Routes.Values
+            .OrderByDescending(r => r.Quality)
+            .ThenBy(r => r.Neighbour.ToString(), StringComparer.Ordinal)
+            .Take(options.MaxRoutesPerDestination)
+            .ToDictionary(r => r.Neighbour);
+        dest.Routes = keep;
+    }
+
+    // Attach (or refresh) an INP3 time-route metric on the (destination via
+    // viaNeighbour) route — the time-space analogue of UpsertRoute. If the route
+    // already exists (as a quality route, or a prior time-route) the metric is set in
+    // place, preserving its quality + obsolescence; if it does not exist the route is
+    // created as a pure time-route (quality 0, obsolescence OBSINIT). The per-dest cap
+    // is then enforced by the same quality-first eviction key as the quality path
+    // (AMBIGUITY-I3-2). Honours the destination cap exactly as UpsertRoute does. Caller
+    // holds the lock. (Floor/horizon/hop/loop gating is done by IngestRif before here,
+    // so this only ever stores a live, finite, in-horizon metric.)
+    private void UpsertInp3Route(Callsign destination, string alias, Callsign viaNeighbour, Inp3RouteMetric metric)
+    {
+        if (!destinations.TryGetValue(destination, out var dest))
+        {
+            if (destinations.Count >= options.MaxDestinations)
+            {
+                return;   // heuristic 9: destination list full — ignore new destinations
+            }
+            dest = new DestinationState { Alias = alias };
+            destinations[destination] = dest;
+        }
+        else if (!string.IsNullOrEmpty(alias))
+        {
+            dest.Alias = alias;
+        }
+
+        if (dest.Routes.TryGetValue(viaNeighbour, out var existing))
+        {
+            // Refresh the time-route in place: keep the route's quality (its other
+            // metric space) and reset obsolescence so the time-route ages like a
+            // quality route refreshed by a NODES broadcast.
+            dest.Routes[viaNeighbour] = existing with
+            {
+                Obsolescence = options.ObsoleteInitial,
+                Inp3 = metric,
+            };
+        }
+        else
+        {
+            // A brand-new route known only via INP3: quality 0 (no NODES quality), the
+            // time metric carrying its reachability. Quality 0 means it is invisible to
+            // the quality path / never advertised, exactly as intended.
+            dest.Routes[viaNeighbour] = new RouteState
+            {
+                Neighbour = viaNeighbour,
+                Quality = (byte)NetRomQuality.Min,
+                Obsolescence = options.ObsoleteInitial,
+                Inp3 = metric,
+            };
+        }
+
+        EnforceRouteCap(dest);
+    }
+
+    // Withdraw the INP3 metric of the (destination via viaNeighbour) route (a horizon
+    // withdrawal). Clears Inp3 only — a coexisting quality route stays. A route left
+    // with neither a usable quality (≤ MINQUAL / 0) nor an INP3 metric is removed; a
+    // destination left with no route is removed. A no-op if the route / destination is
+    // unknown or the route had no INP3 metric. Caller holds the lock.
+    private void WithdrawInp3(Callsign destination, Callsign viaNeighbour)
+    {
+        if (!destinations.TryGetValue(destination, out var dest))
+        {
+            return;
+        }
+        if (!dest.Routes.TryGetValue(viaNeighbour, out var route) || route.Inp3 is null)
+        {
+            return;   // nothing INP3 to withdraw on this route
+        }
+
+        // A route whose only reason to exist was its (now-withdrawn) time metric — i.e.
+        // it carries no usable quality — is removed outright; otherwise it survives as a
+        // pure quality route with Inp3 cleared.
+        bool hasUsableQuality = route.Quality > NetRomQuality.Min && route.Quality >= options.MinQuality;
+        if (hasUsableQuality)
+        {
+            dest.Routes[viaNeighbour] = route with { Inp3 = null };
+        }
+        else
+        {
+            dest.Routes.Remove(viaNeighbour);
+            if (dest.Routes.Count == 0)
+            {
+                destinations.Remove(destination);
+            }
         }
     }
 
@@ -479,6 +723,15 @@ public sealed class NetRomRoutingTable
         public required Callsign Neighbour { get; init; }
         public required byte Quality { get; init; }
         public required int Obsolescence { get; init; }
+
+        /// <summary>
+        /// The optional INP3 metric (measured target time + hop count) learned from a
+        /// RIF, or <c>null</c> if this route was only ever learned from NODES. The
+        /// second metric space (lowest-time-best), independent of <see cref="Quality"/>:
+        /// one route can carry both. Cleared (set <c>null</c>) on a horizon withdrawal
+        /// without disturbing the quality metric.
+        /// </summary>
+        public Inp3RouteMetric? Inp3 { get; init; }
     }
 
     private sealed class NeighbourState
