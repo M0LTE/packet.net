@@ -519,6 +519,161 @@ public sealed class NetRomRoutingTable
         }
     }
 
+    /// <summary>
+    /// Build the per-neighbour, poison-reversed INP3 RIF to advertise <em>toward</em>
+    /// <paramref name="toTargetNeighbour"/> — the INP3 (measured target-time) analogue of
+    /// <see cref="BuildAdvertisement(int)"/> (the quality/NODES view). A pure read under the
+    /// table lock; the host calls <see cref="Inp3Rif.ToBytes"/> on the result and wraps it in
+    /// a PID-0xCF I-frame on the neighbour's interlink session. Host-free: it takes
+    /// <paramref name="myCall"/> and the <paramref name="preferInp3Routes"/> knob as parameters
+    /// (the table never reaches for identity/options — the same discipline as
+    /// <see cref="IngestRif"/>). Locked design: <c>docs/netrom-inp3-i4-design.md</c> §1/§2.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The RIF emits, in order (AMBIGUITY-I4-4 — deterministic + cross-stack byte-identical):
+    /// </para>
+    /// <list type="number">
+    ///   <item><description><b>Our own node</b> — exactly one RIP for <paramref name="myCall"/>
+    ///   at <b>target-time 0 ms, hop 0</b>, no TLVs. We are the source of ourselves (the cost
+    ///   to reach us from us is zero, in zero hops); a neighbour ingesting this learns the
+    ///   direct cost to us. The own-node RIP is <b>always</b> present and is <b>never poisoned</b>
+    ///   — it is the source identity, not a learned route (design §1.1 rule 1, §2.2 exemption,
+    ///   invariant (Source)).</description></item>
+    ///   <item><description><b>Every destination D (≠ <paramref name="myCall"/>) holding a
+    ///   <em>selected</em> INP3 time-route</b> — D's active route per
+    ///   <see cref="Inp3RouteSelector.SelectActiveRoute"/> under
+    ///   <paramref name="preferInp3Routes"/> whose <see cref="NetRomRoute.Inp3"/> is non-null —
+    ///   ordered by ascending local target time then destination callsign (ordinal). One RIP
+    ///   each: hop = the selected route's <see cref="Inp3RouteMetric.HopCount"/>; target time =
+    ///   <b>POISON-REVERSE</b>: if the selected route's next-hop neighbour <em>is</em>
+    ///   <paramref name="toTargetNeighbour"/> the RIP is advertised at the
+    ///   <see cref="Inp3Rip.HorizonMs"/> (unreachable — breaks the would-be two-hop loop, design
+    ///   §2, invariant (P)); otherwise at the route's real local target time, quantised to the
+    ///   10 ms wire granule. No TLVs (alias emission gated off, AMBIGUITY-I4-1).</description></item>
+    /// </list>
+    /// <para>
+    /// Quality-only destinations (no INP3 route) are <b>not</b> in the RIF — they are carried
+    /// by NODES. A destination's "selected" route mirrors
+    /// <see cref="BuildAdvertisement(int)"/> advertising each destination's <em>best</em> route
+    /// (not every kept route), so poison-reverse is a clean per-destination decision (one
+    /// selected next-hop to compare against N). Construction stays strict: every emitted target
+    /// time is in <c>[0, HorizonMs]</c> (a poisoned RIP is exactly <see cref="Inp3Rip.HorizonMs"/>,
+    /// the own node is 0/0, and every learned finite metric is <c>&lt; HorizonMs</c> by the I-3
+    /// storage invariant) so <see cref="Inp3Rip.Write"/> never throws on emitter output.
+    /// </para>
+    /// </remarks>
+    /// <param name="myCall">Our own node callsign — emitted as the source RIP (target-time 0 /
+    /// hop 0, never poisoned) and used as the loop-guard identity (a route whose destination is
+    /// us is never in the RIF).</param>
+    /// <param name="toTargetNeighbour">N — the neighbour this RIF is built <em>for</em>: any
+    /// destination whose selected route is via N is poison-reversed (advertised at the horizon)
+    /// in this RIF (design §1.4).</param>
+    /// <param name="preferInp3Routes">Resolve each destination's <em>selected</em> route via
+    /// <see cref="Inp3RouteSelector.SelectActiveRoute"/> with this knob (BPQ's
+    /// <c>PREFERINP3ROUTES</c>; <see cref="Wire.NetRomInp3Options.PreferInp3Routes"/>).</param>
+    /// <returns>The poison-reversed INP3 RIF to advertise toward
+    /// <paramref name="toTargetNeighbour"/>.</returns>
+    public Inp3Rif BuildRif(Callsign myCall, Callsign toTargetNeighbour)
+    {
+        lock (gate)
+        {
+            // The destination RIPs, ordered by ascending local target time then callsign
+            // (AMBIGUITY-I4-4). We sort by the *real* local target time (stable across the
+            // neighbour the RIF is built for), not the poison-overridden value, so the RIP
+            // order is identical in every neighbour's RIF given identical state.
+            var destRips = new List<(Inp3Rip Rip, int LocalTargetTimeMs)>();
+
+            foreach (var (destCall, dest) in destinations)
+            {
+                if (destCall.Equals(myCall))
+                {
+                    continue;   // our own node is emitted as the 0/0 source RIP below, never as a learned route.
+                }
+
+                // We ADVERTISE a destination iff we HOLD an INP3 time-route for it (design §1) —
+                // independent of preferInp3Routes, which is a local *forwarding* preference, not
+                // an advertisement gate. (A node that forwards by quality should still tell its
+                // neighbours the time it can reach D in, so they can route to us by time.) Pick
+                // our best (lowest-target-time) INP3 route as the advertised metric, and note
+                // whether the neighbour we are building toward is ANY of D's kept next hops.
+                Inp3RouteMetric? bestInp3 = null;
+                bool poison = false;
+                foreach (var r in dest.Routes.Values)
+                {
+                    if (r.Neighbour.Equals(toTargetNeighbour))
+                    {
+                        poison = true;
+                    }
+                    if (r.Inp3 is { } m && (bestInp3 is null || m.TargetTimeMs < bestInp3.TargetTimeMs))
+                    {
+                        bestInp3 = m;
+                    }
+                }
+
+                if (bestInp3 is not { } inp3)
+                {
+                    continue;   // no INP3 route held → carried by NODES (quality), not the RIF.
+                }
+
+                // POISON-REVERSE (design §2, loop-safety): advertise D back at the horizon
+                // (unreachable) if the neighbour we are building this RIF for is ANY of D's kept
+                // forwarding next hops — not merely D's *best* INP3 next hop. The shipped
+                // multi-route load-balancer (NetRomForwarding.SelectWeighted, PerFlow default)
+                // spreads D's traffic across every kept route, so advertising D back at a finite
+                // metric to any neighbour we'd forward D through seeds a two-hop loop (that
+                // neighbour installs D-via-us, then bounces D's share back). Split-horizon over
+                // the full kept-route set is the safe rule; over-poisoning at worst costs a
+                // backup-path advertisement (which alternate-reverse would recover — deferred).
+                int advertisedTargetTimeMs = poison
+                    ? Inp3Rip.HorizonMs
+                    : Quantise10(inp3.TargetTimeMs);
+
+                destRips.Add((
+                    new Inp3Rip
+                    {
+                        Destination = destCall,
+                        HopCount = inp3.HopCount,
+                        TargetTimeMs = advertisedTargetTimeMs,
+                        Tlvs = [],   // alias TLV emission gated OFF (AMBIGUITY-I4-1)
+                    },
+                    inp3.TargetTimeMs));
+            }
+
+            var ordered = destRips
+                .OrderBy(x => x.LocalTargetTimeMs)
+                .ThenBy(x => x.Rip.Destination.ToString(), StringComparer.Ordinal)
+                .Select(x => x.Rip);
+
+            // Own-node RIP first (the source seed: 0/0, no TLVs, never poisoned), then the
+            // ordered destination RIPs.
+            var rips = new List<Inp3Rip>(destRips.Count + 1)
+            {
+                new()
+                {
+                    Destination = myCall,
+                    HopCount = 0,
+                    TargetTimeMs = 0,
+                    Tlvs = [],
+                },
+            };
+            rips.AddRange(ordered);
+
+            return new Inp3Rif { Rips = rips };
+        }
+    }
+
+    // Quantise a full-ms local target time down to the 10 ms wire granule the RIP codec
+    // carries (the stored metric is full-ms — the granule is an emission-only concern,
+    // design I-3 AMBIGUITY-I3-3). Floor, so the emitted finite time never exceeds the
+    // stored one; clamped to one granule below the horizon so a near-horizon finite metric
+    // can never round up to read as a withdrawal.
+    private static int Quantise10(int targetTimeMs)
+    {
+        int quantised = (targetTimeMs / 10) * 10;
+        return Math.Min(quantised, Inp3Rip.HorizonMs - 10);
+    }
+
     // ─── Internals ────────────────────────────────────────────────────
 
     // Add or refresh a route to `destination` via `viaNeighbour`. Applies the
