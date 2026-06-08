@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Packet.Core;
+using Packet.NetRom.Routing;
 using Packet.NetRom.Wire;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.NetRom;
@@ -24,6 +25,8 @@ public sealed class NetRomServiceInp3EndToEndTests
     private static readonly Callsign A = new("GB7AAA", 0);
     private static readonly Callsign B = new("GB7BBB", 0);
     private static readonly Callsign C = new("GB7CCC", 0);
+    private static readonly Callsign D = new("GB7DDD", 0);
+    private static readonly Callsign E = new("GB7EEE", 0);
     private static readonly DateTimeOffset T0 = new(2026, 6, 8, 12, 0, 0, TimeSpan.Zero);
 
     // A short periodic RIF (5 s) so a periodic fan-out fires well inside the 180 s reflection-reset
@@ -247,5 +250,84 @@ public sealed class NetRomServiceInp3EndToEndTests
 
         // A reaches C only through B (no direct link) — its only route's next hop is B.
         aToC.Routes.Should().OnlyContain(r => r.Neighbour == B);
+    }
+
+    [Fact]
+    public void A_holds_two_time_routes_to_C_and_failover_by_time_selects_the_faster_path()
+    {
+        // The end-to-end failover-by-time proof. A reaches C two ways, of UNEQUAL hop length, so the
+        // accumulated INP3 target time differs even though every link measures the same single RTT:
+        //
+        //   short:  A — B — C        (2 hops)   →  via B, target 120 ms
+        //   long:   A — D — E — C    (3 hops)   →  via D, target 180 ms
+        //
+        // After convergence A holds C with BOTH next hops, each carrying its measured target time, and
+        // the Inp3RouteSelector — given the preferInp3Routes knob — picks the via-B (lower-time) route:
+        // having learned two real multi-hop time-routes, the node selects the faster. With the knob off
+        // it falls back to best quality (today's behaviour).
+        using var f = new Fleet();
+        f.Add(A);
+        f.Add(B);
+        f.Add(C);
+        f.Add(D);
+        f.Add(E);
+
+        // The 5-node graph: the short path A→B→C and the long path A→D→E→C. Observe every adjacent pair
+        // so each link is probed and SNTT-measured both ways.
+        f.Observe(A, B);
+        f.Observe(B, C);
+        f.Observe(A, D);
+        f.Observe(D, E);
+        f.Observe(E, C);
+        f.ClearWire();
+
+        // One RTT for every link → SNTT 50 ms on all five (A↔B, B↔C, A↔D, D↔E, E↔C).
+        MeasureRound(f, rttMs: 100);
+
+        // The long path needs an extra periodic round to propagate C all the way (C→E, E→D, D→A); three
+        // rounds cover both arms (the short path converges in two). Each round is a full RIF fan-out at a
+        // fresh 6 s tick (well inside the 180 s reflection-reset window — at ~18 s total nothing resets).
+        for (int round = 0; round < 3; round++)
+        {
+            f.Advance(TimeSpan.FromSeconds(6));
+            f.TickAll();
+            f.Quiesce();
+        }
+
+        var aToC = f.Node(A).Snapshot().Destinations.SingleOrDefault(d => d.Destination == C);
+        aToC.Should().NotBeNull("A learns C from both arms of the graph");
+
+        // Both next hops are present, each an INP3 time-route (within the per-dest route cap of 3).
+        var viaB = aToC!.Routes.SingleOrDefault(r => r.Neighbour == B);
+        var viaD = aToC.Routes.SingleOrDefault(r => r.Neighbour == D);
+        viaB.Should().NotBeNull("A reaches C via B on the 2-hop short path");
+        viaD.Should().NotBeNull("A reaches C via D on the 3-hop long path");
+        viaB!.Inp3.Should().NotBeNull("the via-B route carries a measured target time");
+        viaD!.Inp3.Should().NotBeNull("the via-D route carries a measured target time");
+
+        // The accumulated target-time arithmetic (Σ-SNTT + 10 ms per hop), mirroring the line test:
+        //   via B:  C source 0 → B ingests 0 +50 +10 = 60 → A ingests 60 +50 +10 = 120  (hop 2)
+        //   via D:  C source 0 → E ingests 0 +50 +10 = 60 → D ingests 60 +50 +10 = 120 → A ingests 120 +50 +10 = 180  (hop 3)
+        // Relative ordering is the load-bearing invariant; pin the exact values too since they hold here.
+        viaB.Inp3!.TargetTimeMs.Should().BeLessThan(viaD.Inp3!.TargetTimeMs,
+            "the 2-hop short path has a lower accumulated target time than the 3-hop long path");
+        viaB.Inp3.TargetTimeMs.Should().Be(120, "Σ-SNTT + per-hop across A→B→C (2 hops)");
+        viaD.Inp3.TargetTimeMs.Should().Be(180, "Σ-SNTT + per-hop across A→D→E→C (3 hops)");
+        viaB.Inp3.HopCount.Should().Be(2, "A→B→C is two hops");
+        viaD.Inp3.HopCount.Should().Be(3, "A→D→E→C is three hops");
+
+        // Failover-by-time: with the INP3 knob on, the selector returns the via-B (lower-target-time)
+        // route — proving end-to-end that, holding two real multi-hop time-routes, the node selects the
+        // faster path.
+        var active = Inp3RouteSelector.SelectActiveRoute(aToC, preferInp3Routes: true);
+        active.Should().NotBeNull();
+        active!.Neighbour.Should().Be(B, "lowest accumulated target time wins under preferInp3Routes");
+        active.Inp3!.TargetTimeMs.Should().Be(120);
+
+        // Contrast (today's behaviour): with the knob off the selector ignores the time metric entirely
+        // and returns the best-QUALITY route (Routes[0], the quality-first head) — the dual-metric
+        // coexistence, with INP3 changing the result only when explicitly preferred.
+        var qualityActive = Inp3RouteSelector.SelectActiveRoute(aToC, preferInp3Routes: false);
+        qualityActive.Should().Be(aToC.BestRoute, "knob off ⇒ quality fallback, byte-for-byte today's path");
     }
 }
