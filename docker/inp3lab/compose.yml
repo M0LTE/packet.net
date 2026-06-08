@@ -1,0 +1,43 @@
+# Standalone INP3 lab — two real Packet.Node hosts (INP3 overlay ON) sharing one
+# net-sim afsk1200 channel. Fully isolated from the shared packetdotnet lab.
+#
+#   docker compose -f docker/inp3lab/compose.yml up --build -d
+#   # node A console:  telnet 127.0.0.1 9011   (then:  c GB7BBB   to raise the interlink)
+#   # node B console:  telnet 127.0.0.1 9012
+#   # net-sim web/api: http://127.0.0.1:9080/api/status
+#   docker compose -f docker/inp3lab/compose.yml down -v
+services:
+  netsim:
+    image: ghcr.io/packethacking/net-sim@sha256:0fb896080a07e19dac4a16958e18538f9b827360254428b1bddf8821b3e7ace7
+    container_name: inp3lab-netsim
+    volumes:
+      - ./network.yaml:/etc/sim/network.yaml:ro
+    command: ["-autostart"]
+    ports:
+      - "127.0.0.1:9080:8080"   # net-sim web UI + /api/status
+
+  node-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inp3lab-node-a
+    depends_on:
+      - netsim
+    volumes:
+      - ./node-a.yaml:/config/packetnet.yaml:ro
+    ports:
+      - "127.0.0.1:9011:8011"   # node A telnet console
+      - "127.0.0.1:9081:8080"   # node A /healthz
+
+  node-b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inp3lab-node-b
+    depends_on:
+      - netsim
+    volumes:
+      - ./node-b.yaml:/config/packetnet.yaml:ro
+    ports:
+      - "127.0.0.1:9012:8011"   # node B telnet console
+      - "127.0.0.1:9082:8080"   # node B /healthz
