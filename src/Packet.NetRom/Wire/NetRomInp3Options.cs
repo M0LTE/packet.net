@@ -113,6 +113,37 @@ public sealed record NetRomInp3Options
     /// </summary>
     public int HopLimit { get; init; } = 30;
 
+    /// <summary>
+    /// Periodic full-RIF cadence — the baseline refresh interval (plan §8
+    /// <c>rifIntervalSeconds</c>, design I-4 §6.2 "a periodic full RIF on the INP3
+    /// interval regardless"). Triggered updates fire regardless of this. Default
+    /// <b>300 s</b>. Consumed by
+    /// <see cref="Packet.NetRom.Transport.Inp3UpdateScheduler"/>; separate from
+    /// NODESINTERVAL and from the L3RTT cadence. Must be positive.
+    /// </summary>
+    public TimeSpan RifInterval { get; init; } = TimeSpan.FromSeconds(300);
+
+    /// <summary>
+    /// Positive-update debounce — how long a NEW / BETTER (positive) route change is
+    /// batched before a fan-out, coalescing a burst of positive changes into one RIF
+    /// (design I-4 §3.3 rule 2). NEGATIVE changes (loss / worsen-past-threshold)
+    /// ignore this and fan out immediately. Default <b>5 s</b>. Must be positive and
+    /// strictly less than <see cref="RifInterval"/> (a debounce &gt;= the periodic
+    /// interval is pointless — the periodic emit would always drain the batch first).
+    /// </summary>
+    public TimeSpan PositiveDebounce { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The worsen-by amount (ms) at or above which a slowed selected route counts as
+    /// NEGATIVE (immediate fan-out) rather than POSITIVE (batched) — design
+    /// AMBIGUITY-I4-3. Sub-threshold worsenings are routine SNTT jitter and batched.
+    /// A loss / withdrawal is <em>always</em> NEGATIVE regardless of this threshold.
+    /// Default <b>1000 ms</b>. The table / ingestion path applies it when classifying
+    /// a change for <see cref="Packet.NetRom.Transport.Inp3UpdateScheduler.MarkDirty"/>;
+    /// it is a knob here so it is tunable and cross-stack-pinned. Must be non-negative.
+    /// </summary>
+    public int WorsenThresholdMs { get; init; } = 1000;
+
     /// <summary>The canonical / widely-interoperable defaults.</summary>
     public static NetRomInp3Options Default { get; } = new();
 
@@ -147,6 +178,23 @@ public sealed record NetRomInp3Options
         if (HopLimit < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(HopLimit), HopLimit, "INP3 hop limit must be at least 1");
+        }
+        if (RifInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(RifInterval), RifInterval, "periodic RIF interval must be positive");
+        }
+        if (PositiveDebounce <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PositiveDebounce), PositiveDebounce, "positive-update debounce must be positive");
+        }
+        if (PositiveDebounce >= RifInterval)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PositiveDebounce), PositiveDebounce,
+                "positive-update debounce must be less than the periodic RIF interval (a debounce >= the interval is pointless — the periodic emit would always drain the batch first)");
+        }
+        if (WorsenThresholdMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(WorsenThresholdMs), WorsenThresholdMs, "worsen threshold must be non-negative");
         }
     }
 }
