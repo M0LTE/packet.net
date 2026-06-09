@@ -16,6 +16,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- JWT bearer validation middleware for the web control-API auth foundation
+         (default-off behind management.auth.enabled). The token issuing/validation
+         primitives + the user store live in Packet.Node.Core (web-free); this is
+         only the ASP.NET authentication middleware. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Expose internal API helpers (e.g. the session-id split, a load-bearing contract)
          to the node test project for focused unit tests alongside the WAF integration ones. -->
     <InternalsVisibleTo Include="Packet.Node.Tests" />

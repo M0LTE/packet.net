@@ -14,6 +14,12 @@
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageVersion Include="Fido2.AspNet" Version="4.0.0-beta.16" />
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.5.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.5.0" />
+    <!-- JWT bearer validation middleware for the host (the node auth foundation,
+         default-off behind management.auth.enabled). 10.0.8 matches the .NET 10
+         shared framework; it depends on Microsoft.IdentityModel.* 8.x, aligned
+         with the JsonWebTokens/Tokens pins above. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
 
     <!-- Logging / telemetry (opt-in only) -->
     <PackageVersion Include="Serilog" Version="4.2.0" />

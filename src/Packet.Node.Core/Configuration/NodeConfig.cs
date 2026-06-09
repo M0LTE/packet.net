@@ -179,6 +179,46 @@ public sealed record ManagementConfig
     /// <summary>The web server bind. Slice 1 maps only <c>GET /healthz</c>;
     /// API/auth/UI are later slices.</summary>
     public HttpConfig Http { get; init; } = new();
+
+    /// <summary>Web control-API authentication. Default-OFF (see
+    /// <see cref="AuthConfig"/>): with it off the API behaves exactly as it did
+    /// before auth existed — the read / SSE / config / ports / sessions / ping
+    /// endpoints and the SPA all serve unauthenticated. With it on, a JWT bearer
+    /// token is required and the per-endpoint scope gates enforce.</summary>
+    public AuthConfig Auth { get; init; } = new();
+}
+
+/// <summary>
+/// Web control-API authentication configuration.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Default-OFF, no regression.</b> <see cref="Enabled"/> defaults to
+/// <c>false</c>: the auth machinery (user store, JWT issuing/validation, the
+/// scope policies) is always wired, but <em>enforcement</em> is conditional on
+/// this flag. With it off, every endpoint that would otherwise be gated serves
+/// unauthenticated exactly as before — so turning auth on is a deliberate,
+/// reviewed step and never a silent behaviour change for an existing node.
+/// </para>
+/// <para>
+/// The signing key and the user records live in <c>pdn.db</c> (the consolidated
+/// SQLite store), not here — this config record only carries the on/off switch
+/// and the token lifetime. The key is generated on first start and persisted;
+/// it is never written to config or logs.
+/// </para>
+/// </remarks>
+public sealed record AuthConfig
+{
+    /// <summary>Whether the web control API requires authentication. Default
+    /// <c>false</c> — the API is unauthenticated until the operator opts in. When
+    /// <c>true</c>, a JWT bearer token is required on the gated endpoints and the
+    /// <c>read</c>/<c>operate</c>/<c>admin</c> scope policies enforce.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Access-token lifetime in minutes. Null = the default (60 — ~1h).
+    /// No refresh tokens in v1, so this is the full session length before a
+    /// re-login.</summary>
+    public int? AccessTokenMinutes { get; init; }
 }
 
 /// <summary>

@@ -92,7 +92,9 @@ public static class PdnSessionsApi
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        var v1 = app.MapGroup("/api/v1");
+        // Every session action + ping is `operate` (a write/action). The gate is a no-op
+        // when management.auth.enabled is off (ScopeRequirementHandler passes through).
+        var v1 = app.MapGroup("/api/v1").RequireAuthorization(PdnAuthPolicies.Operate);
 
         // Connect out to a callsign (AX.25 dial) or NET/ROM alias (network route). Capture
         // the connector inside the gate; dial OUTSIDE it (bounded by DialTimeout + the

@@ -74,11 +74,12 @@ public static class PdnConfigApi
                 return Results.UnprocessableEntity(new ValidationProblem(applyErrors));
             }
             return Results.Ok(ToResult(preview, applied: true));
-        });
+        }).RequireAuthorization(PdnAuthPolicies.Operate);   // a config write is `operate`
 
         // The advanced editor reads the live config as raw YAML to edit by hand.
         v1.MapGet("/config/raw", (IWritableConfigProvider cfg) =>
-            Results.Text(NodeConfigYaml.Serialize(cfg.Current), "text/plain"));
+            Results.Text(NodeConfigYaml.Serialize(cfg.Current), "text/plain"))
+            .RequireAuthorization(PdnAuthPolicies.Read);    // reading config is `read`
 
         // Raw-YAML edit: the request body IS the YAML. A parse failure is a 422 with
         // a single (yaml)-path error; otherwise the same validate→preview→apply flow.
@@ -117,7 +118,7 @@ public static class PdnConfigApi
                 return Results.UnprocessableEntity(new ValidationProblem(applyErrors));
             }
             return Results.Ok(ToResult(preview, applied: true));
-        });
+        }).RequireAuthorization(PdnAuthPolicies.Operate);   // a raw-YAML config write is `operate`
     }
 
     /// <summary>Project a <see cref="ReconcilePreview"/> to the PUT result, carrying

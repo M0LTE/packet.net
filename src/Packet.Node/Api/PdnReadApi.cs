@@ -58,7 +58,10 @@ public static class PdnReadApi
         // so node uptime is measured from startup, not from the first /status call.
         _ = StartTimestamp;
 
-        var v1 = app.MapGroup("/api/v1");
+        // The read endpoints are gated `read` (admin ⊃ operate ⊃ read). The gate is a
+        // no-op when management.auth.enabled is off (ScopeRequirementHandler passes
+        // through), so the unauthenticated behaviour is unchanged by default.
+        var v1 = app.MapGroup("/api/v1").RequireAuthorization(PdnAuthPolicies.Read);
 
         v1.MapGet("/status", (NodeHostedService host, IConfigProvider config, TimeProvider clock)
             => Results.Ok(BuildStatus(host, config, clock)));
