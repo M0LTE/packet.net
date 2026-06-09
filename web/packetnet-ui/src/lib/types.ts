@@ -68,6 +68,18 @@ export interface NodeConfig {
 // which edits are hot vs disruptive
 export type ApplyImpact = "live" | "port-restart" | "node-reset";
 
+// ---- config-write: reconcile preview + validation (Slice-3 step 2) ----
+export interface ReconcileChange { path: string; impact: ApplyImpact; summary: string }
+export interface ReconcileResult {
+  valid: boolean;
+  live: ReconcileChange[];
+  portRestart: ReconcileChange[];
+  nodeReset: ReconcileChange[];
+  applied: boolean;
+}
+export interface ConfigValidationError { path: string; message: string }
+export interface ValidationProblem { errors: ConfigValidationError[] }
+
 // ---- 6.2 NET/ROM routing snapshot --------------------------
 export interface Inp3RouteMetric { targetTimeMs: number; hopCount: number }
 export interface NetRomRoute {

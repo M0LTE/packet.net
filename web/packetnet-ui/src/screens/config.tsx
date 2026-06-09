@@ -13,8 +13,8 @@ import {
   Button, Badge, Card, Input, Label, Field, InfoHint, Switch, ImpactBadge, Tabs, Modal, Icon,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp } from "@/lib/types";
-import { api, useQuery } from "@/lib/api";
+import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange } from "@/lib/types";
+import { api, useQuery, ConfigRejected } from "@/lib/api";
 import {
   APPLY_IMPACT, NETROM_TOGGLE_HELP, NETROM_FIELD_HELP, INP3_FIELD_HELP,
   BEACON_DEFAULT, PORT_BEACONS,
@@ -34,7 +34,7 @@ const TABS: { id: FormTab; label: string }[] = [
 
 export function Config() {
   const navigate = useNavigate();
-  const { data } = useQuery(api.config, []);
+  const { data, reload } = useQuery(api.config, []);
 
   const [tab, setTab] = useState<FormTab>("identity");
   const [mode, setMode] = useState<"forms" | "raw">("forms");
@@ -42,10 +42,62 @@ export function Config() {
   const [dirty, setDirty] = useState<DirtyEntry[]>([]);
   const [showReconcile, setShowReconcile] = useState(false);
 
-  // seed the editable draft from the loaded config (once)
+  // server-driven reconcile state (the authoritative preview + validation)
+  const [preview, setPreview] = useState<ReconcileResult | null>(null);
+  const [problem, setProblem] = useState<ValidationProblem | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [rawText, setRawText] = useState<string | null>(null);
+
+  // Seed the editable draft from the loaded config. Re-seeds when `data` changes,
+  // which only happens on mount and after an apply's reload() — never mid-edit
+  // (the query has no other refetch trigger), so this can't clobber in-progress edits.
   useEffect(() => {
-    if (data && !cfg) setCfg(structuredClone(data));
-  }, [data, cfg]);
+    if (data) setCfg(structuredClone(data));
+  }, [data]);
+
+  // Seed the raw-YAML buffer from the live node the first time the Raw tab opens.
+  useEffect(() => {
+    if (mode === "raw" && rawText == null) {
+      api.getConfigRaw().then(setRawText).catch((e) => setRawText(`# failed to load raw config: ${e}\n`));
+    }
+  }, [mode, rawText]);
+
+  // Open the review modal and fetch the server's dry-run reconcile preview.
+  const openReview = async () => {
+    setShowReconcile(true);
+    setPreview(null);
+    setProblem(null);
+    setBusy(true);
+    try {
+      const r = mode === "raw" && rawText != null
+        ? await api.putConfigRaw(rawText, { dryRun: true })
+        : cfg ? await api.putConfig(cfg, { dryRun: true }) : null;
+      setPreview(r);
+    } catch (e) {
+      setProblem(e instanceof ConfigRejected ? e.problem : { errors: [{ path: "(error)", message: String((e as Error)?.message ?? e) }] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Apply for real, then reseed from the now-current config.
+  const doApply = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      if (mode === "raw" && rawText != null) await api.putConfigRaw(rawText);
+      else if (cfg) await api.putConfig(cfg);
+      setShowReconcile(false);
+      setPreview(null);
+      setDirty([]);
+      setRawText(null);   // re-pull raw on next open
+      reload();           // refetch /config → the seed effect reseeds the draft
+    } catch (e) {
+      setProblem(e instanceof ConfigRejected ? e.problem : { errors: [{ path: "(error)", message: String((e as Error)?.message ?? e) }] });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // record a changed path (impact comes from APPLY_IMPACT) — dedup by path
   const touch = (path: string, impact: ApplyImpact) =>
@@ -73,7 +125,7 @@ export function Config() {
         actions={
           <div className="flex items-center gap-2">
             <Tabs active={mode} onChange={(m) => setMode(m as "forms" | "raw")} tabs={[{ id: "forms", label: "Forms" }, { id: "raw", label: "Raw YAML" }]} />
-            <Button size="sm" disabled={dirty.length === 0} onClick={() => setShowReconcile(true)}>
+            <Button size="sm" disabled={mode === "forms" && dirty.length === 0} onClick={openReview}>
               <Icon name="check" size={14} /> Review &amp; apply
               {dirty.length > 0 && <Badge variant="secondary" className="ml-1">{dirty.length}</Badge>}
             </Button>
@@ -164,14 +216,16 @@ export function Config() {
           </Card>
         </div>
       ) : (
-        <RawYaml cfg={cfg} onValidate={() => setShowReconcile(true)} />
+        <RawYaml text={rawText} onChange={setRawText} onValidate={openReview} />
       )}
 
       <ReconcilePreview
         open={showReconcile}
-        dirty={dirty}
+        result={preview}
+        problem={problem}
+        busy={busy}
         onClose={() => setShowReconcile(false)}
-        onApply={() => { setShowReconcile(false); setDirty([]); }}
+        onApply={doApply}
       />
     </Page>
   );
@@ -370,50 +424,41 @@ function BeaconsSection() {
 }
 
 // ---------- Raw YAML view -----------------------------------
-function RawYaml({ cfg, onValidate }: { cfg: NodeConfig; onValidate: () => void }) {
-  const yaml = toYaml(cfg as unknown as Record<string, unknown>);
+// Controlled, seeded from GET /config/raw (the live node's serialised config) and
+// applied through PUT /config/raw — the server is the source of truth, not a
+// client-side approximation.
+function RawYaml({ text, onChange, onValidate }: { text: string | null; onChange: (t: string) => void; onValidate: () => void }) {
   return (
     <Card className="overflow-hidden p-0">
       <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
         <span className="flex items-center gap-2 text-xs text-muted-foreground"><Icon name="config" size={13} /> node-config.yaml · advanced</span>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-success"><Icon name="check" size={13} /> valid</span>
-          <Button variant="outline" size="xs" onClick={onValidate}>Validate &amp; preview</Button>
-        </div>
+        <Button variant="outline" size="xs" onClick={onValidate} disabled={text == null}>Validate &amp; preview</Button>
       </div>
       <textarea
         spellCheck={false}
-        defaultValue={yaml}
+        value={text ?? "# loading…"}
+        onChange={(e) => onChange(e.target.value)}
         className="h-[calc(100vh-20rem)] w-full resize-none bg-background/40 p-4 font-mono text-xs leading-relaxed text-foreground/90 focus:outline-none"
       />
     </Card>
   );
 }
 
-// minimal YAML serialiser for the raw view (display only)
-function toYaml(obj: Record<string, unknown>, indent = 0): string {
-  const pad = "  ".repeat(indent);
-  let out = "";
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) out += `${pad}${k}: null\n`;
-    else if (Array.isArray(v)) {
-      out += `${pad}${k}:\n`;
-      v.forEach((item) => {
-        if (item && typeof item === "object") {
-          out += `${pad}  - ${toYaml(item as Record<string, unknown>, indent + 2).replace(/^\s+/, "").replace(/\n {0,}(\S)/g, (m, c: string, o: number) => (o === 0 ? m : `\n${pad}    ${c}`))}`;
-        } else out += `${pad}  - ${String(item)}\n`;
-      });
-    } else if (typeof v === "object") out += `${pad}${k}:\n` + toYaml(v as Record<string, unknown>, indent + 1);
-    else out += `${pad}${k}: ${String(v)}\n`;
-  }
-  return out;
-}
-
 // ---------- Reconcile preview: the safety story -------------
-function ReconcilePreview({ open, dirty, onClose, onApply }: { open: boolean; dirty: DirtyEntry[]; onClose: () => void; onApply: () => void }) {
-  const live = dirty.filter((d) => d.impact === "live");
-  const restart = dirty.filter((d) => d.impact === "port-restart");
-  const reset = dirty.filter((d) => d.impact === "node-reset");
+// Server-authoritative: the grouping + plain-language summaries come from the
+// node's reconcile planner (dry-run), and a rejected edit surfaces the node's own
+// per-field validation problems — a bad edit never reaches the running node.
+function ReconcilePreview({ open, result, problem, busy, onClose, onApply }: {
+  open: boolean;
+  result: ReconcileResult | null;
+  problem: ValidationProblem | null;
+  busy: boolean;
+  onClose: () => void;
+  onApply: () => void;
+}) {
+  const reset = result?.nodeReset ?? [];
+  const hasReset = reset.length > 0;
+  const canApply = !busy && problem == null && result != null;
   return (
     <Modal
       open={open}
@@ -423,25 +468,42 @@ function ReconcilePreview({ open, dirty, onClose, onApply }: { open: boolean; di
       footer={
         <>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={onApply} className={reset.length ? "bg-danger text-danger-foreground hover:bg-danger/90" : undefined}>
-            {reset.length ? <><Icon name="alert" size={14} /> Apply — resets the node</> : <><Icon name="check" size={14} /> Apply all at once</>}
+          <Button size="sm" onClick={onApply} disabled={!canApply} className={hasReset ? "bg-danger text-danger-foreground hover:bg-danger/90" : undefined}>
+            {busy ? "Working…" : hasReset ? <><Icon name="alert" size={14} /> Apply — resets the node</> : <><Icon name="check" size={14} /> Apply all at once</>}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Your changes are checked before anything is applied — a bad edit never reaches the running node. Valid changes are then applied all at once.
-        </p>
-        <ReconcileGroup variant="success" icon="check" title={`${live.length} applies live`} items={live} desc="hot-applied while the node keeps running — nothing drops." />
-        <ReconcileGroup variant="warning" icon="restart" title={`${restart.length} restarts a port`} items={restart} desc="the console port bounces; sessions on that port drop." />
-        <ReconcileGroup variant="danger" icon="alert" title={`${reset.length} resets the node`} items={reset} desc="a node-wide restart — every session on every port drops." />
+        {problem ? (
+          <div className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-danger">
+            <p className="flex items-center gap-2 text-sm font-semibold"><Icon name="alert" size={14} /> {problem.errors.length} problem{problem.errors.length === 1 ? "" : "s"} — not applied</p>
+            <ul className="mt-2 space-y-1">
+              {problem.errors.map((e, i) => (
+                <li key={i} className="text-[11px] text-foreground/80"><span className="font-mono text-danger/90">{e.path}</span> — {e.message}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Your changes are checked before anything is applied — a bad edit never reaches the running node. Valid changes are then applied all at once.
+            </p>
+            {busy && result == null && <p className="text-sm text-muted-foreground">Checking…</p>}
+            <ReconcileGroup variant="success" icon="check" title={`${result?.live.length ?? 0} apply live`} items={result?.live ?? []} desc="hot-applied while the node keeps running — nothing drops." />
+            <ReconcileGroup variant="warning" icon="restart" title={`${result?.portRestart.length ?? 0} restart a port`} items={result?.portRestart ?? []} desc="the affected port bounces; sessions on it drop." />
+            <ReconcileGroup variant="danger" icon="alert" title={`${reset.length} reset the node`} items={reset} desc="applies on a node restart — every session on every port drops." />
+            {result != null && result.live.length + result.portRestart.length + reset.length === 0 && (
+              <p className="text-sm text-muted-foreground">No effective changes.</p>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );
 }
 
-function ReconcileGroup({ variant, icon, title, items, desc }: { variant: "success" | "warning" | "danger"; icon: string; title: string; items: DirtyEntry[]; desc: string }) {
+function ReconcileGroup({ variant, icon, title, items, desc }: { variant: "success" | "warning" | "danger"; icon: string; title: string; items: ReconcileChange[]; desc: string }) {
   if (items.length === 0) return null;
   const c = {
     success: "border-success/30 bg-success/5 text-success",
@@ -452,8 +514,10 @@ function ReconcileGroup({ variant, icon, title, items, desc }: { variant: "succe
     <div className={cn("rounded-lg border p-3", c)}>
       <p className="flex items-center gap-2 text-sm font-semibold"><Icon name={icon} size={14} /> {title}</p>
       <p className="mt-0.5 text-xs opacity-80">{desc}</p>
-      <ul className="mt-2 space-y-0.5">
-        {items.map((i) => <li key={i.path} className="font-mono text-[11px] text-foreground/70">· {i.path}</li>)}
+      <ul className="mt-2 space-y-1">
+        {items.map((i) => (
+          <li key={i.path} className="text-[11px] text-foreground/80">{i.summary} <span className="font-mono text-foreground/40">({i.path})</span></li>
+        ))}
       </ul>
     </div>
   );

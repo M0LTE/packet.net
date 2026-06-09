@@ -38,6 +38,16 @@ var configProvider = new FileConfigProvider(
     TimeProvider.System,
     bootstrapLoggers.CreateLogger<FileConfigProvider>());
 builder.Services.AddSingleton<IConfigProvider>(configProvider);
+// The same instance is also the WRITE seam for the config API (PUT /config et al.).
+// Registered separately so read-only consumers + the test fakes stay on the plain
+// IConfigProvider; only this provider can persist an edit.
+builder.Services.AddSingleton<IWritableConfigProvider>(configProvider);
+
+// Teach the minimal-API JSON layer to (de)serialise the polymorphic TransportConfig
+// union (a PUT /config body needs the `kind`-discriminated read; this is transparent
+// for the existing GET serialisation). Web defaults (camelCase) are otherwise intact.
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.Converters.Add(new TransportConfigJsonConverter()));
 
 // The routing-table persistence store (pdn.db). Created eagerly so it can hydrate
 // NetRomService at start; registered as the singleton INetRomRoutingStore the hosted
@@ -78,6 +88,12 @@ app.MapPdnReadApi();
 // consumes (GET /api/v1/events). Mapped after the read API and before the
 // catch-all; the specific route wins over /api/{**rest} regardless of order.
 app.MapPdnEvents();
+
+// Slice 3 step 2: the write-side config API (PUT /config + /config/raw + the
+// raw-YAML GET) the web editor persists edits through. Mapped after the read API
+// and before the catch-all; the specific routes win over /api/{**rest} regardless
+// of order. (Auth is a later step — unauthenticated, node binds 127.0.0.1.)
+app.MapPdnConfigApi();
 
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*

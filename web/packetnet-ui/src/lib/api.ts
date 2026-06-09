@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   NodeStatus, PortStatus, SessionInfo, NetRomRoutingSnapshot, NodeConfig,
-  LinkStats, MonitorEvent, User, LogLine,
+  LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
 } from "./types";
 import * as mock from "./mock";
 
@@ -32,6 +32,21 @@ async function get<T>(path: string, mockValue: () => T): Promise<T> {
   return (await res.json()) as T;
 }
 
+// A rejected config edit (HTTP 422) — carries the server's per-field validation
+// problems so the editor can surface them inline.
+export class ConfigRejected extends Error {
+  constructor(public readonly problem: ValidationProblem) {
+    super(problem.errors.map((e) => `${e.path}: ${e.message}`).join("; ") || "config rejected");
+    this.name = "ConfigRejected";
+  }
+}
+
+// A synthetic reconcile result for mock mode (no backend to ask). Marks everything
+// "live" so the preview renders; real grouping comes from the server in live mode.
+function mockReconcile(applied: boolean): ReconcileResult {
+  return { valid: true, live: [{ path: "(mock)", impact: "live", summary: "Mock mode — no node to reconcile against." }], portRestart: [], nodeReset: [], applied };
+}
+
 // ---- read endpoints ----------------------------------------
 export const api = {
   status: () => get<NodeStatus>("/status", () => mock.NODE_STATUS),
@@ -42,7 +57,43 @@ export const api = {
   linkStats: () => get<LinkStats[]>("/links", () => mock.LINK_STATS),
   users: () => get<User[]>("/users", () => mock.USERS),
   log: () => get<LogLine[]>("/log", () => mock.LOG_TAIL),
+
+  // ---- config write (Slice-3 step 2) ----
+  // PUT the whole config; dryRun returns the reconcile preview without applying.
+  // A 422 throws ConfigRejected carrying the validation problems.
+  putConfig: (cfg: NodeConfig, opts: { dryRun?: boolean } = {}) =>
+    writeConfig("/config", "PUT", JSON.stringify(cfg), "application/json", opts.dryRun ?? false),
+  // The raw YAML the advanced editor round-trips.
+  getConfigRaw: async (): Promise<string> => {
+    if (MODE === "mock") return "# raw YAML round-trips against a live node\nschemaVersion: 1\n";
+    const res = await fetch(`${BASE}/config/raw`, { headers: { accept: "text/plain" } });
+    if (!res.ok) throw new Error(`/config/raw: ${res.status}`);
+    return res.text();
+  },
+  putConfigRaw: (yaml: string, opts: { dryRun?: boolean } = {}) =>
+    writeConfig("/config/raw", "PUT", yaml, "text/plain", opts.dryRun ?? false),
 };
+
+// Shared PUT helper for the config write endpoints: returns the ReconcileResult,
+// or throws ConfigRejected on 422 (validation), Error on other failures.
+async function writeConfig(
+  path: string, method: string, body: string, contentType: string, dryRun: boolean,
+): Promise<ReconcileResult> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 80));
+    return mockReconcile(!dryRun);
+  }
+  const res = await fetch(`${BASE}${path}?dryRun=${dryRun}`, {
+    method,
+    headers: { "content-type": contentType, accept: "application/json" },
+    body,
+  });
+  if (res.status === 422) {
+    throw new ConfigRejected((await res.json()) as ValidationProblem);
+  }
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`);
+  return (await res.json()) as ReconcileResult;
+}
 
 // ---- generic data hook -------------------------------------
 export interface Query<T> { data: T | null; loading: boolean; error: string | null; reload: () => void }
