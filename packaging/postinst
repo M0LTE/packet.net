@@ -17,6 +17,12 @@ esac
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload || true
   systemctl enable --now packetnet.service || true
+  # On an upgrade ($2 = old version), enable --now does NOT restart an
+  # already-running unit, so the new binary would never load. try-restart
+  # bounces it only if it's active (a stopped unit stays stopped).
+  if [ -n "${2:-}" ]; then
+    systemctl try-restart packetnet.service || true
+  fi
 fi
 
 exit 0
