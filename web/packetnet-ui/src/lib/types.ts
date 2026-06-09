@@ -35,7 +35,11 @@ export interface PortConfig {
   profile: string | null;
   ax25: Ax25PortParams | null;
   kiss: KissParams | null;
+  beacon: PortBeacon | null;
 }
+// The system-default ID beacon (Packet.Node.Core.Configuration.BeaconConfig).
+// enabled defaults false (a node that never beaconed keeps not beaconing).
+export interface BeaconConfig { enabled: boolean; intervalMinutes: number; text: string }
 export interface IdentityConfig { callsign: string; alias?: string | null; grid?: string | null }
 export interface ServicesConfig { banner: string; prompt: string }
 export interface TelnetConfig { enabled: boolean; bind: string; port: number }
@@ -63,6 +67,7 @@ export interface NodeConfig {
   services: ServicesConfig;
   management: ManagementConfig;
   netRom: NetRomConfig;
+  beacon: BeaconConfig;
 }
 
 // which edits are hot vs disruptive
@@ -181,8 +186,10 @@ export interface NinoTest {
   mode: number; modeLabel: string; txdelaySource: string;
   softwareControl: boolean; rssiDbm: number; crcOk: boolean;
 }
-export interface BeaconDefault { intervalMinutes: number; text: string }
-export interface PortBeacon { enabled: boolean; intervalMinutes: number; text: string | null }
+// A per-port beacon override (Packet.Node.Core.Configuration.PortBeaconConfig).
+// enabled is authoritative for the port; null intervalMinutes / text inherit the
+// system default (BeaconConfig).
+export interface PortBeacon { enabled: boolean; intervalMinutes: number | null; text: string | null }
 export interface User {
   name: string; role: string; scopes: string[]; passkeys: number; lastLogin: string;
 }

@@ -41,6 +41,13 @@ public sealed record NodeConfig
     /// <summary>NET/ROM awareness (read-only): hear NODES broadcasts and build a
     /// routing table. Pure consumer — never transmits. See <see cref="NetRomConfig"/>.</summary>
     public NetRomConfig NetRom { get; init; } = new();
+
+    /// <summary>The system-default ID beacon — a periodic connectionless AX.25 UI
+    /// frame sent per port to announce the node's presence. Default-OFF
+    /// (<see cref="BeaconConfig.Enabled"/> defaults <c>false</c>): a node that never
+    /// beaconed keeps not beaconing. A port may override it with
+    /// <see cref="PortConfig.Beacon"/>. See <see cref="BeaconConfig"/>.</summary>
+    public BeaconConfig Beacon { get; init; } = new();
 }
 
 /// <summary>
@@ -105,6 +112,16 @@ public sealed record PortConfig
     /// <summary>KISS modem tuning (TXDELAY, persistence, slot time) applied live
     /// once the port is up. Null = leave the modem at its power-on defaults.</summary>
     public KissParams? Kiss { get; init; }
+
+    /// <summary>
+    /// Optional per-port ID-beacon override. Null = inherit the system default
+    /// (<see cref="NodeConfig.Beacon"/>) wholesale. When present, its
+    /// <see cref="PortBeaconConfig.Enabled"/> flag wins outright, and its nullable
+    /// <see cref="PortBeaconConfig.IntervalMinutes"/> / <see cref="PortBeaconConfig.Text"/>
+    /// fields fill in from the system default when left null (a per-field merge —
+    /// see <see cref="EffectiveBeacon"/>).
+    /// </summary>
+    public PortBeaconConfig? Beacon { get; init; }
 }
 
 /// <summary>
@@ -167,6 +184,79 @@ public sealed record ServicesConfig
     /// <summary>The command prompt emitted after the banner and after each
     /// command. <c>{call}</c> is expanded.</summary>
     public string Prompt { get; init; } = "{call}> ";
+}
+
+/// <summary>
+/// The node's system-default ID beacon: a periodic connectionless AX.25 UI frame
+/// (an "ID"/presence broadcast) transmitted on each port. <b>Default-OFF</b> —
+/// <see cref="Enabled"/> defaults <c>false</c> so a stock node never transmits an
+/// unsolicited beacon until the operator opts in (the no-regression contract). A
+/// port may override this with <see cref="PortConfig.Beacon"/>.
+/// </summary>
+public sealed record BeaconConfig
+{
+    /// <summary>Whether the node beacons on its ports by default. Default
+    /// <c>false</c> — a node that has never beaconed must keep not beaconing.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Minutes between beacon transmissions on a port. Default 30.</summary>
+    public int IntervalMinutes { get; init; } = 30;
+
+    /// <summary>The beacon's information text. <c>{node}</c> (alias else callsign)
+    /// and <c>{call}</c> (the station callsign) placeholders are expanded — exactly
+    /// like the services banner / prompt. Default <c>"{node} pdn node"</c>.</summary>
+    public string Text { get; init; } = "{node} pdn node";
+}
+
+/// <summary>
+/// A per-port ID-beacon override. <see cref="Enabled"/> always wins outright; the
+/// nullable <see cref="IntervalMinutes"/> / <see cref="Text"/> fields inherit the
+/// system default (<see cref="BeaconConfig"/>) when left null — a per-field merge.
+/// </summary>
+public sealed record PortBeaconConfig
+{
+    /// <summary>Whether this port beacons. This flag is authoritative for the port —
+    /// it is not merged: a port-override with <c>Enabled = false</c> silences a port
+    /// even when the system default is on, and vice-versa.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Minutes between this port's beacons. Null = inherit the system
+    /// default's <see cref="BeaconConfig.IntervalMinutes"/>.</summary>
+    public int? IntervalMinutes { get; init; }
+
+    /// <summary>This port's beacon text (<c>{node}</c>/<c>{call}</c> expanded). Null =
+    /// inherit the system default's <see cref="BeaconConfig.Text"/>.</summary>
+    public string? Text { get; init; }
+}
+
+/// <summary>
+/// The fully-resolved beacon for one port — the per-port override (if any) merged
+/// over the system default. This is what the <c>BeaconService</c> arms a timer from.
+/// </summary>
+/// <param name="Enabled">Whether to beacon on this port at all.</param>
+/// <param name="IntervalMinutes">Resolved transmit interval, minutes (≥ 1).</param>
+/// <param name="Text">Resolved beacon text, with <c>{node}</c>/<c>{call}</c> still unexpanded.</param>
+public readonly record struct EffectiveBeacon(bool Enabled, int IntervalMinutes, string Text)
+{
+    /// <summary>
+    /// Resolve the effective beacon for a port: the per-port <paramref name="port"/>
+    /// override merged over the system <paramref name="systemDefault"/>. When the port
+    /// has no override the system default applies wholesale; when it has one, its
+    /// <see cref="PortBeaconConfig.Enabled"/> wins outright and its null interval/text
+    /// fall back to the system default's.
+    /// </summary>
+    public static EffectiveBeacon Resolve(BeaconConfig systemDefault, PortBeaconConfig? port)
+    {
+        ArgumentNullException.ThrowIfNull(systemDefault);
+        if (port is null)
+        {
+            return new EffectiveBeacon(systemDefault.Enabled, systemDefault.IntervalMinutes, systemDefault.Text);
+        }
+        return new EffectiveBeacon(
+            port.Enabled,
+            port.IntervalMinutes ?? systemDefault.IntervalMinutes,
+            port.Text ?? systemDefault.Text);
+    }
 }
 
 /// <summary>Management-surface configuration: the local telnet console and the

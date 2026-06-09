@@ -8,7 +8,7 @@ import type {
   NodeConfig, NetRomRoutingSnapshot, NodeStatus, PortStatus, SessionInfo,
   LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
-  BeaconDefault, PortBeacon, User, LogLine, ToggleHelp, FieldHelp,
+  User, LogLine, ToggleHelp, FieldHelp,
 } from "./types";
 
 // 6.1 NodeConfig tree ----------------------------------------
@@ -16,10 +16,10 @@ export const NODE_CONFIG: NodeConfig = {
   schemaVersion: 3,
   identity: { callsign: "GB7RDG", alias: "RDGGW", grid: "IO91nl" },
   ports: [
-    { id: "vhf-1", enabled: true, transport: { kind: "nino-tnc", device: "/dev/ttyACM0", baud: 57600, mode: 4 }, profile: "fast-il2p-1200", ax25: { t1Ms: 3000, t2Ms: 300, t3Ms: 180000, n2: 8, windowSize: 4, maxCachedPeers: 64 }, kiss: { txDelay: 300, persistence: 63, slotTime: 100, txTail: 50 } },
-    { id: "uhf-2", enabled: true, transport: { kind: "kiss-tcp", host: "127.0.0.1", port: 8001 }, profile: "slow-afsk1200", ax25: { t1Ms: 4000, t2Ms: 500, t3Ms: 180000, n2: 10, windowSize: 4, maxCachedPeers: 64 }, kiss: { txDelay: 400, persistence: 63, slotTime: 100, txTail: 80 } },
-    { id: "link-dn", enabled: true, transport: { kind: "axudp", host: "44.131.91.2", port: 10093, localPort: 10093 }, profile: null, ax25: { t1Ms: 2000, t2Ms: 200, t3Ms: 180000, n2: 8, windowSize: 7, maxCachedPeers: 32 }, kiss: null },
-    { id: "hf-300", enabled: false, transport: { kind: "serial-kiss", device: "/dev/ttyUSB1", baud: 38400 }, profile: "robust-hf", ax25: { t1Ms: 8000, t2Ms: 1500, t3Ms: 300000, n2: 12, windowSize: 2, maxCachedPeers: 16 }, kiss: { txDelay: 250, persistence: 32, slotTime: 100, txTail: 100 } },
+    { id: "vhf-1", enabled: true, transport: { kind: "nino-tnc", device: "/dev/ttyACM0", baud: 57600, mode: 4 }, profile: "fast-il2p-1200", ax25: { t1Ms: 3000, t2Ms: 300, t3Ms: 180000, n2: 8, windowSize: 4, maxCachedPeers: 64 }, kiss: { txDelay: 300, persistence: 63, slotTime: 100, txTail: 50 }, beacon: { enabled: true, intervalMinutes: null, text: null } },
+    { id: "uhf-2", enabled: true, transport: { kind: "kiss-tcp", host: "127.0.0.1", port: 8001 }, profile: "slow-afsk1200", ax25: { t1Ms: 4000, t2Ms: 500, t3Ms: 180000, n2: 10, windowSize: 4, maxCachedPeers: 64 }, kiss: { txDelay: 400, persistence: 63, slotTime: 100, txTail: 80 }, beacon: { enabled: true, intervalMinutes: 15, text: "{node}:{call} UHF 9k6 data gateway QRV" } },
+    { id: "link-dn", enabled: true, transport: { kind: "axudp", host: "44.131.91.2", port: 10093, localPort: 10093 }, profile: null, ax25: { t1Ms: 2000, t2Ms: 200, t3Ms: 180000, n2: 8, windowSize: 7, maxCachedPeers: 32 }, kiss: null, beacon: { enabled: false, intervalMinutes: null, text: null } },
+    { id: "hf-300", enabled: false, transport: { kind: "serial-kiss", device: "/dev/ttyUSB1", baud: 38400 }, profile: "robust-hf", ax25: { t1Ms: 8000, t2Ms: 1500, t3Ms: 300000, n2: 12, windowSize: 2, maxCachedPeers: 16 }, kiss: { txDelay: 250, persistence: 32, slotTime: 100, txTail: 100 }, beacon: null },
   ],
   services: { banner: "{node}:{call} — Reading & District packet gateway", prompt: "{node}:{call}}" },
   management: { telnet: { enabled: true, bind: "127.0.0.1", port: 8011 }, http: { bind: "0.0.0.0", port: 8080 } },
@@ -30,6 +30,7 @@ export const NODE_CONFIG: NodeConfig = {
     window: 4, transportTimeoutSeconds: 60, transportRetries: 3, timeToLive: 25,
     inp3: { enabled: true, preferInp3Routes: true, l3RttInterval: 3600, l3RttResetWindow: 5, rifInterval: 60, positiveDebounce: 3 },
   },
+  beacon: { enabled: true, intervalMinutes: 30, text: "{node}:{call} pdn node — Reading & District ARS" },
 };
 
 // field apply-impact map (hot vs disruptive) → per-field badges + reconcile
@@ -241,14 +242,6 @@ export const NINO_TEST: NinoTest = {
   portId: "vhf-1", receivedAt: "just now", firmware: "NinoTNC A3 · fw 2.3.1",
   mode: 4, modeLabel: "9600 baud · GFSK · IL2P",
   txdelaySource: "hardware DIP switches", softwareControl: false, rssiDbm: -71, crcOk: true,
-};
-
-export const BEACON_DEFAULT: BeaconDefault = { intervalMinutes: 30, text: "{node}:{call} pdn node — Reading & District ARS" };
-export const PORT_BEACONS: Record<string, PortBeacon> = {
-  "vhf-1": { enabled: true, intervalMinutes: 30, text: null },
-  "uhf-2": { enabled: true, intervalMinutes: 15, text: "{node}:{call} UHF 9k6 data gateway QRV" },
-  "link-dn": { enabled: false, intervalMinutes: 60, text: null },
-  "hf-300": { enabled: false, intervalMinutes: 60, text: null },
 };
 
 export const NETROM_TOGGLE_HELP: Record<string, ToggleHelp> = {

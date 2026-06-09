@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Packet.Node.Api;
 using Packet.Node.Core.Auth;
+using Packet.Node.Core.Beacons;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.Hosting;
@@ -158,6 +159,10 @@ builder.Services.AddSingleton(TimeProvider.System);
 // Sessions drawer reads their output over SSE + types into them). Disposed on host
 // shutdown (IAsyncDisposable) → each adopted connection gets a clean DISC.
 builder.Services.AddSingleton<SysopConsoleManager>();
+// The ID-beacon service: a singleton over the live config + clock. The hosted service
+// injects it (and passes it to the supervisor, which attaches it per port) — it is
+// inert until a port whose effective beacon is enabled comes up (default-off).
+builder.Services.AddSingleton<BeaconService>();
 // Register the hosted service as a singleton AND as the hosted service, so the
 // control-API endpoint handlers can inject it and read its live Supervisor /
 // NetRom handles (the read API projects the node's state from these).

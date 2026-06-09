@@ -13,12 +13,11 @@ import {
   Button, Badge, Card, Input, Label, Field, InfoHint, Switch, ImpactBadge, Tabs, Modal, Icon,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange } from "@/lib/types";
+import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange, PortBeacon } from "@/lib/types";
 import { api, useQuery, ConfigRejected } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import {
   APPLY_IMPACT, NETROM_TOGGLE_HELP, NETROM_FIELD_HELP, INP3_FIELD_HELP,
-  BEACON_DEFAULT, PORT_BEACONS,
 } from "@/lib/mock";
 
 // a pending change, identified by its dotted config path + apply impact
@@ -216,7 +215,7 @@ export function Config() {
 
             {tab === "netrom" && <NetRomSection cfg={cfg} set={set} />}
 
-            {tab === "beacons" && <BeaconsSection />}
+            {tab === "beacons" && <BeaconsSection cfg={cfg} set={set} />}
           </Card>
         </div>
       ) : (
@@ -355,65 +354,84 @@ function AdvancedDetails({ title, children }: { title: string; children: ReactNo
 }
 
 // ---------- Beacons (README §9): system default + per-port ----
-function BeaconsSection() {
-  const [def, setDef] = useState(BEACON_DEFAULT);
-  const [ports, setPorts] = useState(PORT_BEACONS);
-  const setPort = (id: string, patch: Partial<typeof ports[string]>) =>
-    setPorts((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
+// Wired to the live NodeConfig: the system default is cfg.beacon and per-port
+// overrides are cfg.ports[i].beacon (null = inherit the default wholesale). All
+// edits go through the same dirty-set/save path the other tabs use (impact "live"
+// — a beacon edit re-arms the timers without restarting a port).
+function BeaconsSection({ cfg, set }: { cfg: NodeConfig; set: (path: string, val: unknown, impact: ApplyImpact) => void }) {
+  const def = cfg.beacon;
+
+  // Per-port override patch: build the whole PortBeacon and set it at ports.{i}.beacon
+  // (null = remove the override → inherit the default).
+  const setPortBeacon = (i: number, value: PortBeacon | null) => set(`ports.${i}.beacon`, value, "live");
 
   return (
     <section className="space-y-5">
       <div className="rounded-lg border border-border p-4">
-        <div className="mb-3 flex items-center gap-1.5">
-          <Label className="text-foreground">System default beacon</Label>
-          <InfoHint text="The ID beacon pdn sends on a port unless that port overrides it. {node} and {call} are filled in automatically." />
+        <div className="mb-3 flex items-center justify-between">
+          <span className="flex items-center gap-1.5">
+            <Label className="text-foreground">System default beacon</Label>
+            <InfoHint text="A periodic ID frame pdn sends on each port (dest BEACON, PID 0xF0) unless that port overrides it. {node} and {call} are filled in automatically. Off by default." />
+          </span>
+          <Switch checked={def.enabled} onChange={(v) => set("beacon.enabled", v, "live")} />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
-          <Field label="Every" info="How often the ID beacon is transmitted.">
-            <div className="relative">
-              <Input type="number" value={def.intervalMinutes} onChange={(e) => setDef((d) => ({ ...d, intervalMinutes: +e.target.value }))} className="pr-16 font-mono" />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">minutes</span>
-            </div>
-          </Field>
-          <Field label="Text"><Input value={def.text} onChange={(e) => setDef((d) => ({ ...d, text: e.target.value }))} className="font-mono text-xs" /></Field>
-        </div>
+        {def.enabled ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
+            <Field label="Every" info="How often the ID beacon is transmitted.">
+              <div className="relative">
+                <Input type="number" min={1} value={def.intervalMinutes} onChange={(e) => set("beacon.intervalMinutes", +e.target.value, "live")} className="pr-16 font-mono" />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">minutes</span>
+              </div>
+            </Field>
+            <Field label="Text"><Input value={def.text} onChange={(e) => set("beacon.text", e.target.value, "live")} className="font-mono text-xs" /></Field>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">The node does not beacon. Turn this on to announce the node's presence on each port, or override per port below.</p>
+        )}
       </div>
 
       <div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Per-port</p>
         <div className="space-y-2">
-          {Object.keys(ports).map((id) => {
-            const b = ports[id];
-            const overriding = b.text != null;
+          {cfg.ports.map((port, i) => {
+            const b = port.beacon;                          // PortBeacon | null
+            const overriding = b != null;
+            // Effective enabled/interval/text for display (override wins; null fields inherit).
+            const enabled = overriding ? b.enabled : def.enabled;
+            const interval = overriding ? (b.intervalMinutes ?? def.intervalMinutes) : def.intervalMinutes;
             return (
-              <div key={id} className="rounded-lg border border-border p-3">
+              <div key={port.id} className="rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-2.5">
-                    <Switch checked={b.enabled} onChange={(v) => setPort(id, { enabled: v })} />
-                    <span className="font-mono text-sm font-semibold">{id}</span>
-                    {!b.enabled && <Badge variant="muted">no beacon</Badge>}
+                    <Switch
+                      checked={enabled}
+                      onChange={(v) => setPortBeacon(i, { enabled: v, intervalMinutes: b?.intervalMinutes ?? null, text: b?.text ?? null })}
+                    />
+                    <span className="font-mono text-sm font-semibold">{port.id}</span>
+                    {!enabled && <Badge variant="muted">no beacon</Badge>}
+                    {!overriding && <Badge variant="secondary">default</Badge>}
                   </span>
-                  {b.enabled && (
+                  {enabled && overriding && (
                     <span className="flex items-center gap-2 text-xs text-muted-foreground">
                       every
-                      <Input type="number" value={b.intervalMinutes} onChange={(e) => setPort(id, { intervalMinutes: +e.target.value })} className="h-7 w-16 font-mono text-xs" />
+                      <Input type="number" min={1} value={interval} onChange={(e) => setPortBeacon(i, { ...b!, intervalMinutes: +e.target.value })} className="h-7 w-16 font-mono text-xs" />
                       min
                     </span>
                   )}
                 </div>
-                {b.enabled && (
+                {enabled && (
                   <div className="mt-3">
                     {overriding ? (
                       <Field
                         label="Custom text"
-                        badge={<button onClick={() => setPort(id, { text: null })} className="text-[11px] text-muted-foreground hover:text-primary">use default</button>}
+                        badge={<button onClick={() => setPortBeacon(i, null)} className="text-[11px] text-muted-foreground hover:text-primary">use default</button>}
                       >
-                        <Input value={b.text ?? ""} onChange={(e) => setPort(id, { text: e.target.value })} className="font-mono text-xs" />
+                        <Input value={b.text ?? def.text} onChange={(e) => setPortBeacon(i, { ...b, text: e.target.value })} className="font-mono text-xs" />
                       </Field>
                     ) : (
                       <div className="flex items-center justify-between rounded-md bg-muted/40 px-2.5 py-2 text-xs">
                         <span className="text-muted-foreground">Uses default — <span className="font-mono text-foreground/70">{def.text}</span></span>
-                        <button onClick={() => setPort(id, { text: def.text })} className="shrink-0 font-medium text-primary hover:underline">Override</button>
+                        <button onClick={() => setPortBeacon(i, { enabled: def.enabled, intervalMinutes: def.intervalMinutes, text: def.text })} className="shrink-0 font-medium text-primary hover:underline">Override</button>
                       </div>
                     )}
                   </div>

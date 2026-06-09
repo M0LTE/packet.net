@@ -13,7 +13,7 @@ import { Page, PageHeader } from "@/components/layout/shell";
 import { cn } from "@/lib/utils";
 import { PingButton } from "@/components/ping";
 import type {
-  PortConfig, PortStatus, TransportConfig, Ax25PortParams, KissParams, PortSetup,
+  PortConfig, PortStatus, TransportConfig, Ax25PortParams, KissParams, PortSetup, PortBeacon,
 } from "@/lib/types";
 import {
   NODE_CONFIG, PORT_STATUS, RADIO_PROFILES, NINO_MODES, CHANNEL_MODES,
@@ -32,6 +32,9 @@ interface PortDraft {
   ax25: Ax25PortParams;
   kiss: KissParams;
   setup: PortSetup;
+  // The per-port beacon override is edited on the Config → Beacons tab, not here;
+  // carried through untouched so a transport/timing edit never clobbers it.
+  beacon: PortBeacon | null;
   _new?: boolean;
   // The id the draft was opened against (the reconcile key for an edit) — set on edit,
   // unset on add. Lets a rename in the editor edit the original entry rather than 404.
@@ -105,6 +108,7 @@ export function Ports() {
     ax25: { ...AX25_DEFAULTS },
     kiss: { ...KISS_DEFAULTS },
     setup: { radio: RADIO_PROFILES[0].id, channel: "shared", difficulty: "moderate", custom: false },
+    beacon: null,
     _new: true,
   });
 
@@ -116,6 +120,7 @@ export function Ports() {
       ax25: { ...AX25_DEFAULTS, ...(p.ax25 ?? {}) },
       kiss: { ...KISS_DEFAULTS, ...(p.kiss ?? {}) },
       setup: PORT_SETUP[p.id] ?? { radio: RADIO_PROFILES[0].id, channel: "shared", difficulty: "moderate", custom: true },
+      beacon: p.beacon,
       _origId: p.id,
     });
   };
@@ -131,6 +136,9 @@ export function Ports() {
       profile: d.setup.custom ? null : d.setup.radio,
       ax25: d.ax25,
       kiss: KIND_USES_KISS[d.transport.kind] ? d.kiss : null,
+      // Preserve any existing per-port beacon override (edited on the Config →
+      // Beacons tab); a brand-new port inherits the system default.
+      beacon: d.beacon ?? null,
     };
     try {
       if (d._new) await api.addPort(saved);

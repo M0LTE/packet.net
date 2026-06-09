@@ -212,9 +212,8 @@ public sealed partial class NodeCommandService
         await connection.WriteAsync(Encoding.UTF8.GetBytes(banner + nl + prompt), ct).ConfigureAwait(false);
     }
 
-    private string Expand(string template) => template
-        .Replace("{node}", env.NodeName, StringComparison.Ordinal)
-        .Replace("{call}", env.Identity.Callsign, StringComparison.Ordinal);
+    private string Expand(string template)
+        => NodeTextTemplate.Expand(template, env.NodeName, env.Identity.Callsign);
 
     private string InfoText()
     {
