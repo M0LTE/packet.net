@@ -36,13 +36,17 @@ namespace Packet.Node.Api;
 /// as the <c>PUT /config</c> body does.
 /// </para>
 /// <para>
-/// The lifecycle <c>restart</c> action is <b>deferred</b> — it needs a serialized
-/// supervisor entry point that is out of scope for this config-write step — and returns
-/// 501 with an explicit message rather than silently no-op'ing or faking a config flip.
-/// Reconcile is asynchronous (the <c>OnChange</c> handler hands off to a serialized
-/// worker), so the <see cref="PortStatus"/> returned right after an up/down apply is
-/// best-effort: the port may still read <c>down</c>/<c>faulted</c> for an instant before
-/// the worker brings it up. That is honest, not a bug.
+/// The lifecycle <c>restart</c> action drives the supervisor's
+/// <c>RestartPortAsync</c> (a transient teardown + bring-up of one configured, enabled
+/// port, with no config change) under the host's exclusive gate
+/// (<c>NodeHostedService.RunExclusiveAsync</c>), so it can never race a config reconcile.
+/// An unknown id is caught by the config-existence check (404); a disabled port can't be
+/// restarted (409 — bring it up first). Reconcile is asynchronous (the <c>OnChange</c>
+/// handler hands off to a serialized worker), so the <see cref="PortStatus"/> returned
+/// right after an up/down apply is best-effort: the port may still read
+/// <c>down</c>/<c>faulted</c> for an instant before the worker brings it up. That is
+/// honest, not a bug. (A restart, by contrast, completes synchronously inside the gate,
+/// so its projection reflects the just-restarted state.)
 /// </para>
 /// <para>
 /// Auth is a later step — like the read API, the SSE feed, and the config write API,
@@ -95,10 +99,12 @@ public static class PdnPortsApi
             return ApplyCandidate(cfg, candidate);
         });
 
-        // up/down: flip Enabled and apply through the config seam, then return the port's
-        // resulting (best-effort) PortStatus. restart is deferred — see the type remarks.
+        // up/down: flip Enabled and apply through the config seam. restart: drive the
+        // supervisor's serialized RestartPortAsync under the host's exclusive gate (so it
+        // can't race a config reconcile). All three return the port's resulting
+        // (best-effort) PortStatus.
         v1.MapPost("/ports/{id}/lifecycle",
-            (string id, LifecycleRequest body, IWritableConfigProvider cfg, NodeHostedService host) =>
+            async (string id, LifecycleRequest body, IWritableConfigProvider cfg, NodeHostedService host, CancellationToken ct) =>
         {
             var existing = cfg.Current.Ports.FirstOrDefault(p => p.Id == id);
             if (existing is null)
@@ -126,12 +132,31 @@ public static class PdnPortsApi
                     return Results.Ok(ProjectPort(host, cfg, id));
 
                 case "restart":
-                    // DEFERRED: a transient restart needs a serialized supervisor entry
-                    // point (stop + restart one port without a config change) that this
-                    // config-write step does not introduce. Be explicit, not silent.
-                    return Results.Json(
-                        new { error = "Port restart is not yet implemented — it is a later step (needs a serialized supervisor action). Toggle the port down then up to force a reconcile, or edit it to trigger a restart." },
-                        statusCode: StatusCodes.Status501NotImplemented);
+                    // Transient teardown + bring-up of THIS port without a config change.
+                    // RestartPortAsync is single-threaded-by-contract, so it runs under the
+                    // host's supervisor gate (the same gate the reconcile worker holds) — a
+                    // restart can never race a config reconcile mutating the live port set.
+                    // The whole call is short (no long-running dial), so holding the gate
+                    // for its duration is fine. The supervisor is null only during boot.
+                    if (host.Supervisor is null)
+                    {
+                        // Booting — the port set isn't live yet. 409: not restartable right now.
+                        return Results.Json(
+                            new { error = "Node is still starting; the port set is not live yet. Try again in a moment." },
+                            statusCode: StatusCodes.Status409Conflict);
+                    }
+                    bool restarted = await host.RunExclusiveAsync(
+                        () => host.Supervisor!.RestartPortAsync(id, ct), ct).ConfigureAwait(false);
+                    if (!restarted)
+                    {
+                        // RestartPortAsync returns false only for a disabled port here — an
+                        // unknown id was already caught by the config existence check above.
+                        // A disabled port can't be restarted; bring it up first (use up).
+                        return Results.Json(
+                            new { error = $"Port '{id}' is disabled — bring it up before restarting it." },
+                            statusCode: StatusCodes.Status409Conflict);
+                    }
+                    return Results.Ok(ProjectPort(host, cfg, id));
 
                 default:
                     return Results.BadRequest(

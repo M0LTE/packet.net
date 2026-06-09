@@ -27,14 +27,18 @@ function stateDot(st: string): "up" | "faulted" | "down" {
 }
 
 export function Sessions() {
-  const { data, loading, error } = useQuery(api.sessions);
+  const { data, loading, error, reload } = useQuery(api.sessions);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [openSession, setOpenSession] = useState<SessionInfo | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
   const [params, setParams] = useSearchParams();
+  // A banner-style notice for a failed action (mirrors the Ports/Config screens — there is
+  // no toast primitive). Cleared on the next successful action.
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Sync the local working copy when the query resolves (so disconnect/connect
-  // mutations stay client-side over the fetched snapshot — minimal v1).
+  // Sync the local working copy when the query resolves. Connect/disconnect call the live
+  // API and then reload(), which refetches /sessions; the local copy keeps the table
+  // responsive between the action and the refetch.
   useEffect(() => {
     if (data) setSessions(data);
   }, [data]);
@@ -54,7 +58,32 @@ export function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectCall]);
 
-  const drop = (id: string) => setSessions((s) => s.filter((x) => x.id !== id));
+  // Disconnect: call the live API, drop the row optimistically, then reload to reflect the
+  // server's truth. A failure surfaces in the notice banner (the row is left in place).
+  const drop = async (id: string) => {
+    try {
+      await api.disconnectSession(id);
+      setNotice(null);
+      setSessions((s) => s.filter((x) => x.id !== id));
+      reload();
+    } catch (e) {
+      setNotice(String((e as Error)?.message ?? e) || "Could not disconnect the session.");
+    }
+  };
+
+  // Connect out: open the session via the API, surface it, drop into its drawer, reload.
+  const connect = async (target: string, port: string) => {
+    try {
+      const sess = await api.connectSession(target, port);
+      setNotice(null);
+      setSessions((s) => [...s.filter((x) => x.id !== sess.id), sess]);
+      setConnectOpen(false);
+      setOpenSession(sess);
+      reload();
+    } catch (e) {
+      setNotice(String((e as Error)?.message ?? e) || `Could not connect to ${target}.`);
+    }
+  };
 
   return (
     <Page>
@@ -67,6 +96,16 @@ export function Sessions() {
           </Button>
         }
       />
+
+      {notice && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <Icon name="alert" size={15} className="mt-px shrink-0" />
+          <span className="flex-1">{notice}</span>
+          <button onClick={() => setNotice(null)} className="shrink-0 text-danger/70 hover:text-danger" title="Dismiss">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      )}
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -154,7 +193,7 @@ export function Sessions() {
       <SessionConsole
         session={openSession}
         onClose={() => setOpenSession(null)}
-        onDrop={(id) => { drop(id); setOpenSession(null); }}
+        onDrop={async (id) => { await drop(id); setOpenSession(null); }}
       />
       <ConnectOut
         open={connectOpen}
@@ -162,18 +201,10 @@ export function Sessions() {
         // TODO: derive default via-port from live config; the ConnectOut <Select> options already do.
         initialPort={connectPort ?? PORTS_LIST[0]}
         onClose={() => setConnectOpen(false)}
-        onConnect={(call, port) => {
-          // Sysop interactive connect — (mock) create the session and drop
-          // straight into its terminal.
-          const sess: SessionInfo = {
-            id: "s" + Date.now(), portId: port, peer: call, role: "console",
-            state: "Connected", vs: 0, vr: 0, window: 4,
-            uptimeSeconds: 0, bytesIn: 0, bytesOut: 0, lastActivity: "0:00:00",
-          };
-          setSessions((s) => [...s, sess]);
-          setConnectOpen(false);
-          setOpenSession(sess);
-        }}
+        // Sysop interactive connect-out — opens the session on the node and drops into
+        // its drawer (no console-bridge / received-data stream in v1 — the monitor shows
+        // the frames; the drawer's send is a one-line affordance).
+        onConnect={connect}
       />
     </Page>
   );
@@ -193,10 +224,11 @@ function SessionConsole({ session, onClose, onDrop }: {
 
   useEffect(() => {
     if (session) {
+      // v1 has no received-data stream (the monitor shows the frames); the drawer is a
+      // send-only affordance, so we seed an explanatory line rather than fake a banner.
       setLines([
-        { dir: "in", text: `${session.peer} connected to GB7RDG` },
-        { dir: "in", text: "Welcome to GB7RDG — Reading & District packet gateway" },
-        { dir: "in", text: "Type ? for help" },
+        { dir: "in", text: `Session to ${session.peer} on ${session.portId} — ${session.state}.` },
+        { dir: "in", text: "v1: send-only. Lines you send go onto the link (CR-terminated). Watch the live monitor for the peer's replies." },
       ]);
       setDraft("");
     }
@@ -206,12 +238,18 @@ function SessionConsole({ session, onClose, onDrop }: {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [lines]);
 
-  const send = () => {
-    if (!draft.trim()) return;
+  // Send one line into the session via the API (CR-terminated server-side). Echo it
+  // locally; a failure renders as an error line in the stream.
+  const send = async () => {
+    if (!session || !draft.trim()) return;
     const echo = draft;
     setLines((l) => [...l, { dir: "out", text: echo }]);
     setDraft("");
-    setTimeout(() => setLines((l) => [...l, { dir: "in", text: `ack: ${echo.slice(0, 40)}` }]), 600);
+    try {
+      await api.sendSessionLine(session.id, echo);
+    } catch (e) {
+      setLines((l) => [...l, { dir: "in", text: `× send failed: ${String((e as Error)?.message ?? e)}` }]);
+    }
   };
 
   return (

@@ -15,4 +15,10 @@
     <ProjectReference Include="..\Packet.Node.Core\Packet.Node.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Expose internal API helpers (e.g. the session-id split, a load-bearing contract)
+         to the node test project for focused unit tests alongside the WAF integration ones. -->
+    <InternalsVisibleTo Include="Packet.Node.Tests" />
+  </ItemGroup>
+
 </Project>

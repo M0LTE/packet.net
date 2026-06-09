@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Modal, Field, Input, Select, Icon, type ButtonVariant, type ButtonSize } from "@/components/ui";
 import { PORTS_LIST } from "@/lib/mock";
+import { api, apiMode, PingUnavailable } from "@/lib/api";
 
 // plausible round-trip baseline per transport (mock; live reads real RTTs)
 function pingBaseline(portId: string): { rtt: number; jitter: number; loss: number } {
@@ -27,13 +28,35 @@ function Ax25Ping({ station, portId, onClose }: { station: string; portId?: stri
   const [count, setCount] = useState(5);
   const [results, setResults] = useState<PingResult[]>([]);
   const [running, setRunning] = useState(false);
+  // In live mode the node currently returns 501 for /ping (deferred); surface that
+  // gracefully ("not available yet") instead of the synthetic animation.
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
-  const run = () => {
+  const run = async () => {
     if (!call.trim()) return;
-    const base = pingBaseline(via);
     setResults([]);
+    setUnavailable(null);
+
+    if (apiMode === "live") {
+      // Real node: hit /ping. It is deferred (501) → PingUnavailable surfaces the message;
+      // once the node implements TEST ping this renders the server's replies.
+      setRunning(true);
+      try {
+        const res = await api.pingTarget(call.trim(), via, count);
+        setResults(res.replies.map((r) => ({ seq: r.seq, rtt: r.timeout ? null : r.rttMs })));
+      } catch (e) {
+        if (e instanceof PingUnavailable) setUnavailable(e.message);
+        else setUnavailable(String((e as Error)?.message ?? e));
+      } finally {
+        setRunning(false);
+      }
+      return;
+    }
+
+    // Mock mode: synthesise an animated TEST-ping run so the tool demos with no node.
+    const base = pingBaseline(via);
     setRunning(true);
     let i = 0;
     if (timer.current) clearInterval(timer.current);
@@ -74,6 +97,13 @@ function Ax25Ping({ station, portId, onClose }: { station: string; portId?: stri
           <Field label="Via port" className="w-32"><Select value={via} onChange={(e) => setVia(e.target.value)}>{PORTS_LIST.map((p) => <option key={p} value={p}>{p}</option>)}</Select></Field>
           <Field label="Count" className="w-20"><Input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(20, +e.target.value)))} className="font-mono" /></Field>
         </div>
+
+        {unavailable && (
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-warning">
+            <Icon name="alert" size={13} className="mt-px shrink-0" />
+            <span>{unavailable}</span>
+          </div>
+        )}
 
         {results.length > 0 && (
           <div className="rounded-md border border-border bg-background/60 p-3 font-mono text-xs">

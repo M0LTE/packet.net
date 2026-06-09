@@ -103,6 +103,15 @@ app.MapPdnConfigApi();
 // binds 127.0.0.1.)
 app.MapPdnPortsApi();
 
+// Slice 3 step 4: the direct-supervisor session actions + ping — connect-out
+// (POST /sessions), disconnect (DELETE /sessions/{id}), send-line
+// (POST /sessions/{id}/send), and the connectionless TEST /ping (deferred 501).
+// These run under the host's exclusive gate so a web action never races a config
+// reconcile. Mapped after the port API and before the catch-all; the specific routes
+// win over /api/{**rest} regardless of order. (Auth is a later step — unauthenticated,
+// node binds 127.0.0.1.)
+app.MapPdnSessionsApi();
+
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*
 // routes, so those still win).
