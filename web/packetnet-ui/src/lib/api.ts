@@ -315,6 +315,34 @@ export function seedFrames(n: number): MonitorEvent[] {
   return MODE === "mock" ? mock.seedFrames(n) : [];
 }
 
+// ---- the live session-output stream (SSE `output` events) --
+// Subscribes to a connected session's received text. Each `output` event's data is a
+// JSON-encoded string (a chunk that may contain CR/LF); the backend replays a backlog
+// first, then streams live. onChunk is called per decoded chunk. Returns an unsubscribe.
+// Mock mode synthesises a fake banner + a line or two on a timer so the console drawer
+// demos with no node (mirrors subscribeFrames).
+export function subscribeSessionOutput(id: string, onChunk: (text: string) => void): () => void {
+  if (MODE === "mock") {
+    onChunk(`GB7RDG:GB7RDG} Welcome to the mock node — session ${id}.\r\n`);
+    let n = 0;
+    const lines = [
+      "GB7RDG:GB7RDG} Type HELP for a list of commands.\r\n",
+      "GB7RDG:GB7RDG} ",
+    ];
+    const timer = setInterval(() => {
+      onChunk(lines[n % lines.length]);
+      n++;
+    }, 1500);
+    return () => clearInterval(timer);
+  }
+  const es = new EventSource(`${BASE}/sessions/${encodeURIComponent(id)}/stream`);
+  const handler = (e: MessageEvent) => {
+    try { onChunk(JSON.parse(e.data) as string); } catch { /* ignore malformed */ }
+  };
+  es.addEventListener("output", handler as EventListener);
+  return () => { es.removeEventListener("output", handler as EventListener); es.close(); };
+}
+
 // A small live frames-buffer hook for the monitor (ring buffer, newest first).
 export function useFrameStream(cap = 500): {
   frames: MonitorEvent[];

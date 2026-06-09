@@ -9,8 +9,7 @@ import {
   Button, Badge, Card, StatusDot, Input, Label, Field, Select,
   Th, Td, Sheet, Modal, EmptyState, Icon, type BadgeVariant,
 } from "@/components/ui";
-import { cn } from "@/lib/utils";
-import { api, useQuery } from "@/lib/api";
+import { api, useQuery, subscribeSessionOutput } from "@/lib/api";
 import { PORTS_LIST, fmtUptime, fmtBytes } from "@/lib/mock";
 import type { SessionInfo, SessionRole } from "@/lib/types";
 
@@ -194,6 +193,7 @@ export function Sessions() {
         session={openSession}
         onClose={() => setOpenSession(null)}
         onDrop={async (id) => { await drop(id); setOpenSession(null); }}
+        onNotice={setNotice}
       />
       <ConnectOut
         open={connectOpen}
@@ -210,45 +210,54 @@ export function Sessions() {
   );
 }
 
-// ---- Session detail drawer (with a minimal send-into-session affordance) ----
-interface StreamLine { dir: "in" | "out"; text: string }
-
-function SessionConsole({ session, onClose, onDrop }: {
+// ---- Session detail drawer (live interactive console) ----
+// The drawer is a working terminal pane: when it opens for a session it subscribes to the
+// session's output stream (SSE `output` events, replayed-backlog-then-live) and accumulates
+// the decoded text chunks into a single buffer rendered monospace + scroll-to-bottom.
+// Typed lines are sent via api.sendSessionLine and echoed optimistically into the buffer so
+// the operator sees what they sent. Closing the drawer only unsubscribes — it does NOT
+// disconnect the session (that's the separate Disconnect action).
+function SessionConsole({ session, onClose, onDrop, onNotice }: {
   session: SessionInfo | null;
   onClose: () => void;
   onDrop: (id: string) => void;
+  onNotice: (msg: string | null) => void;
 }) {
-  const [lines, setLines] = useState<StreamLine[]>([]);
+  const [buffer, setBuffer] = useState("");
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Subscribe to the session's output stream while the drawer is open; reset the buffer for
+  // each new session and tear the subscription down on close/unmount (the cleanup runs when
+  // session changes or the component unmounts).
   useEffect(() => {
-    if (session) {
-      // v1 has no received-data stream (the monitor shows the frames); the drawer is a
-      // send-only affordance, so we seed an explanatory line rather than fake a banner.
-      setLines([
-        { dir: "in", text: `Session to ${session.peer} on ${session.portId} — ${session.state}.` },
-        { dir: "in", text: "v1: send-only. Lines you send go onto the link (CR-terminated). Watch the live monitor for the peer's replies." },
-      ]);
-      setDraft("");
-    }
+    if (!session) return;
+    setBuffer("");
+    setDraft("");
+    const unsubscribe = subscribeSessionOutput(session.id, (chunk) =>
+      setBuffer((b) => b + chunk),
+    );
+    return unsubscribe;
   }, [session]);
 
+  // Keep the pane pinned to the bottom as output (and echoes) arrive.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [lines]);
+  }, [buffer]);
 
   // Send one line into the session via the API (CR-terminated server-side). Echo it
-  // locally; a failure renders as an error line in the stream.
+  // optimistically into the buffer (prefixed) so the operator sees what they sent; a
+  // failure surfaces in the screen's notice banner.
   const send = async () => {
     if (!session || !draft.trim()) return;
     const echo = draft;
-    setLines((l) => [...l, { dir: "out", text: echo }]);
     setDraft("");
+    setBuffer((b) => `${b}» ${echo}\n`);
     try {
       await api.sendSessionLine(session.id, echo);
+      onNotice(null);
     } catch (e) {
-      setLines((l) => [...l, { dir: "in", text: `× send failed: ${String((e as Error)?.message ?? e)}` }]);
+      onNotice(String((e as Error)?.message ?? e) || `Could not send to ${session.peer}.`);
     }
   };
 
@@ -280,26 +289,25 @@ function SessionConsole({ session, onClose, onDrop }: {
           </div>
 
           <div>
-            <Label>Session stream</Label>
-            <div ref={scrollRef} className="mt-1.5 h-64 overflow-y-auto rounded-md border border-border bg-background/60 p-3 font-mono text-xs">
-              {lines.map((l, i) => (
-                <div key={i} className={cn("flex gap-2 py-0.5", l.dir === "out" && "text-primary")}>
-                  <span className="shrink-0 text-muted-foreground/60">{l.dir === "out" ? "»" : "«"}</span>
-                  <span className="whitespace-pre-wrap break-all">{l.text}</span>
-                </div>
-              ))}
+            <Label>Console</Label>
+            <div
+              ref={scrollRef}
+              className="mt-1.5 h-72 overflow-y-auto whitespace-pre-wrap break-all rounded-md border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed"
+            >
+              {buffer || <span className="text-muted-foreground/60">Waiting for output…</span>}
             </div>
             <div className="mt-2 flex items-center gap-2">
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-                placeholder="send a line into the session…"
+                placeholder="type a command and press Enter…"
                 className="font-mono text-xs"
+                autoFocus
               />
               <Button size="sm" onClick={send}><Icon name="send" size={14} /> Send</Button>
             </div>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">Minimal v1 affordance — pushes one line of text into the connected-mode session.</p>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">Lines you send go onto the link (CR-terminated by the node). The pane shows the remote's live output, with your sent lines echoed (»).</p>
           </div>
         </div>
       )}

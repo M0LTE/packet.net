@@ -1,6 +1,7 @@
 using System.Net;
 using Packet.Node.Api;
 using Packet.Node.Core.Configuration;
+using Packet.Node.Core.Console;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Transports;
@@ -59,6 +60,10 @@ builder.Services.AddSingleton<INetRomRoutingStore>(routingStore);
 
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
+// Holds operator-initiated connect-out sessions as interactive consoles (the web
+// Sessions drawer reads their output over SSE + types into them). Disposed on host
+// shutdown (IAsyncDisposable) → each adopted connection gets a clean DISC.
+builder.Services.AddSingleton<SysopConsoleManager>();
 // Register the hosted service as a singleton AND as the hosted service, so the
 // control-API endpoint handlers can inject it and read its live Supervisor /
 // NetRom handles (the read API projects the node's state from these).
