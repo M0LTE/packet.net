@@ -10,7 +10,7 @@
 // ============================================================
 import { useEffect, useRef, useState } from "react";
 import type {
-  NodeStatus, PortStatus, SessionInfo, NetRomRoutingSnapshot, NodeConfig,
+  NodeStatus, PortStatus, PortConfig, SessionInfo, NetRomRoutingSnapshot, NodeConfig,
   LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
 } from "./types";
 import * as mock from "./mock";
@@ -72,6 +72,20 @@ export const api = {
   },
   putConfigRaw: (yaml: string, opts: { dryRun?: boolean } = {}) =>
     writeConfig("/config/raw", "PUT", yaml, "text/plain", opts.dryRun ?? false),
+
+  // ---- port management (Slice-3 step 3) ----
+  // Each mutation flows through the same config-write reconcile path as putConfig:
+  // a 422 throws ConfigRejected; success returns the ReconcileResult.
+  addPort: (p: PortConfig) => writePort("/ports", "POST", JSON.stringify(p)),
+  editPort: (id: string, p: PortConfig) =>
+    writePort(`/ports/${encodeURIComponent(id)}`, "PUT", JSON.stringify(p)),
+  removePort: (id: string) =>
+    writePort(`/ports/${encodeURIComponent(id)}`, "DELETE"),
+  // Bring a port up/down (persisted via the config seam) or restart it (deferred —
+  // the server returns 501; live mode surfaces that as PortLifecycleUnavailable so the
+  // screen can disable/toast it rather than crash). Returns the port's PortStatus.
+  portLifecycle: (id: string, action: "up" | "down" | "restart") =>
+    portLifecycle(id, action),
 };
 
 // Shared PUT helper for the config write endpoints: returns the ReconcileResult,
@@ -93,6 +107,65 @@ async function writeConfig(
   }
   if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`);
   return (await res.json()) as ReconcileResult;
+}
+
+// A lifecycle action the node can't perform yet (the deferred `restart` → HTTP 501).
+// The screen catches this to disable/toast the affordance rather than crash.
+export class PortLifecycleUnavailable extends Error {
+  constructor(public readonly action: string, message: string) {
+    super(message);
+    this.name = "PortLifecycleUnavailable";
+  }
+}
+
+// Add/edit/remove a port through the config-write reconcile path. 404 (unknown id) and
+// 422 (rejected candidate) map to ConfigRejected/Error; success returns the
+// ReconcileResult. Mirrors writeConfig — the server reuses the same seam.
+async function writePort(path: string, method: string, body?: string): Promise<ReconcileResult> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 80));
+    return mockReconcile(true);
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: body
+      ? { "content-type": "application/json", accept: "application/json" }
+      : { accept: "application/json" },
+    body,
+  });
+  if (res.status === 422) {
+    throw new ConfigRejected((await res.json()) as ValidationProblem);
+  }
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`);
+  return (await res.json()) as ReconcileResult;
+}
+
+// Bring a port up/down/restart. up/down apply via the config seam and return the
+// resulting PortStatus; restart is deferred server-side (501) and throws
+// PortLifecycleUnavailable so the caller can surface it gracefully.
+async function portLifecycle(
+  id: string, action: "up" | "down" | "restart",
+): Promise<PortStatus> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 80));
+    if (action === "restart") {
+      throw new PortLifecycleUnavailable(action, "Port restart is a later step (mock).");
+    }
+    const base = mock.PORT_STATUS[id] ?? Object.values(mock.PORT_STATUS)[0];
+    return { ...base, id, enabled: action === "up", state: action === "up" ? "up" : "down" };
+  }
+  const res = await fetch(`${BASE}/ports/${encodeURIComponent(id)}/lifecycle`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (res.status === 501) {
+    let message = "This action is not available yet.";
+    try { message = ((await res.json()) as { error?: string }).error ?? message; } catch { /* keep default */ }
+    throw new PortLifecycleUnavailable(action, message);
+  }
+  if (!res.ok) throw new Error(`/ports/${id}/lifecycle: ${res.status} ${res.statusText}`);
+  return (await res.json()) as PortStatus;
 }
 
 // ---- generic data hook -------------------------------------

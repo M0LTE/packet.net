@@ -21,7 +21,7 @@ import {
   KIND_LABEL, KIND_USES_KISS, persistPct, pctToPersist, NINO_TEST,
 } from "@/lib/mock";
 import { portHealth } from "@/lib/health";
-import { api, useQuery } from "@/lib/api";
+import { api, useQuery, ConfigRejected, PortLifecycleUnavailable } from "@/lib/api";
 
 // ---- the editor draft: a PortConfig plus the operator-facing setup choices ----
 interface PortDraft {
@@ -32,6 +32,9 @@ interface PortDraft {
   kiss: KissParams;
   setup: PortSetup;
   _new?: boolean;
+  // The id the draft was opened against (the reconcile key for an edit) — set on edit,
+  // unset on add. Lets a rename in the editor edit the original entry rather than 404.
+  _origId?: string;
 }
 
 // ---- transport descriptor line (e.g. "/dev/ttyACM0 · 9600 baud · GFSK · IL2P") ----
@@ -63,18 +66,34 @@ function setupSummary(id: string): string {
 
 export function Ports() {
   const navigate = useNavigate();
-  const { data: config } = useQuery(api.config, []);
-  const { data: portStatus } = useQuery(api.ports, []);
+  const { data: config, reload: reloadConfig } = useQuery(api.config, []);
+  const { data: portStatus, reload: reloadPorts } = useQuery(api.ports, []);
   const { data: links } = useQuery(api.linkStats, []);
 
-  // local mock state: ports list (seeded from config) + bring-up toggle
-  const [ports, setPorts] = useState<PortConfig[] | null>(null);
   const [edit, setEdit] = useState<PortDraft | null>(null);
   const [testDismissed, setTestDismissed] = useState(false);
+  // A banner-style notice for a rejected/failed mutation or a deferred action
+  // (mirrors the config screen's `problem` surface — there is no toast primitive).
+  const [notice, setNotice] = useState<{ tone: "danger" | "warning"; text: string } | null>(null);
 
-  const list = ports ?? config?.ports ?? NODE_CONFIG.ports;
+  // Refetch /config + /ports after a successful mutation so the screen reflects the
+  // applied state (no local mock list — the server is the source of truth in live mode).
+  const reloadAll = () => { reloadConfig(); reloadPorts(); };
+
+  const list = config?.ports ?? NODE_CONFIG.ports;
   const statusById: Record<string, PortStatus> = {};
   for (const st of portStatus ?? Object.values(PORT_STATUS)) statusById[st.id] = st;
+
+  // Turn any caught error into a human banner (a 422 carries per-field problems).
+  const showError = (e: unknown, fallback: string) => {
+    if (e instanceof ConfigRejected) {
+      setNotice({ tone: "danger", text: e.problem.errors.map((x) => `${x.path}: ${x.message}`).join("; ") || fallback });
+    } else if (e instanceof PortLifecycleUnavailable) {
+      setNotice({ tone: "warning", text: e.message });
+    } else {
+      setNotice({ tone: "danger", text: String((e as Error)?.message ?? e) || fallback });
+    }
+  };
 
   const newPort = (): PortDraft => ({
     id: "",
@@ -94,10 +113,14 @@ export function Ports() {
       ax25: { ...AX25_DEFAULTS, ...(p.ax25 ?? {}) },
       kiss: { ...KISS_DEFAULTS, ...(p.kiss ?? {}) },
       setup: PORT_SETUP[p.id] ?? { radio: RADIO_PROFILES[0].id, channel: "shared", difficulty: "moderate", custom: true },
+      _origId: p.id,
     });
   };
 
-  const saveDraft = (d: PortDraft) => {
+  // Add (POST) or edit (PUT) the port through the config-write reconcile path, then
+  // reload so the applied state shows. The _new flag decides add vs edit; an edit keys
+  // on the *original* id (renaming the id edits the original entry).
+  const saveDraft = async (d: PortDraft) => {
     const saved: PortConfig = {
       id: d.id,
       enabled: d.enabled,
@@ -106,18 +129,26 @@ export function Ports() {
       ax25: d.ax25,
       kiss: KIND_USES_KISS[d.transport.kind] ? d.kiss : null,
     };
-    setPorts((prev) => {
-      const base = prev ?? list;
-      return base.find((x) => x.id === saved.id)
-        ? base.map((x) => (x.id === saved.id ? saved : x))
-        : [...base, saved];
-    });
-    setEdit(null);
+    try {
+      if (d._new) await api.addPort(saved);
+      else await api.editPort(d._origId ?? saved.id, saved);
+      setEdit(null);
+      reloadAll();
+    } catch (e) {
+      showError(e, d._new ? "Could not add the port." : "Could not save the port.");
+    }
   };
 
-  // Down/Bring up — flips enabled in the local mock list
-  const toggleEnabled = (id: string) => {
-    setPorts((prev) => (prev ?? list).map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)));
+  const removePort = async (id: string) => {
+    try { await api.removePort(id); reloadAll(); }
+    catch (e) { showError(e, "Could not remove the port."); }
+  };
+
+  // up/down flip enabled via the lifecycle endpoint (persisted through the config seam);
+  // restart is deferred server-side (501) and surfaces as a warning banner.
+  const lifecycle = async (id: string, action: "up" | "down" | "restart") => {
+    try { await api.portLifecycle(id, action); reloadAll(); }
+    catch (e) { showError(e, `Could not ${action} the port.`); }
   };
 
   return (
@@ -132,6 +163,17 @@ export function Ports() {
           </div>
         }
       />
+
+      {notice && (
+        <div className={cn(
+          "mb-4 flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
+          notice.tone === "danger" ? "border-danger/30 bg-danger/5 text-danger" : "border-warning/30 bg-warning/5 text-warning",
+        )}>
+          <Icon name="alert" size={15} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{notice.text}</span>
+          <button onClick={() => setNotice(null)} className="shrink-0 opacity-70 hover:opacity-100"><Icon name="x" size={14} /></button>
+        </div>
+      )}
 
       {!testDismissed && (
         <NinoTestFlash
@@ -196,14 +238,19 @@ export function Ports() {
                 <Button variant="ghost" size="sm" title="Tune this link with a partner" onClick={() => navigate("/tools/tuner?port=" + p.id)}>
                   <Icon name="signal" size={14} /> Tune link
                 </Button>
+                {/* Restart is a deferred backend step (501) — surfaced as a warning
+                    banner via lifecycle(); only offered while the port is up. */}
                 {up
-                  ? <Button variant="ghost" size="sm" title="Restart port"><Icon name="restart" size={14} /> Restart</Button>
-                  : <Button variant="ghost" size="sm" title="Bring up" onClick={() => toggleEnabled(p.id)}><Icon name="power" size={14} /> Bring up</Button>}
+                  ? <Button variant="ghost" size="sm" title="Restart port (not available yet)" onClick={() => lifecycle(p.id, "restart")}><Icon name="restart" size={14} /> Restart</Button>
+                  : <Button variant="ghost" size="sm" title="Bring up" onClick={() => lifecycle(p.id, "up")}><Icon name="power" size={14} /> Bring up</Button>}
                 {up && (
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Take down" onClick={() => toggleEnabled(p.id)}>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Take down" onClick={() => lifecycle(p.id, "down")}>
                     <Icon name="power" size={14} /> Down
                   </Button>
                 )}
+                <Button variant="ghost" size="sm" className="ml-auto text-muted-foreground hover:text-danger" title="Remove this port" onClick={() => removePort(p.id)}>
+                  <Icon name="trash" size={14} /> Remove
+                </Button>
               </div>
             </Card>
           );

@@ -95,6 +95,14 @@ app.MapPdnEvents();
 // of order. (Auth is a later step — unauthenticated, node binds 127.0.0.1.)
 app.MapPdnConfigApi();
 
+// Slice 3 step 3: the port-management API (POST/PUT/DELETE /ports + the
+// /ports/{id}/lifecycle up/down) the web Ports screen mutates ports through. Every
+// change is a config edit persisted through the same write seam as PUT /config.
+// Mapped after the config API and before the catch-all; the specific routes win over
+// /api/{**rest} regardless of order. (Auth is a later step — unauthenticated, node
+// binds 127.0.0.1.)
+app.MapPdnPortsApi();
+
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*
 // routes, so those still win).

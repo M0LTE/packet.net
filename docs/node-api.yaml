@@ -68,12 +68,15 @@ paths:
       security: [{ bearerAuth: [read] }]
       responses:
         "200": { description: ok, content: { application/json: { schema: { type: object, properties: { config: { $ref: "#/components/schemas/PortConfig" }, status: { $ref: "#/components/schemas/PortStatus" } } } } } }
-    patch:
+    put:
       tags: [ports]
-      summary: Edit a port (returns the reconcile preview/result)
+      summary: Edit a port — full-object replace (returns the reconcile result)
       security: [{ bearerAuth: [admin] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PortConfig" } } } }
-      responses: { "200": { description: applied, content: { application/json: { schema: { $ref: "#/components/schemas/ReconcileResult" } } } } }
+      responses:
+        "200": { description: applied, content: { application/json: { schema: { $ref: "#/components/schemas/ReconcileResult" } } } }
+        "404": { description: no such port }
+        "422": { description: validation failed, content: { application/json: { schema: { $ref: "#/components/schemas/ValidationProblem" } } } }
     delete:
       tags: [ports]
       summary: Remove a port
