@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Packet.Node.Core.Beacons;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Transports;
@@ -36,6 +37,11 @@ public static class NodeServiceCollectionExtensions
 
         services.TryAddSingleton<ITransportFactory>(TransportFactory.Instance);
         services.TryAddSingleton(TimeProvider.System);
+
+        // The ID-beacon service (a singleton over the live config + clock). The hosted
+        // service injects it and passes it to the supervisor; inert until a port whose
+        // effective beacon is enabled comes up (default-off).
+        services.TryAddSingleton<BeaconService>();
 
         if (!string.IsNullOrWhiteSpace(dbPath))
         {

@@ -139,5 +139,19 @@ public static class NodeConfigTemplate
           # transportRetries: 3           # L4 max retransmits before a circuit fails (L4RETRIES)
           # timeToLive: 25                # L3 hop limit on circuits we originate (L3TIMETOLIVE)
 
+        # ID beacon. A periodic connectionless AX.25 UI frame (dest BEACON, PID 0xF0)
+        # transmitted on each port to announce the node's presence. DEFAULT-OFF — a
+        # node that never beaconed keeps not beaconing. {node}/{call} are expanded in
+        # the text. A port may override this default via the port's `beacon:` block.
+        beacon:
+          enabled: false                  # turn the ID beacon on (TX is opt-in)
+          intervalMinutes: 30             # minutes between beacons (>= 1)
+          text: "{node} pdn node"         # {node} = alias else callsign; {call} = callsign
+        # Per-port override (under a `ports:` entry):
+        #    beacon:
+        #      enabled: true               # this port's on/off (authoritative for the port)
+        #      intervalMinutes: 15         # omit to inherit the system default above
+        #      text: "{node} on VHF"       # omit to inherit the system default text
+
         """;
 }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Ax25.Session;
 using Packet.Core;
 using Packet.Kiss;
+using Packet.Node.Core.Beacons;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.NetRom;
@@ -44,6 +45,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     private readonly ILogger<PortSupervisor> logger;
     private readonly NetRomService? netRom;
     private readonly NodeTelemetry? telemetry;
+    private readonly BeaconService? beacons;
     private readonly Dictionary<string, RunningPort> ports = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Ax25Session, byte> consoleSessions = new();
     // Remotes a console connect-OUT is dialling right now (with a refcount, since
@@ -61,7 +63,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         TimeProvider timeProvider,
         ILoggerFactory? loggerFactory = null,
         NetRomService? netRom = null,
-        NodeTelemetry? telemetry = null)
+        NodeTelemetry? telemetry = null,
+        BeaconService? beacons = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.transportFactory = transportFactory ?? throw new ArgumentNullException(nameof(transportFactory));
@@ -73,6 +76,12 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         // frame/byte counters + monitor SSE feed see every frame. Observation-only,
         // like the NET/ROM tap — it can never disturb a session.
         this.telemetry = telemetry;
+        // Optional ID-beacon service: when present, each port that comes up arms a
+        // periodic beacon timer IF its effective beacon (per-port override merged over
+        // the system default) is enabled — default-off, so a stock node never beacons.
+        // It only ever SENDS a UI frame (never disturbs a session, never mutates the
+        // port set), so it attaches alongside telemetry, outside the supervisor gate.
+        this.beacons = beacons;
         // Optional node-level NET/ROM consumer. When present, each port that comes up
         // has its frame-trace tap subscribed (and unsubscribed on teardown) so the
         // service hears NODES broadcasts; with connect-routing enabled it also taps
@@ -379,6 +388,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         // + the monitor SSE feed. Also observation-only; detached on teardown.
         telemetry?.AttachPort(port.Id, listener);
 
+        // ID beacon: arm the periodic UI-frame beacon on this port (default-off — armed
+        // only when the effective beacon is enabled). Sends-only; detached on teardown.
+        beacons?.AttachPort(port.Id, new ListenerBeaconChannel(listener));
+
         // Hoist the callsign too (CA1873) — endpointText is the one declared above.
         var callText = myCall.ToString();
         LogPortUp(port.Id, callText, endpointText);
@@ -399,6 +412,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         // Learned routes survive; their neighbours age out via obsolescence.
         if (netRom is not null) await netRom.DetachPortAsync(id).ConfigureAwait(false);
         telemetry?.DetachPort(id);
+        beacons?.DetachPort(id);
         await running.DisposeAsync().ConfigureAwait(false);
         LogPortDown(id);
     }
@@ -418,6 +432,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             // link it polls onto the shared channel).
             if (netRom is not null) await netRom.DetachPortAsync(p.Id).ConfigureAwait(false);
             telemetry?.DetachPort(p.Id);
+            beacons?.DetachPort(p.Id);
             await p.DisposeAsync().ConfigureAwait(false);
         }
     }

@@ -56,7 +56,7 @@ function buildPort(d: SetupData): PortConfig {
     case "kiss-tcp": transport = { kind: "kiss-tcp", host: d.device || "127.0.0.1", port: d.baud || 8001 }; break;
     case "axudp": transport = { kind: "axudp", host: d.device || "127.0.0.1", port: d.baud || 10093, localPort: d.baud || 10093 }; break;
   }
-  return { id: d.portId, enabled: true, transport, profile: null, ax25: null, kiss: null };
+  return { id: d.portId, enabled: true, transport, profile: null, ax25: null, kiss: null, beacon: null };
 }
 
 export function Setup() {

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Node.Core.Beacons;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.NetRom;
@@ -27,6 +28,7 @@ public sealed partial class NodeHostedService : BackgroundService
     private readonly ILogger<NodeHostedService> logger;
     private readonly INetRomRoutingStore? routingStore;
     private readonly NodeTelemetry telemetry;
+    private readonly BeaconService beacons;
     private readonly SemaphoreSlim reconcileSignal = new(0);
     // Serialises supervisor mutation: the reconcile worker AND any web-initiated
     // action (port restart, session connect/disconnect/send) acquire this, so an
@@ -47,7 +49,8 @@ public sealed partial class NodeHostedService : BackgroundService
         ITransportFactory? transportFactory = null,
         TimeProvider? timeProvider = null,
         ILoggerFactory? loggerFactory = null,
-        INetRomRoutingStore? routingStore = null)
+        INetRomRoutingStore? routingStore = null,
+        BeaconService? beacons = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.transportFactory = transportFactory ?? TransportFactory.Instance;
@@ -55,6 +58,11 @@ public sealed partial class NodeHostedService : BackgroundService
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         this.routingStore = routingStore;
         telemetry = new NodeTelemetry(this.loggerFactory.CreateLogger<NodeTelemetry>());
+        // The ID-beacon service. Optional ctor param (DI passes the registered singleton);
+        // when null — every existing direct-construction test — we build one over the same
+        // config + clock, so beacons are always wired but inert by default (default-off).
+        this.beacons = beacons ?? new BeaconService(
+            this.config, this.timeProvider, this.loggerFactory.CreateLogger<BeaconService>());
         logger = this.loggerFactory.CreateLogger<NodeHostedService>();
         appliedConfig = config.Current;
     }
@@ -71,6 +79,11 @@ public sealed partial class NodeHostedService : BackgroundService
     /// <c>/events</c> endpoint read it straight off this singleton.</summary>
     public NodeTelemetry Telemetry => telemetry;
 
+    /// <summary>The ID-beacon service (per-port periodic UI-frame beacon). Created in
+    /// the constructor so it's never null; inert until a port whose effective beacon is
+    /// enabled comes up. Exposed for component tests.</summary>
+    public BeaconService Beacons => beacons;
+
     /// <summary>The telnet listener — exposed for component tests (e.g. to read
     /// the bound port).</summary>
     public TelnetConsoleListener? Telnet => telnet;
@@ -86,7 +99,7 @@ public sealed partial class NodeHostedService : BackgroundService
         // by the supervisor as ports come up), so it can never disturb a session.
         netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>(), routingStore);
 
-        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry);
+        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons);
         await supervisor.StartAsync(stoppingToken).ConfigureAwait(false);
 
         StartTelnet(startConfig.Management.Telnet, stoppingToken);
@@ -105,6 +118,9 @@ public sealed partial class NodeHostedService : BackgroundService
         {
             changeSubscription?.Dispose();
             changeSubscription = null;
+            // Stop all beacon timers before tearing the ports down (the timers send via
+            // the listeners the supervisor is about to dispose).
+            await beacons.DisposeAsync().ConfigureAwait(false);
             if (telnet is not null) await telnet.DisposeAsync().ConfigureAwait(false);
             // Dispose NET/ROM BEFORE the supervisor: DisposeAsync cleanly DISCs each
             // interlink AX.25 session (so a neighbour isn't left with a half-open link
@@ -162,6 +178,12 @@ public sealed partial class NodeHostedService : BackgroundService
         var plan = ReconcilePlanner.Plan(from, to);
         if (plan.IsNoOp)
         {
+            // A no-op for the PORT supervisor isn't necessarily a no-op for beacons: a
+            // beacon-only edit (system default or a per-port override) leaves the port
+            // set untouched, so the reconcile plan is empty — but the timers must re-arm
+            // to the new interval/text/enabled. Re-arm from the live config (idempotent),
+            // the same way the console reads ServicesConfig live.
+            beacons.Reapply();
             lock (swapGate) appliedConfig = to;
             return;
         }
@@ -195,6 +217,11 @@ public sealed partial class NodeHostedService : BackgroundService
 
         // Services changes need no action — the console reads ServicesConfig live
         // through the provider; the reference swap is implicit.
+
+        // Re-arm beacons from the new config. Ports brought up/restarted in the plan
+        // already armed from live config on AttachPort; this catches beacon edits to
+        // ports the plan left untouched (and is idempotent for the rest).
+        beacons.Reapply();
 
         lock (swapGate) appliedConfig = to;
     }
