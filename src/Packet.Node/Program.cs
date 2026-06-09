@@ -1,4 +1,5 @@
 using System.Net;
+using Packet.Node.Api;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
@@ -13,7 +14,17 @@ using Packet.Node.Core.Transports;
 var configPath = ResolveConfigPath(args);
 var dbPath = ResolveDbPath(args);
 
-var builder = WebApplication.CreateBuilder(args);
+// ContentRoot = the app's own directory (where the published web UI's wwwroot
+// sits), NOT the working directory. The packaged node runs with a WorkingDirectory
+// of the writable StateDirectory (/var/lib/packetnet) while the binary + wwwroot
+// live in /opt/packetnet/app, so defaulting ContentRoot to the CWD would make
+// UseStaticFiles look in the wrong place. (Config/DB paths still resolve against
+// the CWD by design — see ResolveConfigPath/ResolveDbPath.)
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 // Build the config provider eagerly: it writes the first-start template if the
 // file is absent and gives us the HTTP bind to hand to Kestrel before the host
@@ -38,7 +49,11 @@ builder.Services.AddSingleton<INetRomRoutingStore>(routingStore);
 
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddHostedService<NodeHostedService>();
+// Register the hosted service as a singleton AND as the hosted service, so the
+// control-API endpoint handlers can inject it and read its live Supervisor /
+// NetRom handles (the read API projects the node's state from these).
+builder.Services.AddSingleton<NodeHostedService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeHostedService>());
 
 // Bind Kestrel from the node config's management.http section.
 var http = configProvider.Current.Management.Http;
@@ -50,8 +65,26 @@ builder.WebHost.ConfigureKestrel(options =>
 
 var app = builder.Build();
 
-// Slice 1: the ONLY mapped endpoint. Unauthenticated liveness probe.
+// Unauthenticated liveness probe.
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+
+// Slice 3 control API (read endpoints). Mapped BEFORE the SPA fallback so /api/*
+// and /healthz win; everything else falls through to index.html for the React
+// client router. (Auth is a later step — these are read-only and the node binds
+// 127.0.0.1 by default. The live SSE feed for the monitor is step 1b.)
+app.MapPdnReadApi();
+
+// An unknown /api/* path returns 404 — it must NOT fall through to the SPA
+// index.html below (the catch-all is less specific than the real /api/v1/*
+// routes, so those still win).
+app.Map("/api/{**rest}", () => Results.NotFound());
+
+// Serve the built web UI (web/packetnet-ui → wwwroot) + SPA client-side routing:
+// any other unmatched, non-file route returns index.html so the React router
+// can handle it (deep links like /monitor, /ports).
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
