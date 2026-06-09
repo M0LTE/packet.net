@@ -59,3 +59,14 @@ management:
   http:
     bind: 127.0.0.1
     port: 8080
+  # Optional HTTPS listener. Off by default. When enabled, a self-signed cert is
+  # generated on first start (encrypts the channel; browsers warn until trusted) —
+  # or point certificatePath at a trusted PKCS#12 (.pfx) for a trusted secure context
+  # (needed for passkeys/WebAuthn over a LAN IP).
+  # https:
+  #   enabled: true
+  #   bind: 0.0.0.0
+  #   port: 8443
+  #   # certificatePath: /etc/packetnet/server.pfx
+  #   # certificatePassword: null
+  #   generateSelfSignedOnMissing: true

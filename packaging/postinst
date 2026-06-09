@@ -11,6 +11,10 @@ case "$1" in
               --home /var/lib/packetnet --shell /usr/sbin/nologin packetnet
     fi
     install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet
+    # Where a generated self-signed TLS cert (management.https) is persisted — owned
+    # by the service user so it can write the .pfx on first start (HTTPS is opt-in;
+    # this just makes the dir ready). 0750 keeps the private key non-world-readable.
+    install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet/certs
     # The management API rewrites the YAML conffile in place (config-write, port
     # management, first-run /setup) via an atomic write — a .tmp in this dir, then
     # a rename — so the service user must own the config dir (to create/rename)

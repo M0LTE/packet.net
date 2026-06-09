@@ -44,7 +44,15 @@ export interface IdentityConfig { callsign: string; alias?: string | null; grid?
 export interface ServicesConfig { banner: string; prompt: string }
 export interface TelnetConfig { enabled: boolean; bind: string; port: number }
 export interface HttpConfig { bind: string; port: number }
-export interface ManagementConfig { telnet: TelnetConfig; http: HttpConfig }
+export interface HttpsConfig {
+  enabled: boolean;
+  bind: string;
+  port: number;
+  certificatePath: string | null;
+  certificatePassword: string | null;
+  generateSelfSignedOnMissing: boolean;
+}
+export interface ManagementConfig { telnet: TelnetConfig; http: HttpConfig; https: HttpsConfig }
 export interface Inp3Config {
   enabled: boolean; preferInp3Routes: boolean;
   l3RttInterval: number; l3RttResetWindow: number;

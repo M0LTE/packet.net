@@ -201,6 +201,27 @@ export function Config() {
                 </div>
                 <div className="rounded-lg border border-border p-3">
                   <div className="mb-3 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Label className="text-foreground">HTTPS (TLS)</Label>
+                      <InfoHint text="Serve this panel over TLS so the password and token aren't sent in clear over the network. Off by default. When on, a self-signed cert is generated on first start (encrypts the channel; browsers warn until it's trusted) — or set a certificate path to a trusted .pfx. Passkeys need a trusted secure context (a trusted cert, or access via localhost)." />
+                    </span>
+                    <ImpactBadge impact={APPLY_IMPACT["management.http"]} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label="Enabled"><div className="flex h-9 items-center"><Switch checked={cfg.management.https?.enabled ?? false} onChange={(v) => set("management.https.enabled", v, "node-reset")} /></div></Field>
+                    <Field label="Bind"><Input value={cfg.management.https?.bind ?? "127.0.0.1"} onChange={(e) => set("management.https.bind", e.target.value, "node-reset")} className="font-mono" /></Field>
+                    <Field label="Port"><Input type="number" value={cfg.management.https?.port ?? 8443} onChange={(e) => set("management.https.port", +e.target.value, "node-reset")} className="font-mono" /></Field>
+                  </div>
+                  {(cfg.management.https?.enabled ?? false) && (
+                    <div className="mt-3">
+                      <Field label="Certificate path" info="Path to a PKCS#12 (.pfx) cert+key the clients trust. Leave blank to auto-generate a self-signed cert (channel-encrypting, but browsers warn until trusted).">
+                        <Input value={cfg.management.https?.certificatePath ?? ""} placeholder="(auto self-signed)" onChange={(e) => set("management.https.certificatePath", e.target.value || null, "node-reset")} className="font-mono" />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <div className="mb-3 flex items-center justify-between">
                     <Label className="text-foreground">Telnet console</Label>
                     <ImpactBadge impact={APPLY_IMPACT["management.telnet"]} />
                   </div>
