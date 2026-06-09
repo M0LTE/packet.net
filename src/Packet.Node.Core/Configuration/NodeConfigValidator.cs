@@ -325,6 +325,26 @@ public sealed class ManagementValidator : AbstractValidator<ManagementConfig>
             .Must(m => !(m.Telnet.Enabled && m.Telnet.Bind == m.Http.Bind && m.Telnet.Port == m.Http.Port))
             .WithMessage("Telnet and Http cannot bind the same address:port.");
 
+        // HTTPS (only validated when enabled).
+        RuleFor(m => m.Https.Port).InclusiveBetween(1, 65535)
+            .When(m => m.Https.Enabled)
+            .WithMessage("Https port must be in 1..65535.");
+        RuleFor(m => m.Https.Bind).NotEmpty()
+            .When(m => m.Https.Enabled)
+            .WithMessage("Https bind address is required.");
+        RuleFor(m => m)
+            .Must(m => !(m.Https.Bind == m.Http.Bind && m.Https.Port == m.Http.Port))
+            .When(m => m.Https.Enabled)
+            .WithMessage("Http and Https cannot bind the same address:port.");
+        RuleFor(m => m)
+            .Must(m => !(m.Telnet.Enabled && m.Telnet.Bind == m.Https.Bind && m.Telnet.Port == m.Https.Port))
+            .When(m => m.Https.Enabled)
+            .WithMessage("Telnet and Https cannot bind the same address:port.");
+        // If self-signed generation is off, an explicit cert path is required.
+        RuleFor(m => m.Https.CertificatePath).NotEmpty()
+            .When(m => m.Https.Enabled && !m.Https.GenerateSelfSignedOnMissing)
+            .WithMessage("management.https.certificatePath is required when generateSelfSignedOnMissing is false.");
+
         RuleFor(m => m.Auth.AccessTokenMinutes!.Value).GreaterThan(0)
             .When(m => m.Auth.AccessTokenMinutes.HasValue)
             .WithMessage("management.auth.accessTokenMinutes must be positive.");

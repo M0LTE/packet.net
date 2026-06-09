@@ -169,12 +169,49 @@ builder.Services.AddSingleton<BeaconService>();
 builder.Services.AddSingleton<NodeHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeHostedService>());
 
-// Bind Kestrel from the node config's management.http section.
-var http = configProvider.Current.Management.Http;
+// Bind Kestrel from the node config's management.http section, plus an optional TLS
+// listener (management.https). HTTPS is opt-in; the plain HTTP listener is unchanged.
+var management = configProvider.Current.Management;
+var http = management.Http;
+var https = management.Https;
+
+// Resolve the HTTPS cert ONCE, before binding. A null result (TLS off, or a cert that
+// couldn't be loaded/generated — logged by the provider) just means we skip the HTTPS
+// endpoint; HTTP still serves, so a TLS misconfig never takes the node down.
+System.Security.Cryptography.X509Certificates.X509Certificate2? httpsCert = null;
+if (https.Enabled)
+{
+    // Persist a generated self-signed cert beside the db (the writable StateDirectory
+    // on the packaged node), e.g. /var/lib/packetnet/certs/server.pfx.
+    var certDir = Path.GetDirectoryName(dbPath) is { Length: > 0 } d ? d : ".";
+    var selfSignedPath = Path.Combine(certDir, "certs", "server.pfx");
+    var bindIp = IPAddress.TryParse(https.Bind, out var hb) ? hb : IPAddress.Loopback;
+    var sanIps = new List<IPAddress> { IPAddress.Loopback, IPAddress.IPv6Loopback };
+    if (!Equals(bindIp, IPAddress.Any) && !Equals(bindIp, IPAddress.IPv6Any) && !sanIps.Contains(bindIp))
+    {
+        sanIps.Add(bindIp);
+    }
+    var commonName = string.IsNullOrWhiteSpace(configProvider.Current.Identity.Callsign)
+        ? "packetnet"
+        : configProvider.Current.Identity.Callsign;
+    httpsCert = Packet.Node.Core.TlsCertificateProvider.Resolve(
+        https, selfSignedPath, commonName,
+        sanDnsNames: ["localhost", Environment.MachineName],
+        sanIpAddresses: sanIps,
+        clock: TimeProvider.System,
+        logger: bootstrapLoggers.CreateLogger("Packet.Node.Tls"));
+}
+
 builder.WebHost.ConfigureKestrel(options =>
 {
     var address = IPAddress.TryParse(http.Bind, out var ip) ? ip : IPAddress.Loopback;
     options.Listen(address, http.Port);
+
+    if (httpsCert is not null)
+    {
+        var httpsAddress = IPAddress.TryParse(https.Bind, out var hip) ? hip : IPAddress.Loopback;
+        options.Listen(httpsAddress, https.Port, listenOptions => listenOptions.UseHttps(httpsCert));
+    }
 });
 
 var app = builder.Build();

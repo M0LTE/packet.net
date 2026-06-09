@@ -22,7 +22,11 @@ export const NODE_CONFIG: NodeConfig = {
     { id: "hf-300", enabled: false, transport: { kind: "serial-kiss", device: "/dev/ttyUSB1", baud: 38400 }, profile: "robust-hf", ax25: { t1Ms: 8000, t2Ms: 1500, t3Ms: 300000, n2: 12, windowSize: 2, maxCachedPeers: 16 }, kiss: { txDelay: 250, persistence: 32, slotTime: 100, txTail: 100 }, beacon: null },
   ],
   services: { banner: "{node}:{call} — Reading & District packet gateway", prompt: "{node}:{call}}" },
-  management: { telnet: { enabled: true, bind: "127.0.0.1", port: 8011 }, http: { bind: "0.0.0.0", port: 8080 } },
+  management: {
+    telnet: { enabled: true, bind: "127.0.0.1", port: 8011 },
+    http: { bind: "0.0.0.0", port: 8080 },
+    https: { enabled: false, bind: "0.0.0.0", port: 8443, certificatePath: null, certificatePassword: null, generateSelfSignedOnMissing: true },
+  },
   netRom: {
     enabled: true, broadcast: true, connect: true, forward: true, forwardMode: "PerFlow",
     alias: "RDGGW", defaultNeighbourQuality: 192, minQuality: 40,

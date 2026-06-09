@@ -66,6 +66,48 @@ public class NodeConfigValidatorTests
     }
 
     [Theory]
+    [InlineData(true, 8443, "0.0.0.0", true)]   // enabled + valid
+    [InlineData(true, 0, "0.0.0.0", false)]     // bad port
+    [InlineData(true, 8443, "", false)]         // empty bind
+    [InlineData(false, 0, "", true)]            // disabled → not validated at all
+    public void Https_is_validated_only_when_enabled(bool enabled, int port, string bind, bool expectValid)
+    {
+        var config = Valid() with
+        {
+            Management = new ManagementConfig { Https = new HttpsConfig { Enabled = enabled, Port = port, Bind = bind } },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Https_cannot_collide_with_the_http_listener()
+    {
+        // Same address:port as the default http listener (127.0.0.1:8080) → rejected.
+        Validator.Validate(Valid() with
+        {
+            Management = new ManagementConfig { Https = new HttpsConfig { Enabled = true, Bind = "127.0.0.1", Port = 8080 } },
+        }).IsValid.Should().BeFalse();
+        // A distinct port is fine.
+        Validator.Validate(Valid() with
+        {
+            Management = new ManagementConfig { Https = new HttpsConfig { Enabled = true, Bind = "127.0.0.1", Port = 8443 } },
+        }).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Https_requires_a_cert_path_when_self_signed_generation_is_off()
+    {
+        Validator.Validate(Valid() with
+        {
+            Management = new ManagementConfig { Https = new HttpsConfig { Enabled = true, GenerateSelfSignedOnMissing = false } },
+        }).IsValid.Should().BeFalse();
+        Validator.Validate(Valid() with
+        {
+            Management = new ManagementConfig { Https = new HttpsConfig { Enabled = true, GenerateSelfSignedOnMissing = false, CertificatePath = "/etc/packetnet/server.pfx" } },
+        }).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData(0, false)]    // baud must be > 0
     [InlineData(1, true)]
     [InlineData(57600, true)]

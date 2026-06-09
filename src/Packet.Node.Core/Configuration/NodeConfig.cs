@@ -270,6 +270,14 @@ public sealed record ManagementConfig
     /// API/auth/UI are later slices.</summary>
     public HttpConfig Http { get; init; } = new();
 
+    /// <summary>Optional HTTPS/TLS listener for the web control panel. Default-OFF
+    /// (see <see cref="HttpsConfig"/>): with it off only the plain <see cref="Http"/>
+    /// listener runs, exactly as before. With it on, a second Kestrel endpoint serves
+    /// the same panel over TLS — encrypting the password + JWT that would otherwise
+    /// cross the LAN in clear, and providing the secure context WebAuthn/passkeys
+    /// require.</summary>
+    public HttpsConfig Https { get; init; } = new();
+
     /// <summary>Web control-API authentication. Default-OFF (see
     /// <see cref="AuthConfig"/>): with it off the API behaves exactly as it did
     /// before auth existed — the read / SSE / config / ports / sessions / ping
@@ -335,6 +343,50 @@ public sealed record HttpConfig
 
     /// <summary>TCP port for the web server.</summary>
     public int Port { get; init; } = 8080;
+}
+
+/// <summary>
+/// Optional HTTPS/TLS listener for the web control panel. <b>Default-OFF</b>
+/// (<see cref="Enabled"/> = <c>false</c>) — only the plain HTTP listener runs, so a
+/// node that never configured TLS behaves exactly as before. When enabled, a second
+/// Kestrel endpoint serves the same panel over TLS.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The cert is loaded from <see cref="CertificatePath"/> (a PKCS#12 / .pfx) when set;
+/// otherwise, if <see cref="GenerateSelfSignedOnMissing"/> is true, a self-signed cert
+/// is generated on first start and persisted alongside the node state so it is stable
+/// across restarts. A self-signed cert <em>encrypts the channel</em> (the password +
+/// JWT no longer cross the LAN in clear) but is not trusted by browsers — to get a
+/// trusted secure context (needed for WebAuthn/passkeys over a LAN IP) point
+/// <see cref="CertificatePath"/> at a cert the client trusts, or reach the node via
+/// <c>localhost</c>.
+/// </para>
+/// </remarks>
+public sealed record HttpsConfig
+{
+    /// <summary>Whether the HTTPS listener runs. Default <c>false</c> — HTTP only.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Bind address for the HTTPS listener. Defaults to loopback.</summary>
+    public string Bind { get; init; } = "127.0.0.1";
+
+    /// <summary>TCP port for HTTPS.</summary>
+    public int Port { get; init; } = 8443;
+
+    /// <summary>Path to a PKCS#12 (.pfx/.p12) certificate bundle (cert + private key).
+    /// Null = use a generated self-signed cert (see
+    /// <see cref="GenerateSelfSignedOnMissing"/>).</summary>
+    public string? CertificatePath { get; init; }
+
+    /// <summary>Password for the PKCS#12 at <see cref="CertificatePath"/>, if it is
+    /// encrypted. Null = no password.</summary>
+    public string? CertificatePassword { get; init; }
+
+    /// <summary>When no <see cref="CertificatePath"/> is set, generate a self-signed
+    /// cert on first start and persist it (default <c>true</c>). Set false to require an
+    /// explicit cert (the HTTPS listener then fails to start without one).</summary>
+    public bool GenerateSelfSignedOnMissing { get; init; } = true;
 }
 
 /// <summary>
