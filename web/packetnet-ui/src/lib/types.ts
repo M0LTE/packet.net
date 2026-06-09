@@ -211,8 +211,11 @@ export interface UserSummary {
   createdUtc: string;
   lastLoginUtc: string | null;
 }
-// POST /auth/login success body. `scopes` is the single granted scope string.
-export interface LoginResult { token: string; expiresAt: string; scopes: string }
+// POST /auth/login + POST /auth/refresh success body. `scopes` is the single granted
+// scope string; `refreshToken` is the opaque one-time-use token the client stores and
+// presents to /auth/refresh (may be null only if the node couldn't persist one — the
+// access token still works until it expires).
+export interface LoginResult { token: string; expiresAt: string; scopes: string; refreshToken: string | null }
 // GET /setup/state body.
 export interface SetupState { needsSetup: boolean }
 // POST /setup request body (identity + first admin + optional first port).

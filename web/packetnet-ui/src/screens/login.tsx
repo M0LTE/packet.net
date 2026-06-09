@@ -50,7 +50,7 @@ export function Login() {
     setError(null);
     try {
       const res = await api.login(username, pw);
-      auth.login(res.token, res.scopes, username);
+      auth.login(res.token, res.scopes, username, res.refreshToken);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Unauthorized

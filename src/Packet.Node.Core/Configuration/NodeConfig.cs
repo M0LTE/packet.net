@@ -314,9 +314,19 @@ public sealed record AuthConfig
     public bool Enabled { get; init; }
 
     /// <summary>Access-token lifetime in minutes. Null = the default (60 — ~1h).
-    /// No refresh tokens in v1, so this is the full session length before a
-    /// re-login.</summary>
+    /// Short-lived: when it expires the web client silently exchanges its refresh
+    /// token (see <see cref="RefreshTokenMinutes"/>) for a fresh one rather than
+    /// forcing a re-login.</summary>
     public int? AccessTokenMinutes { get; init; }
+
+    /// <summary>Refresh-token lifetime in minutes. Null = the default (10080 — 7
+    /// days). This is the real session length: a refresh token rotates on each use
+    /// (one-time-use) and lets the client renew its short access token without a
+    /// re-login until the refresh token itself expires. Must exceed
+    /// <see cref="AccessTokenMinutes"/> when both are set (a refresh token that
+    /// outlived its access token is the whole point — see
+    /// <see cref="NodeConfigValidator"/>).</summary>
+    public int? RefreshTokenMinutes { get; init; }
 }
 
 /// <summary>

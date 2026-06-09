@@ -32,6 +32,10 @@ const RANK: Record<string, number> = { read: 1, operate: 2, admin: 3 };
 interface Session {
   /** The JWT, or null in auth-off / pre-login states (the app still works tokenless). */
   token: string | null;
+  /** The opaque refresh token (one-time-use, rotated on each /auth/refresh), or null
+   *  in auth-off / pre-login / mock states. Persisted alongside the access token so a
+   *  reload can silently renew an expired access token without a re-login. */
+  refreshToken: string | null;
   /** The login name, or null when we entered without logging in (auth off / mock). */
   username: string | null;
   /** The granted scope, or null if unknown. `has()` treats null as "satisfies nothing". */
@@ -41,11 +45,13 @@ interface Session {
 interface AuthState extends Session {
   /** Whether the gate has let the operator into the app (token-backed or tokenless). */
   authed: boolean;
-  /** Record a successful login (token + granted scope + username) and enter the app. */
-  login: (token: string, scope: string, username: string) => void;
+  /** Record a successful login (access + refresh token + granted scope + username) and
+   *  enter the app. */
+  login: (token: string, scope: string, username: string, refreshToken: string | null) => void;
   /** Enter the app WITHOUT a token — auth-off probe succeeded, or mock mode. */
   enterAnonymous: (scope?: Scope) => void;
-  /** Clear the session and drop back to the login gate. */
+  /** Clear the session (best-effort revoking the refresh token server-side) and drop
+   *  back to the login gate. */
   logout: () => void;
   /** Whether the current scope satisfies `required` under admin⊃operate⊃read. */
   has: (required: Scope) => boolean;
@@ -54,17 +60,33 @@ interface AuthState extends Session {
 const AuthContext = createContext<AuthState | null>(null);
 const KEY = "pdn.session";
 
+const EMPTY_SESSION: Session = { token: null, refreshToken: null, username: null, scope: null };
+
 /** The event lib/api.ts dispatches when any call comes back 401. */
 export const UNAUTHORIZED_EVENT = "pdn:unauthorized";
+
+// lib/api.ts registers a best-effort server-side revoke here (POST /auth/logout with
+// the stored refresh token). A registration hook — rather than a static import of
+// api.ts — keeps auth.tsx free of an import cycle (api.ts already imports from here).
+let revokeOnLogout: (() => void) | null = null;
+/** Called once by lib/api.ts at module load to wire the logout revoke. */
+export function setLogoutRevoker(fn: () => void): void {
+  revokeOnLogout = fn;
+}
 
 function load(): Session {
   try {
     const raw = sessionStorage.getItem(KEY);
-    if (!raw) return { token: null, username: null, scope: null };
+    if (!raw) return EMPTY_SESSION;
     const s = JSON.parse(raw) as Session;
-    return { token: s.token ?? null, username: s.username ?? null, scope: s.scope ?? null };
+    return {
+      token: s.token ?? null,
+      refreshToken: s.refreshToken ?? null,
+      username: s.username ?? null,
+      scope: s.scope ?? null,
+    };
   } catch {
-    return { token: null, username: null, scope: null };
+    return EMPTY_SESSION;
   }
 }
 
@@ -84,8 +106,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(false);
 
   const logout = () => {
-    save({ token: null, username: null, scope: null });
-    setSession({ token: null, username: null, scope: null });
+    // Best-effort server-side revoke of the refresh-token family (POST /auth/logout
+    // via the registered revoker), then clear local state. The revoke reads the token
+    // straight from sessionStorage, so it must run BEFORE we clear it.
+    try { revokeOnLogout?.(); } catch { /* logout must always clear locally */ }
+    save(EMPTY_SESSION);
+    setSession(EMPTY_SESSION);
     setAuthed(false);
   };
 
@@ -99,8 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthState = {
     ...session,
     authed,
-    login: (token, scope, username) => {
-      const s: Session = { token, username, scope: (scope as Scope) ?? null };
+    login: (token, scope, username, refreshToken) => {
+      const s: Session = { token, refreshToken, username, scope: (scope as Scope) ?? null };
       save(s);
       setSession(s);
       setAuthed(true);
@@ -109,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // No token (auth off, or mock): enter with the given effective scope. Default
       // admin so a tokenless lab node (or mock) exposes every action — the server
       // is the real gate either way.
-      const s: Session = { token: null, username: null, scope };
+      const s: Session = { token: null, refreshToken: null, username: null, scope };
       setSession(s);
       setAuthed(true);
     },
