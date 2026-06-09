@@ -27,6 +27,12 @@
     <!-- Routing-table persistence (pdn.db). Raw SQL + Dapper, no EF (plan §3). -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Dapper" />
+    <!-- Web control-API auth foundation (default-off behind management.auth.enabled).
+         Argon2id password hashing + HS256 JWT issuing/validation primitives live in
+         Core (web-free); the JwtBearer middleware + endpoints are in the host. -->
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" />
   </ItemGroup>
 
   <PropertyGroup>

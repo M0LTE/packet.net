@@ -47,6 +47,7 @@ public static class PdnEventsApi
 
         app.MapGet("/api/v1/events", async (HttpContext ctx, NodeHostedService host, TimeProvider clock) =>
         {
+            // (gated `read` below — the gate is a no-op when auth is disabled.)
             var ct = ctx.RequestAborted;
 
             // SSE wire envelope: keep the stream un-buffered end to end so a frame
@@ -100,7 +101,7 @@ public static class PdnEventsApi
                 // The client went away (RequestAborted). Normal SSE teardown — the
                 // using-scoped subscription unsubscribes + completes the channel.
             }
-        });
+        }).RequireAuthorization(PdnAuthPolicies.Read);
     }
 
     /// <summary>

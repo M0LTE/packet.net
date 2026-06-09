@@ -282,5 +282,9 @@ public sealed class ManagementValidator : AbstractValidator<ManagementConfig>
         RuleFor(m => m)
             .Must(m => !(m.Telnet.Enabled && m.Telnet.Bind == m.Http.Bind && m.Telnet.Port == m.Http.Port))
             .WithMessage("Telnet and Http cannot bind the same address:port.");
+
+        RuleFor(m => m.Auth.AccessTokenMinutes!.Value).GreaterThan(0)
+            .When(m => m.Auth.AccessTokenMinutes.HasValue)
+            .WithMessage("management.auth.accessTokenMinutes must be positive.");
     }
 }

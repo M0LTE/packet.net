@@ -145,6 +145,32 @@ public class NodeConfigYamlTests
         NodeConfigYaml.Parse(yaml).NetRom.Enabled.Should().BeFalse();
     }
 
+    [Fact]
+    public void Management_auth_defaults_off_and_round_trips_when_enabled()
+    {
+        // Default-off: an absent management.auth block leaves auth disabled — the
+        // no-regression contract for the auth foundation.
+        var defaulted = NodeConfigYaml.Parse("identity:\n  callsign: M0LTE-1\n");
+        defaulted.Management.Auth.Enabled.Should().BeFalse();
+        defaulted.Management.Auth.AccessTokenMinutes.Should().BeNull();
+
+        // And an explicit on round-trips through serialise→parse.
+        const string yaml = """
+            identity:
+              callsign: M0LTE-1
+            management:
+              auth:
+                enabled: true
+                accessTokenMinutes: 30
+            """;
+        var parsed = NodeConfigYaml.Parse(yaml);
+        parsed.Management.Auth.Enabled.Should().BeTrue();
+        parsed.Management.Auth.AccessTokenMinutes.Should().Be(30);
+
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(parsed));
+        reparsed.Management.Auth.Should().Be(parsed.Management.Auth);
+    }
+
     [Theory]
     [InlineData("serial-kiss")]
     [InlineData("nino-tnc")]

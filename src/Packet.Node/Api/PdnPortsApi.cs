@@ -65,7 +65,9 @@ public static class PdnPortsApi
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        var v1 = app.MapGroup("/api/v1");
+        // Every port mutation is `operate` (a write/action). The gate is a no-op when
+        // management.auth.enabled is off (ScopeRequirementHandler passes through).
+        var v1 = app.MapGroup("/api/v1").RequireAuthorization(PdnAuthPolicies.Operate);
 
         // Add a port: append it to the live Ports list. A duplicate id is caught by the
         // validator's unique-id rule → 422 (no separate guard needed here).
