@@ -54,8 +54,9 @@ function RequireAuth() {
         await api.status(); // probes the stored token (if any)
         if (!live) return;
         // 200: auth off (tokenless) or a valid token. If we already have a token
-        // the provider state survives; otherwise enter anonymously (auth-off lab).
-        if (auth.token) { auth.login(auth.token, auth.scope ?? "admin", auth.username ?? ""); }
+        // the provider state survives (carry the refresh token through too); otherwise
+        // enter anonymously (auth-off lab).
+        if (auth.token) { auth.login(auth.token, auth.scope ?? "admin", auth.username ?? "", auth.refreshToken); }
         else { auth.enterAnonymous("admin"); }
       } catch (e) {
         if (!live) return;

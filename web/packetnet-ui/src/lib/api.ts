@@ -15,7 +15,7 @@ import type {
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
 } from "./types";
 import * as mock from "./mock";
-import { UNAUTHORIZED_EVENT } from "@/app/auth";
+import { UNAUTHORIZED_EVENT, setLogoutRevoker } from "@/app/auth";
 
 const MODE: "mock" | "live" =
   (import.meta.env.VITE_API_MODE as "mock" | "live") ?? "mock";
@@ -30,14 +30,45 @@ export const apiMode = MODE;
 // fetch path free of a context dependency while staying in lock-step with auth.tsx.
 const SESSION_KEY = "pdn.session";
 
-/** The current JWT, or null when there's no session (auth off / pre-login / mock). */
-function token(): string | null {
+interface PersistedSession {
+  token?: string | null;
+  refreshToken?: string | null;
+  username?: string | null;
+  scope?: string | null;
+}
+
+function readSession(): PersistedSession {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    return (JSON.parse(raw) as { token?: string | null }).token ?? null;
+    return raw ? (JSON.parse(raw) as PersistedSession) : {};
   } catch {
-    return null;
+    return {};
+  }
+}
+
+/** The current JWT, or null when there's no session (auth off / pre-login / mock). */
+function token(): string | null {
+  return readSession().token ?? null;
+}
+
+/** The current opaque refresh token, or null when there's no session. */
+function refreshToken(): string | null {
+  return readSession().refreshToken ?? null;
+}
+
+/** Update ONLY the access + refresh tokens in the persisted session (preserving the
+ *  username/scope AuthProvider also wrote), after a successful silent renew. The React
+ *  auth context keeps its own copy; this write keeps sessionStorage — the source the
+ *  fetch path reads — in lock-step so the next request and a page reload both see the
+ *  rotated pair. */
+function setTokens(accessToken: string, newRefreshToken: string | null): void {
+  try {
+    const s = readSession();
+    s.token = accessToken;
+    s.refreshToken = newRefreshToken;
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  } catch {
+    /* private-mode / quota — non-fatal; the in-flight retry still uses the new token */
   }
 }
 
@@ -71,16 +102,57 @@ function on401(): never {
   throw new Unauthorized();
 }
 
-/** Auth-aware fetch — attaches the bearer token and funnels every 401 to on401().
- *  When auth is OFF the server 200s tokenless, so this transparently "just works"
- *  with token() === null. */
+// --- silent access-token renewal -----------------------------------------------
+// On a 401 we attempt ONE refresh-token rotation and retry the original request once.
+// A single shared in-flight promise dedupes concurrent 401s (a burst of parallel
+// requests all expiring at once triggers exactly one /auth/refresh, and they all await
+// it) — no stampede. The refresh call itself uses a BARE fetch (never authFetch), so a
+// 401 from /auth/refresh can never recurse into another refresh → no infinite loop.
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** Rotate the stored refresh token once; on success persist the new pair and resolve
+ *  true. Resolves false (does NOT throw) on any failure — the caller then logs out. */
+function refreshAccessToken(): Promise<boolean> {
+  // Coalesce concurrent callers onto one in-flight rotation.
+  refreshInFlight ??= (async (): Promise<boolean> => {
+    const rt = refreshToken();
+    if (!rt) return false;                       // nothing to renew with (auth off / pre-login)
+    try {
+      // BARE fetch — must not go through authFetch (that would recurse on a 401).
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ refreshToken: rt }),
+      });
+      if (!res.ok) return false;                 // 401/expired/reused → caller logs out
+      const next = (await res.json()) as LoginResult;
+      if (!next.token) return false;
+      setTokens(next.token, next.refreshToken ?? null);
+      return true;
+    } catch {
+      return false;                              // network error → treat as not-renewed
+    }
+  })();
+  // Clear the shared slot once it settles so a later 401 can refresh again.
+  return refreshInFlight.finally(() => { refreshInFlight = null; });
+}
+
+/** Auth-aware fetch — attaches the bearer token; on a 401 it tries ONE silent refresh
+ *  and retries the original request once, only falling back to on401() (→ logout) if
+ *  the refresh fails. When auth is OFF the server 200s tokenless, so this transparently
+ *  "just works" with token() === null (the 401 path is never hit). */
 async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: authHeaders((init.headers as Record<string, string>) ?? {}),
-  });
-  if (res.status === 401) on401();
-  return res;
+  const headers = (init.headers as Record<string, string>) ?? {};
+  const res = await fetch(`${BASE}${path}`, { ...init, headers: authHeaders(headers) });
+  if (res.status !== 401) return res;
+
+  // 401: attempt a single silent renew. If it works, retry the original request ONCE
+  // with the freshly-rotated bearer token; otherwise surface the 401 (→ logout).
+  const renewed = await refreshAccessToken();
+  if (!renewed) on401();
+  const retry = await fetch(`${BASE}${path}`, { ...init, headers: authHeaders(headers) });
+  if (retry.status === 401) on401();             // still 401 after a good refresh → give up
+  return retry;
 }
 
 async function get<T>(path: string, mockValue: () => T): Promise<T> {
@@ -172,10 +244,16 @@ export const api = {
   // Always open; one-shot (403 once a user exists). Returns the created admin summary
   // (no token — the operator then logs in).
   setup: (payload: SetupRequest) => setup(payload),
-  // Password login → JWT. Resolves the LoginResult ({ token, expiresAt, scopes }) on
-  // 200; throws Unauthorized on 401 (caller shows an inline error — note this 401 is
-  // expected and NOT a session expiry, so login() does not dispatch the logout event).
+  // Password login → JWT + refresh token. Resolves the LoginResult
+  // ({ token, expiresAt, scopes, refreshToken }) on 200; throws Unauthorized on 401
+  // (caller shows an inline error — note this 401 is expected and NOT a session expiry,
+  // so login() does not dispatch the logout event); 429 throws a plain Error (locked out).
   login: (username: string, password: string) => login(username, password),
+  // Rotate the stored refresh token → a fresh pair (the explicit surface; authFetch
+  // renews silently on its own). 401 throws Unauthorized.
+  refresh: () => refresh(),
+  // Best-effort server-side logout (revoke the refresh-token family). Never throws.
+  logout: () => logoutServerSide(),
   // Admin-scope user management.
   usersList: () => usersList(),
   userCreate: (username: string, password: string, scope: string) => userCreate(username, password, scope),
@@ -401,17 +479,72 @@ async function login(username: string, password: string): Promise<LoginResult> {
   if (MODE === "mock") {
     await new Promise((r) => setTimeout(r, 200));
     if (!username || !password) throw new Unauthorized("Invalid username or password.");
-    return { token: "mock.jwt.token", expiresAt: new Date(Date.now() + 36e5).toISOString(), scopes: "admin" };
+    return mockTokens("admin");
   }
   const res = await fetch(`${BASE}/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ username, password }),
   });
+  if (res.status === 429) throw new Error(await errorMessage(res, "Too many login attempts. Try again later."));
   if (res.status === 401) throw new Unauthorized(await errorMessage(res, "Invalid username or password."));
   if (!res.ok) throw new Error(await errorMessage(res, `Login failed (${res.status}).`));
   return (await res.json()) as LoginResult;
 }
+
+// Synthesise a fresh token pair (mock mode) — a unique refresh token each call so a
+// mock /auth/refresh visibly "rotates" the pair, mirroring the live one-time-use shape.
+function mockTokens(scope: string): LoginResult {
+  return {
+    token: "mock.jwt." + Math.random().toString(36).slice(2),
+    expiresAt: new Date(Date.now() + 36e5).toISOString(),
+    scopes: scope,
+    refreshToken: "mock.rt." + Math.random().toString(36).slice(2),
+  };
+}
+
+// Rotate the stored refresh token → a fresh token pair. Live mode POSTs /auth/refresh
+// (a bare fetch — the access token may have expired); mock mode returns a fresh synthetic
+// pair. 401 → Unauthorized (the caller logs out). NOTE: authFetch's own silent-renew uses
+// refreshAccessToken() directly, not this — this is the explicit API surface for callers.
+async function refresh(): Promise<LoginResult> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 80));
+    return mockTokens("admin");
+  }
+  const rt = refreshToken();
+  const res = await fetch(`${BASE}/auth/refresh`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ refreshToken: rt }),
+  });
+  if (res.status === 401) throw new Unauthorized(await errorMessage(res, "Your session has expired."));
+  if (!res.ok) throw new Error(await errorMessage(res, `Refresh failed (${res.status}).`));
+  return (await res.json()) as LoginResult;
+}
+
+// Best-effort server-side logout: revoke the stored refresh token's family. Fire-and-
+// forget from the caller's perspective (a failed/absent revoke must never block the
+// local logout). Mock mode is a no-op. Registered as the AuthProvider's logout revoker.
+async function logoutServerSide(): Promise<void> {
+  if (MODE === "mock") return;
+  const rt = refreshToken();
+  if (!rt) return;
+  try {
+    await fetch(`${BASE}/auth/logout`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ refreshToken: rt }),
+    });
+  } catch {
+    /* logout is best-effort — a network failure still clears the local session */
+  }
+}
+
+// Wire the AuthProvider's logout() to the best-effort server revoke (read the refresh
+// token from sessionStorage + POST /auth/logout). A registration hook avoids an
+// auth.tsx → api.ts import cycle. Fired-and-forgotten so logout never blocks on it.
+setLogoutRevoker(() => { void logoutServerSide(); });
 
 // First-run bootstrap. Always open; one-shot (403 once a user exists). Returns the
 // created admin summary (no token — the caller sends the operator to login).

@@ -1,0 +1,44 @@
+using Microsoft.Extensions.Logging;
+
+namespace Packet.Node.Api;
+
+/// <summary>
+/// Structured audit-log lines for the auth endpoints, emitted via the
+/// <see cref="LoggerMessage"/> source generator (allocation-free, repo logging rule).
+/// </summary>
+/// <remarks>
+/// <b>No secrets ever cross this surface.</b> Every parameter is a username, a source
+/// IP, a scope, or an outcome enum name — never a password, an access/refresh token,
+/// or a token hash. The username is not secret (it appears in the user list), but a
+/// missing one is redacted to a placeholder by the caller so a line never logs a blank.
+/// </remarks>
+internal static partial class AuthLog
+{
+    [LoggerMessage(EventId = 4001, Level = LogLevel.Information,
+        Message = "auth: login OK user={User} ip={Ip} scope={Scope}")]
+    public static partial void LoginSucceeded(ILogger logger, string user, string ip, string scope);
+
+    [LoggerMessage(EventId = 4002, Level = LogLevel.Warning,
+        Message = "auth: login FAIL user={User} ip={Ip}")]
+    public static partial void LoginFailed(ILogger logger, string user, string ip);
+
+    [LoggerMessage(EventId = 4003, Level = LogLevel.Warning,
+        Message = "auth: login LOCKED-OUT (rate limit) user={User} ip={Ip}")]
+    public static partial void LoginLockedOut(ILogger logger, string user, string ip);
+
+    [LoggerMessage(EventId = 4004, Level = LogLevel.Information,
+        Message = "auth: refresh OK user={User} ip={Ip}")]
+    public static partial void RefreshSucceeded(ILogger logger, string user, string ip);
+
+    [LoggerMessage(EventId = 4005, Level = LogLevel.Warning,
+        Message = "auth: refresh REJECTED reason={Reason} ip={Ip}")]
+    public static partial void RefreshRejected(ILogger logger, string reason, string ip);
+
+    [LoggerMessage(EventId = 4006, Level = LogLevel.Warning,
+        Message = "auth: refresh REUSE-DETECTED — revoking token family user={User} ip={Ip}")]
+    public static partial void RefreshReuseDetected(ILogger logger, string user, string ip);
+
+    [LoggerMessage(EventId = 4007, Level = LogLevel.Information,
+        Message = "auth: logout user={User} ip={Ip}")]
+    public static partial void Logout(ILogger logger, string user, string ip);
+}

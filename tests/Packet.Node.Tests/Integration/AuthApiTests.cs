@@ -182,6 +182,136 @@ public sealed class AuthApiTests : IDisposable
         unknownBody.Should().Be(badPwBody);
     }
 
+    // --- Refresh-token rotation + reuse detection ----------------------------
+
+    [Fact]
+    public async Task Login_returns_a_refresh_token_that_rotates_once_then_the_old_one_401s()
+    {
+        WriteConfig(authEnabled: false);
+        await using var factory = Factory();
+        using var client = factory.CreateClient();
+
+        await BootstrapAdmin(client, "sysop", "hunter2hunter2");
+
+        // Login returns both an access token AND an opaque refresh token.
+        var login = await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { username = "sysop", password = "hunter2hunter2" }, Web);
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await login.Content.ReadFromJsonAsync<JsonElement>(Web);
+        var refreshToken = body.GetProperty("refreshToken").GetString();
+        refreshToken.Should().NotBeNullOrEmpty();
+
+        // Refresh rotates: a new access token + a new (different) refresh token.
+        var refresh = await client.PostAsJsonAsync("/api/v1/auth/refresh",
+            new { refreshToken }, Web);
+        refresh.StatusCode.Should().Be(HttpStatusCode.OK);
+        var refreshBody = await refresh.Content.ReadFromJsonAsync<JsonElement>(Web);
+        refreshBody.GetProperty("token").GetString().Should().NotBeNullOrEmpty();
+        var rotated = refreshBody.GetProperty("refreshToken").GetString();
+        rotated.Should().NotBeNullOrEmpty();
+        rotated.Should().NotBe(refreshToken);
+        refreshBody.GetProperty("scopes").GetString().Should().Be("admin");
+
+        // The ORIGINAL (now-consumed) token is rejected (one-time use → 401).
+        var replay = await client.PostAsJsonAsync("/api/v1/auth/refresh",
+            new { refreshToken }, Web);
+        replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // The reuse burned the family, so the rotated successor is now dead too.
+        var afterReuse = await client.PostAsJsonAsync("/api/v1/auth/refresh",
+            new { refreshToken = rotated }, Web);
+        afterReuse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task An_invalid_or_blank_refresh_token_is_401()
+    {
+        WriteConfig(authEnabled: false);
+        await using var factory = Factory();
+        using var client = factory.CreateClient();
+
+        await BootstrapAdmin(client, "sysop", "hunter2hunter2");
+
+        (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = "garbage" }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = "" }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Logout_revokes_the_token_family()
+    {
+        WriteConfig(authEnabled: false);
+        await using var factory = Factory();
+        using var client = factory.CreateClient();
+
+        await BootstrapAdmin(client, "sysop", "hunter2hunter2");
+        var login = await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { username = "sysop", password = "hunter2hunter2" }, Web);
+        var refreshToken = (await login.Content.ReadFromJsonAsync<JsonElement>(Web))
+            .GetProperty("refreshToken").GetString();
+
+        // Logout is a 204 and revokes the family.
+        var logout = await client.PostAsJsonAsync("/api/v1/auth/logout", new { refreshToken }, Web);
+        logout.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // The token no longer rotates.
+        (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // Logout is idempotent / safe on an unknown token (still 204, nothing leaked).
+        (await client.PostAsJsonAsync("/api/v1/auth/logout", new { refreshToken = "nope" }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    // --- Login hardening: lockout --------------------------------------------
+
+    [Fact]
+    public async Task Repeated_bad_logins_lock_out_with_429()
+    {
+        WriteConfig(authEnabled: false);
+        await using var factory = Factory();
+        using var client = factory.CreateClient();
+
+        await BootstrapAdmin(client, "sysop", "hunter2hunter2");
+
+        // The default threshold is 5 failures within the window. Five bad attempts...
+        for (int i = 0; i < 5; i++)
+        {
+            var fail = await client.PostAsJsonAsync("/api/v1/auth/login",
+                new { username = "sysop", password = "definitely-wrong" }, Web);
+            fail.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+
+        // ...the next attempt is refused with 429 — even with the CORRECT password,
+        // because the username (and source IP) are now locked out.
+        var lockedOut = await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { username = "sysop", password = "hunter2hunter2" }, Web);
+        lockedOut.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    // --- No regression: refresh/logout exist + gated APIs serve tokenless ----
+
+    [Fact]
+    public async Task With_auth_off_refresh_and_logout_endpoints_exist_and_gated_apis_serve_tokenless()
+    {
+        WriteConfig(authEnabled: false);
+        await using var factory = Factory();
+        using var client = factory.CreateClient();
+
+        await BootstrapAdmin(client, "sysop", "hunter2hunter2");
+
+        // The new endpoints are reachable (a bad refresh is a 401, NOT a 404 — proving
+        // they're mapped even with auth off).
+        (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = "x" }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.PostAsJsonAsync("/api/v1/auth/logout", new { refreshToken = "x" }, Web))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // And the gated read API still serves tokenless (the no-regression contract).
+        (await client.GetAsync("/api/v1/status")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     // --- No regression: auth disabled (DEFAULT) ------------------------------
 
     [Fact]

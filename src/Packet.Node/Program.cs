@@ -93,6 +93,26 @@ if (tokenService is not null)
     builder.Services.AddSingleton(tokenService);
 }
 
+// Refresh-token rotation (auth part 2). The store lives in the same pdn.db (by hash
+// only — the opaque token is never persisted in clear); the service wraps it with the
+// one-time-use rotation + reuse-detection (theft-response) logic. Gated on the signing
+// key exactly like JwtTokenService: with no key, login can't issue an access token, so
+// a refresh token would be useless — leave the service unregistered (the handlers'
+// `[FromServices] RefreshTokenService?` resolves to null → 503), node still boots.
+var refreshTokenStore = new SqliteRefreshTokenStore(dbPath, bootstrapLoggers.CreateLogger<SqliteRefreshTokenStore>());
+builder.Services.AddSingleton<IRefreshTokenStore>(refreshTokenStore);
+if (tokenService is not null)
+{
+    var refreshLifetime = TimeSpan.FromMinutes(configProvider.Current.Management.Auth.RefreshTokenMinutes ?? 10080);
+    builder.Services.AddSingleton(new RefreshTokenService(refreshTokenStore, refreshLifetime, TimeProvider.System));
+}
+
+// Login lockout: a sliding-window failure counter keyed per-username AND per-source-IP
+// (5 failures / 5 min → 429, self-healing cooldown). Always registered (it's pure
+// in-memory + the clock); the login handler's `[FromServices] LoginThrottle?` is still
+// optional so an unregistered-service path can never abort startup.
+builder.Services.AddSingleton(new LoginThrottle(TimeProvider.System));
+
 // Authentication: JWT bearer validated against THIS node's signing key/issuer/audience
 // (HS256 only). Always registered so a token presented when auth is on is validated;
 // when the key is unavailable the validator gets a throwaway parameters object that

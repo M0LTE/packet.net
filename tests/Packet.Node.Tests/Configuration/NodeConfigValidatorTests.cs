@@ -108,6 +108,28 @@ public class NodeConfigValidatorTests
     }
 
     [Theory]
+    [InlineData(null, null, true)]    // both default → fine (60 < 10080)
+    [InlineData(60, null, true)]      // access set, refresh default → fine
+    [InlineData(null, 10080, true)]   // refresh set, access default → fine
+    [InlineData(60, 10080, true)]     // refresh > access → fine
+    [InlineData(60, 60, false)]       // refresh == access → reject
+    [InlineData(60, 30, false)]       // refresh < access → reject
+    [InlineData(0, null, false)]      // access must be positive
+    [InlineData(null, 0, false)]      // refresh must be positive
+    public void Auth_token_lifetimes_are_positive_and_refresh_outlives_access(
+        int? accessMinutes, int? refreshMinutes, bool expectValid)
+    {
+        var config = Valid() with
+        {
+            Management = new ManagementConfig
+            {
+                Auth = new AuthConfig { AccessTokenMinutes = accessMinutes, RefreshTokenMinutes = refreshMinutes },
+            },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Theory]
     [InlineData(0, false)]    // baud must be > 0
     [InlineData(1, true)]
     [InlineData(57600, true)]
