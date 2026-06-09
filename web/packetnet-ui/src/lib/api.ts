@@ -81,12 +81,114 @@ export const api = {
     writePort(`/ports/${encodeURIComponent(id)}`, "PUT", JSON.stringify(p)),
   removePort: (id: string) =>
     writePort(`/ports/${encodeURIComponent(id)}`, "DELETE"),
-  // Bring a port up/down (persisted via the config seam) or restart it (deferred —
-  // the server returns 501; live mode surfaces that as PortLifecycleUnavailable so the
-  // screen can disable/toast it rather than crash). Returns the port's PortStatus.
+  // Bring a port up/down/restart (persisted via the config seam for up/down; restart
+  // drives the supervisor's serialized RestartPortAsync). Returns the port's PortStatus.
   portLifecycle: (id: string, action: "up" | "down" | "restart") =>
     portLifecycle(id, action),
+
+  // ---- session actions + ping (Slice-3 step 4) ----
+  // Connect out to a callsign (AX.25 dial) or NET/ROM alias (network route). Returns the
+  // new session's SessionInfo. 400 (bad target) / 404 (no port) / 502 / 504 throw Error.
+  connectSession: (target: string, portId?: string) => connectSession(target, portId),
+  // Disconnect a session by id (portId:peer). Resolves on 204; 404 throws Error.
+  disconnectSession: (id: string) => disconnectSession(id),
+  // Send one text line into a connected-mode session (CR-terminated on the wire).
+  // Resolves on 202; 404 throws Error.
+  sendSessionLine: (id: string, line: string) => sendSessionLine(id, line),
+  // Connectionless TEST ping. Deferred server-side (501) → live mode throws
+  // PingUnavailable so the ping tool surfaces "not available yet" gracefully. Mock mode
+  // synthesises results (handled in the ping component, which doesn't call this).
+  pingTarget: (station: string, portId: string, count?: number) =>
+    pingTarget(station, portId, count),
 };
+
+// The connectionless-ping result shape (docs/node-api.yaml PingResult). Only used once
+// the server implements /ping; today live mode throws PingUnavailable instead.
+export interface PingResult {
+  replies: { seq: number; rttMs: number | null; timeout: boolean }[];
+  minMs: number;
+  avgMs: number;
+  maxMs: number;
+  lossPct: number;
+}
+
+// Ping isn't implemented on the node yet (the server returns 501). The ping tool catches
+// this to keep its graceful "not available yet" surface rather than crash.
+export class PingUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PingUnavailable";
+  }
+}
+
+// Pull a server-supplied { error } message off a non-OK JSON response, or fall back.
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    return body.error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// Connect out. Mock mode synthesises a Connected session so the Sessions screen demos the
+// flow with no node; live mode POSTs /sessions and returns the server's SessionInfo.
+async function connectSession(target: string, portId?: string): Promise<SessionInfo> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 200));
+    return {
+      id: `${portId ?? "vhf"}:${target}`, portId: portId ?? "vhf", peer: target,
+      role: "console", state: "Connected", vs: 0, vr: 0, window: 4,
+      uptimeSeconds: 0, bytesIn: 0, bytesOut: 0, lastActivity: "0:00:00",
+    };
+  }
+  const res = await fetch(`${BASE}/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(portId ? { target, portId } : { target }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Connect failed (${res.status}).`));
+  return (await res.json()) as SessionInfo;
+}
+
+// Disconnect a session by id. Resolves on 204; a 404/other surfaces as Error.
+async function disconnectSession(id: string): Promise<void> {
+  if (MODE === "mock") { await new Promise((r) => setTimeout(r, 120)); return; }
+  const res = await fetch(`${BASE}/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status === 204) return;
+  throw new Error(await errorMessage(res, `Disconnect failed (${res.status}).`));
+}
+
+// Send one line into a session. Resolves on 202; a 404/other surfaces as Error.
+async function sendSessionLine(id: string, line: string): Promise<void> {
+  if (MODE === "mock") { await new Promise((r) => setTimeout(r, 80)); return; }
+  const res = await fetch(`${BASE}/sessions/${encodeURIComponent(id)}/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ line }),
+  });
+  if (res.status === 202) return;
+  throw new Error(await errorMessage(res, `Send failed (${res.status}).`));
+}
+
+// Connectionless TEST ping. Live mode hits /ping; the node currently returns 501 (deferred),
+// which surfaces as PingUnavailable. Mock mode never calls this (the ping component
+// synthesises its own animated results).
+async function pingTarget(station: string, portId: string, count = 5): Promise<PingResult> {
+  if (MODE === "mock") {
+    throw new PingUnavailable("Mock mode — the ping tool synthesises results locally.");
+  }
+  const res = await fetch(`${BASE}/ping`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ station, portId, count }),
+  });
+  if (res.status === 501) {
+    throw new PingUnavailable(await errorMessage(res, "AX.25 ping is not available on this node yet."));
+  }
+  if (!res.ok) throw new Error(await errorMessage(res, `Ping failed (${res.status}).`));
+  return (await res.json()) as PingResult;
+}
 
 // Shared PUT helper for the config write endpoints: returns the ReconcileResult,
 // or throws ConfigRejected on 422 (validation), Error on other failures.
@@ -109,8 +211,10 @@ async function writeConfig(
   return (await res.json()) as ReconcileResult;
 }
 
-// A lifecycle action the node can't perform yet (the deferred `restart` → HTTP 501).
-// The screen catches this to disable/toast the affordance rather than crash.
+// A lifecycle action the node can't perform right now (a `restart` while the node is still
+// booting → HTTP 409, or a disabled port → 409). The screen catches this to toast the
+// affordance rather than crash. (Retained from when `restart` was deferred 501; restart now
+// works, but a 409 — booting / disabled — still surfaces through this graceful path.)
 export class PortLifecycleUnavailable extends Error {
   constructor(public readonly action: string, message: string) {
     super(message);
@@ -140,18 +244,17 @@ async function writePort(path: string, method: string, body?: string): Promise<R
   return (await res.json()) as ReconcileResult;
 }
 
-// Bring a port up/down/restart. up/down apply via the config seam and return the
-// resulting PortStatus; restart is deferred server-side (501) and throws
-// PortLifecycleUnavailable so the caller can surface it gracefully.
+// Bring a port up/down/restart. up/down apply via the config seam; restart drives the
+// supervisor's serialized RestartPortAsync — all three return the resulting PortStatus. A
+// 409 (node still booting, or a disabled port can't be restarted) throws
+// PortLifecycleUnavailable so the caller can surface it gracefully rather than crash.
 async function portLifecycle(
   id: string, action: "up" | "down" | "restart",
 ): Promise<PortStatus> {
   if (MODE === "mock") {
     await new Promise((r) => setTimeout(r, 80));
-    if (action === "restart") {
-      throw new PortLifecycleUnavailable(action, "Port restart is a later step (mock).");
-    }
     const base = mock.PORT_STATUS[id] ?? Object.values(mock.PORT_STATUS)[0];
+    if (action === "restart") return { ...base, id };
     return { ...base, id, enabled: action === "up", state: action === "up" ? "up" : "down" };
   }
   const res = await fetch(`${BASE}/ports/${encodeURIComponent(id)}/lifecycle`, {
@@ -159,8 +262,8 @@ async function portLifecycle(
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ action }),
   });
-  if (res.status === 501) {
-    let message = "This action is not available yet.";
+  if (res.status === 409) {
+    let message = "This action is not available right now.";
     try { message = ((await res.json()) as { error?: string }).error ?? message; } catch { /* keep default */ }
     throw new PortLifecycleUnavailable(action, message);
   }

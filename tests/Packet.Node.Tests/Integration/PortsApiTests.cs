@@ -205,19 +205,53 @@ public sealed class PortsApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Lifecycle_restart_is_deferred_with_a_501_and_a_message()
+    public async Task Lifecycle_restart_on_an_unknown_id_returns_404()
     {
         await using var factory = new NodeAppFactory();
         using var client = factory.CreateClient();
 
-        (await client.PostAsJsonAsync("/api/v1/ports", KissTcpPort("vhf", "127.0.0.1", 8101)))
+        var resp = await client.PostAsJsonAsync("/api/v1/ports/nope/lifecycle", new { action = "restart" });
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Lifecycle_restart_on_a_disabled_port_returns_409()
+    {
+        await using var factory = new NodeAppFactory();
+        using var client = factory.CreateClient();
+
+        // Disabled port (the default in KissTcpPort) — RestartPortAsync returns false for a
+        // disabled port, which the endpoint maps to 409 (bring it up before restarting).
+        (await client.PostAsJsonAsync("/api/v1/ports", KissTcpPort("vhf", "127.0.0.1", 8101, enabled: false)))
             .StatusCode.Should().Be(HttpStatusCode.OK);
 
         var resp = await client.PostAsJsonAsync("/api/v1/ports/vhf/lifecycle", new { action = "restart" });
-        resp.StatusCode.Should().Be(HttpStatusCode.NotImplemented);
+        resp.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-        doc.RootElement.GetProperty("error").GetString().Should().Contain("restart");
+        doc.RootElement.GetProperty("error").GetString().Should().Contain("disabled");
+    }
+
+    [Fact]
+    public async Task Lifecycle_restart_on_an_enabled_port_returns_its_port_status()
+    {
+        await using var factory = new NodeAppFactory();
+        using var client = factory.CreateClient();
+
+        // Enabled but pointed at a dead endpoint — RestartPortAsync still returns true (the
+        // port is configured + enabled; the transient bring-up faults under the WAF, which is
+        // fine: we assert the endpoint applied the restart and returned the port's status,
+        // not a live transport state).
+        (await client.PostAsJsonAsync("/api/v1/ports", KissTcpPort("vhf", "127.0.0.1", 8101, enabled: true)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var resp = await client.PostAsJsonAsync("/api/v1/ports/vhf/lifecycle", new { action = "restart" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var status = await resp.Content.ReadFromJsonAsync<PortStatus>(Web);
+        status.Should().NotBeNull();
+        status!.Id.Should().Be("vhf");
+        status.Enabled.Should().BeTrue();
     }
 
     private static bool ConfiguredEnabled(string configJson, string id)

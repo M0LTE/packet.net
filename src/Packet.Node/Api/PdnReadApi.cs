@@ -154,55 +154,81 @@ public static class PdnReadApi
     {
         var supervisor = host.Supervisor;
         var running = RunningPorts(supervisor);
-        var snapshot = SnapshotOf(host);
         var now = clock.GetUtcNow();
 
         // Callsigns of directly-heard NET/ROM neighbours — a peer in this set on an
         // active session is treated as an interlink (NET/ROM datagrams), else a
         // console user. Best-effort classification (the role isn't tracked on the
         // session itself yet).
-        var neighbours = snapshot.Neighbours
-            .Select(n => n.Neighbour.ToString())
-            .ToHashSet(StringComparer.Ordinal);
+        var neighbours = NeighbourCallsigns(host);
 
         var sessions = new List<SessionInfo>();
         foreach (var port in running)
         {
             foreach (var session in port.Listener.ActiveSessions)
             {
-                var ctx = session.Context;
-                var peer = ctx.Remote.ToString();
-                var role = neighbours.Contains(peer) ? "interlink" : "console";
-
-                // The (port, peer) telemetry link backs the session's byte/uptime/
-                // last-activity fields. The link is keyed on the peer callsign, so a
-                // session with no traffic yet (or whose link snapshot is absent) keeps
-                // the zero/"—" placeholders rather than fabricating numbers.
-                var link = host.Telemetry.Link(port.Id, peer);
-                long bytesIn = link?.BytesIn ?? 0;
-                long bytesOut = link?.BytesOut ?? 0;
-                long uptime = link is { FirstSeen: var seen } && seen != DateTimeOffset.MinValue
-                    ? (long)Math.Max(0, (now - seen).TotalSeconds)
-                    : 0;
-                string lastActivity = link is null ? "—" : RelativeAgo(now, link.LastActivity);
-
-                sessions.Add(new SessionInfo(
-                    Id: $"{port.Id}:{peer}",
-                    PortId: port.Id,
-                    Peer: peer,
-                    Role: role,
-                    State: session.CurrentState,
-                    Vs: ctx.VS,
-                    Vr: ctx.VR,
-                    Window: ctx.K,
-                    UptimeSeconds: uptime,
-                    BytesIn: bytesIn,
-                    BytesOut: bytesOut,
-                    LastActivity: lastActivity));
+                sessions.Add(ProjectSession(host, port.Id, session, neighbours, now));
             }
         }
         return sessions.ToArray();
     }
+
+    /// <summary>
+    /// Project a single live <see cref="Ax25Session"/> on a given port to the
+    /// <see cref="SessionInfo"/> the <c>/sessions</c> family serves — the per-session
+    /// half of <see cref="BuildSessions"/>, factored out so the actions API
+    /// (<c>PdnSessionsApi</c>) projects a freshly-opened session through the exact same
+    /// shape (id convention, role classification, telemetry-backed byte/uptime fields).
+    /// </summary>
+    /// <param name="neighbours">The directly-heard NET/ROM neighbour callsigns — a peer
+    /// in this set is classified <c>interlink</c>, else <c>console</c>. Pass the result of
+    /// <c>host.NetRom?.Snapshot()</c>'s neighbour set, or empty to default everything to
+    /// <c>console</c>.</param>
+    /// <param name="now">The clock's current instant, for the relative uptime / last-activity.</param>
+    internal static SessionInfo ProjectSession(
+        NodeHostedService host, string portId, Packet.Ax25.Session.Ax25Session session,
+        IReadOnlySet<string> neighbours, DateTimeOffset now)
+    {
+        var ctx = session.Context;
+        var peer = ctx.Remote.ToString();
+        var role = neighbours.Contains(peer) ? "interlink" : "console";
+
+        // The (port, peer) telemetry link backs the session's byte/uptime/
+        // last-activity fields. The link is keyed on the peer callsign, so a
+        // session with no traffic yet (or whose link snapshot is absent) keeps
+        // the zero/"—" placeholders rather than fabricating numbers.
+        var link = host.Telemetry.Link(portId, peer);
+        long bytesIn = link?.BytesIn ?? 0;
+        long bytesOut = link?.BytesOut ?? 0;
+        long uptime = link is { FirstSeen: var seen } && seen != DateTimeOffset.MinValue
+            ? (long)Math.Max(0, (now - seen).TotalSeconds)
+            : 0;
+        string lastActivity = link is null ? "—" : RelativeAgo(now, link.LastActivity);
+
+        return new SessionInfo(
+            Id: $"{portId}:{peer}",
+            PortId: portId,
+            Peer: peer,
+            Role: role,
+            State: session.CurrentState,
+            Vs: ctx.VS,
+            Vr: ctx.VR,
+            Window: ctx.K,
+            UptimeSeconds: uptime,
+            BytesIn: bytesIn,
+            BytesOut: bytesOut,
+            LastActivity: lastActivity);
+    }
+
+    /// <summary>
+    /// The directly-heard NET/ROM neighbour callsigns from the live routing snapshot,
+    /// for session role classification (a peer that is a neighbour rides interlink
+    /// datagrams, else it's a console user). Empty when NET/ROM is off or still booting.
+    /// </summary>
+    internal static HashSet<string> NeighbourCallsigns(NodeHostedService host)
+        => SnapshotOf(host).Neighbours
+            .Select(n => n.Neighbour.ToString())
+            .ToHashSet(StringComparer.Ordinal);
 
     private static LinkStats[] BuildLinks(NodeHostedService host)
     {

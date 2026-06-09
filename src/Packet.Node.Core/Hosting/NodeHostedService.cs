@@ -28,6 +28,11 @@ public sealed partial class NodeHostedService : BackgroundService
     private readonly INetRomRoutingStore? routingStore;
     private readonly NodeTelemetry telemetry;
     private readonly SemaphoreSlim reconcileSignal = new(0);
+    // Serialises supervisor mutation: the reconcile worker AND any web-initiated
+    // action (port restart, session connect/disconnect/send) acquire this, so an
+    // action can never race a config reconcile (or another action) touching the
+    // live port set — honouring PortSupervisor's single-threaded-by-contract rule.
+    private readonly SemaphoreSlim supervisorGate = new(1, 1);
     private readonly object swapGate = new();
 
     private PortSupervisor? supervisor;
@@ -167,20 +172,64 @@ public sealed partial class NodeHostedService : BackgroundService
             LogReconciling(summary);
         }
 
-        if (supervisor is not null)
+        // Hold the supervisor gate for the mutation so a concurrent web action
+        // (port restart / session connect-disconnect-send) can't touch the port
+        // set mid-reconcile.
+        await supervisorGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            await supervisor.ApplyAsync(plan, to, ct).ConfigureAwait(false);
-        }
+            if (supervisor is not null)
+            {
+                await supervisor.ApplyAsync(plan, to, ct).ConfigureAwait(false);
+            }
 
-        if (plan.TelnetChanged)
+            if (plan.TelnetChanged)
+            {
+                await RestartTelnetAsync(to.Management.Telnet, ct).ConfigureAwait(false);
+            }
+        }
+        finally
         {
-            await RestartTelnetAsync(to.Management.Telnet, ct).ConfigureAwait(false);
+            supervisorGate.Release();
         }
 
         // Services changes need no action — the console reads ServicesConfig live
         // through the provider; the reference swap is implicit.
 
         lock (swapGate) appliedConfig = to;
+    }
+
+    /// <summary>
+    /// Run a supervisor/session action under the same single-threaded gate the
+    /// reconcile worker uses, so a web-initiated action (port restart, session
+    /// connect/disconnect/send) never races a config reconcile — or another action
+    /// — mutating the live port set. <b>Keep the critical section short:</b> capture
+    /// what you need (a listener reference, a session) and run long-running I/O (a
+    /// connect dial that awaits SABM/UA) <em>outside</em> the delegate, because the
+    /// gate blocks reconciles while it's held. The action runs even before
+    /// <see cref="ExecuteAsync"/> has created the supervisor (it sees a null
+    /// <see cref="Supervisor"/> then and should no-op), so callers null-check.
+    /// </summary>
+    public async Task<T> RunExclusiveAsync<T>(Func<Task<T>> action, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        await supervisorGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            supervisorGate.Release();
+        }
+    }
+
+    /// <summary>Void-returning overload of <see cref="RunExclusiveAsync{T}"/>.</summary>
+    public async Task RunExclusiveAsync(Func<Task> action, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        await RunExclusiveAsync<bool>(async () => { await action().ConfigureAwait(false); return true; }, ct)
+            .ConfigureAwait(false);
     }
 
     private void StartTelnet(TelnetConfig telnetConfig, CancellationToken ct)

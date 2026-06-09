@@ -221,6 +221,29 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     }
 
     /// <summary>
+    /// Transiently restart one configured, enabled port — tear its listener down and
+    /// bring it back up on the same config — <b>without</b> a config change (a config
+    /// edit can't express "restart an unchanged port": the reconcile planner would see
+    /// no diff). Returns <c>false</c> (no-op) if the id is unknown or the port is
+    /// disabled — the caller maps that to a 404/409. Single-threaded by contract, like
+    /// <see cref="ApplyAsync"/>: the caller must serialise this against reconciles (the
+    /// host runs it under its supervisor gate via <c>RunExclusiveAsync</c>).
+    /// </summary>
+    public async Task<bool> RestartPortAsync(string id, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        var current = config.Current;
+        var port = current.Ports.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal));
+        if (port is null || !port.Enabled)
+        {
+            return false;   // nothing to restart — unknown or disabled (use up/down to enable)
+        }
+        await TearDownAsync(id).ConfigureAwait(false);
+        await BringUpAsync(port, current.Identity, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Execute a reconcile plan. Single-threaded by contract — the
     /// <see cref="NodeHostedService"/> serialises calls so two reconciles never
     /// overlap. Touches only the ports the plan names.

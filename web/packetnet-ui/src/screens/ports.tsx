@@ -145,7 +145,9 @@ export function Ports() {
   };
 
   // up/down flip enabled via the lifecycle endpoint (persisted through the config seam);
-  // restart is deferred server-side (501) and surfaces as a warning banner.
+  // restart drives the supervisor's serialized RestartPortAsync. A 409 (booting / disabled)
+  // surfaces as a warning banner via PortLifecycleUnavailable; otherwise reload to show the
+  // applied state.
   const lifecycle = async (id: string, action: "up" | "down" | "restart") => {
     try { await api.portLifecycle(id, action); reloadAll(); }
     catch (e) { showError(e, `Could not ${action} the port.`); }
@@ -238,10 +240,11 @@ export function Ports() {
                 <Button variant="ghost" size="sm" title="Tune this link with a partner" onClick={() => navigate("/tools/tuner?port=" + p.id)}>
                   <Icon name="signal" size={14} /> Tune link
                 </Button>
-                {/* Restart is a deferred backend step (501) — surfaced as a warning
-                    banner via lifecycle(); only offered while the port is up. */}
+                {/* Restart drives the supervisor's serialized RestartPortAsync via
+                    lifecycle(); only offered while the port is up (a 409 surfaces as a
+                    warning banner). */}
                 {up
-                  ? <Button variant="ghost" size="sm" title="Restart port (not available yet)" onClick={() => lifecycle(p.id, "restart")}><Icon name="restart" size={14} /> Restart</Button>
+                  ? <Button variant="ghost" size="sm" title="Restart port (teardown + bring-up)" onClick={() => lifecycle(p.id, "restart")}><Icon name="restart" size={14} /> Restart</Button>
                   : <Button variant="ghost" size="sm" title="Bring up" onClick={() => lifecycle(p.id, "up")}><Icon name="power" size={14} /> Bring up</Button>}
                 {up && (
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Take down" onClick={() => lifecycle(p.id, "down")}>
