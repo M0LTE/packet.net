@@ -128,6 +128,30 @@ paths:
       security: [{ bearerAuth: [operate] }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [line], properties: { line: { type: string } } } } } }
       responses: { "202": { description: queued } }
+  /sessions/{id}/stream:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [sessions]
+      summary: Interactive output stream for an adopted sysop connect-out (Server-Sent Events)
+      description: >
+        One SSE stream (`text/event-stream`) of a managed connect-out's terminal output — what
+        the web console drawer reads to watch a session live. On subscribe the recent backlog
+        (the banner/prompt the browser missed) is replayed first as a single `output` event,
+        then each new output chunk arrives as its own `output` event. Every `output` event's
+        `data:` line is the chunk JSON-encoded as a string (`JsonSerializer.Serialize(chunk)` —
+        e.g. `"GB7RDG:RDG} \r"`); JSON-encoding is required so embedded CR/LF survive SSE's
+        line framing. A periodic `: ping` comment heartbeats the stream. The stream ends when
+        the peer goes away / the session is closed (the manager completes the channel) or when
+        the client disconnects. Only sessions adopted by the sysop console manager (an
+        operator connect-out) are streamable; any other id → 404.
+      security: [{ bearerAuth: [operate] }]
+      responses:
+        "200":
+          description: an output event stream
+          content:
+            text/event-stream:
+              schema: { type: string, description: "SSE frames; each `output` event's data is a JSON-encoded text chunk" }
+        "404": { description: no managed session with this id }
 
   /netrom/routes:
     get:

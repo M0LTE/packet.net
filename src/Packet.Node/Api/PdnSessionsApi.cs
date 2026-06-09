@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Packet.Ax25;
 using Packet.Ax25.Session;
 using Packet.Core;
@@ -64,6 +66,10 @@ public static class PdnSessionsApi
     // (N2+1)·T1V backstop is usually tighter, but this is a hard outer bound.
     private static readonly TimeSpan DialTimeout = TimeSpan.FromSeconds(30);
 
+    // SSE heartbeat cadence for the per-session output stream — a `: ping` comment keeps the
+    // stream warm through buffering proxies between (possibly infrequent) output chunks.
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+
     /// <summary>
     /// Map the session-action + ping endpoints under <c>/api/v1</c>. Called from the node
     /// composition root after the port-management API and before the SPA fallback (the
@@ -78,7 +84,7 @@ public static class PdnSessionsApi
         // Connect out to a callsign (AX.25 dial) or NET/ROM alias (network route). Capture
         // the connector inside the gate; dial OUTSIDE it (bounded by DialTimeout + the
         // request token). Returns the new session's SessionInfo on success.
-        v1.MapPost("/sessions", async (ConnectRequest body, NodeHostedService host, TimeProvider clock, CancellationToken ct) =>
+        v1.MapPost("/sessions", async (ConnectRequest body, NodeHostedService host, SysopConsoleManager console, TimeProvider clock, CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Target))
             {
@@ -151,13 +157,31 @@ public static class PdnSessionsApi
             var info = await host.RunExclusiveAsync(
                 () => Task.FromResult(ProjectConnected(host, connector.PortId, connection, target, clock)), ct)
                 .ConfigureAwait(false);
+
+            // Adopt the connection into the sysop console manager keyed by the SessionInfo's
+            // id (the "{portId}:{peer}" the projection minted) so the stream/send/disconnect
+            // endpoints address it by that exact id. The manager starts a read pump that
+            // captures the peer's output (banner/prompt/responses) into a backlog and fans it
+            // out to SSE subscribers — without this the dialled connection's output would
+            // buffer unread (the v1 "blind connect-out"). The manager owns the connection's
+            // lifetime from here (its CloseAsync / peer-gone path disposes it, posting DISC).
+            console.Open(info.Id, connection);
             return Results.Ok(info);
         });
 
-        // Disconnect a session: find it by {id} (portId:peer), post DL-DISCONNECT under the
-        // gate. Absent → 404, else 204.
-        v1.MapDelete("/sessions/{id}", async (string id, NodeHostedService host, CancellationToken ct) =>
+        // Disconnect a session: find it by {id} (portId:peer). If the manager owns it (an
+        // adopted connect-out), close it through the manager — that stops the read pump,
+        // disposes the connection (posts DISC), and completes any open SSE subscribers. Else
+        // fall back to posting DL-DISCONNECT on a live AX.25 session under the gate. Absent in
+        // both → 404, else 204.
+        v1.MapDelete("/sessions/{id}", async (string id, NodeHostedService host, SysopConsoleManager console, CancellationToken ct) =>
         {
+            if (console.IsManaged(id))
+            {
+                await console.CloseAsync(id).ConfigureAwait(false);
+                return Results.NoContent();
+            }
+
             var found = await host.RunExclusiveAsync(() =>
             {
                 var match = FindSession(host, id);
@@ -169,13 +193,25 @@ public static class PdnSessionsApi
         });
 
         // Send one text line into a connected-mode session. The line is UTF-8 with a
-        // trailing CR (the node's console line discipline — CR, not CRLF). Absent → 404,
-        // else 202 (queued: SendData hands the request to the session's send path).
-        v1.MapPost("/sessions/{id}/send", async (string id, SendRequest body, NodeHostedService host, CancellationToken ct) =>
+        // trailing CR (the node's console line discipline — CR, not CRLF). If the manager
+        // owns the session (an adopted connect-out), type the line into the peer through the
+        // manager's write path; else fall back to the live AX.25 session's SendData under the
+        // gate. Absent in both → 404, else 202 (queued).
+        v1.MapPost("/sessions/{id}/send", async (string id, SendRequest body, NodeHostedService host, SysopConsoleManager console, CancellationToken ct) =>
         {
             if (body is null || body.Line is null)
             {
                 return Results.BadRequest(new { error = "A 'line' is required." });
+            }
+
+            // CR-terminated, UTF-8 — matches the telnet console's CR (not CRLF) relay
+            // discipline onto the AX.25 link.
+            var bytes = Encoding.UTF8.GetBytes(body.Line + "\r");
+
+            if (console.IsManaged(id))
+            {
+                await console.WriteAsync(id, bytes, ct).ConfigureAwait(false);
+                return Results.Accepted();
             }
 
             var sent = await host.RunExclusiveAsync(() =>
@@ -184,14 +220,81 @@ public static class PdnSessionsApi
                 {
                     return Task.FromResult(false);
                 }
-                // CR-terminated, UTF-8 — matches the telnet console's CR (not CRLF) relay
-                // discipline onto the AX.25 link.
-                var bytes = Encoding.UTF8.GetBytes(body.Line + "\r");
                 match.Listener.SendData(match.Session, bytes, Ax25Frame.PidNoLayer3);
                 return Task.FromResult(true);
             }, ct).ConfigureAwait(false);
 
             return sent ? Results.Accepted() : Results.NotFound();
+        });
+
+        // Per-session interactive output stream (Server-Sent Events). The browser's console
+        // drawer opens this to watch an adopted connect-out's output live. The contract is
+        // fixed (the frontend builds to it): each output chunk is one `output` SSE event
+        // whose `data:` is the chunk JSON-encoded as a string — JSON-encoding is REQUIRED so
+        // embedded CR/LF survive SSE's line framing (a raw \n in data: would break the event).
+        // On subscribe we replay the backlog first (one `output` event), then stream live
+        // chunks; a `: ping` heartbeat keeps the stream warm. If the id is not managed → 404
+        // (checked BEFORE writing any bytes, since once the response body has started we can
+        // no longer return a result).
+        v1.MapGet("/sessions/{id}/stream", async (string id, HttpContext ctx, SysopConsoleManager console, TimeProvider clock) =>
+        {
+            var ct = ctx.RequestAborted;
+
+            // Subscribe (and thus 404-check) BEFORE writing any bytes: a null subscription
+            // means the id isn't managed, and we can still set a 404 status here.
+            using var sub = console.Subscribe(id, out var backlog, out var reader);
+            if (sub is null || reader is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            // SSE wire envelope — un-buffered end to end so a chunk reaches the browser the
+            // instant the pump broadcasts it, not on a proxy flush.
+            ctx.Response.Headers.ContentType = "text/event-stream";
+            ctx.Response.Headers.CacheControl = "no-cache";
+            ctx.Response.Headers["X-Accel-Buffering"] = "no";
+            ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+            // Replay the backlog first (the banner/prompt the browser missed) as one `output`
+            // event, then stream live chunks. Even an empty backlog is sent so the client's
+            // onopen-driven render has a deterministic first event and the headers flush.
+            await WriteOutputAsync(ctx, backlog, ct).ConfigureAwait(false);
+
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    // Race a chunk becoming readable against the heartbeat tick (injected
+                    // TimeProvider — repo rule §2.7, no wall-clock), staying responsive to both.
+                    var waitRead = reader.WaitToReadAsync(ct).AsTask();
+                    var heartbeat = Task.Delay(HeartbeatInterval, clock, ct);
+                    var done = await Task.WhenAny(waitRead, heartbeat).ConfigureAwait(false);
+
+                    if (done == heartbeat)
+                    {
+                        await WriteRawAsync(ctx, ": ping\n\n", ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (!await waitRead.ConfigureAwait(false))
+                    {
+                        // The manager completed the channel — the peer went away or the
+                        // session was closed. Nothing more will arrive; end the response.
+                        break;
+                    }
+
+                    while (reader.TryRead(out var chunk))
+                    {
+                        await WriteOutputAsync(ctx, chunk, ct).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The client went away (RequestAborted). Normal SSE teardown — the
+                // using-scoped subscription unsubscribes + completes its channel.
+            }
         });
 
         // Connectionless TEST ping — DEFERRED (501). See the type remarks: it needs a
@@ -296,5 +399,36 @@ public static class PdnSessionsApi
             BytesIn: 0,
             BytesOut: 0,
             LastActivity: "0:00:00");
+    }
+
+    // Emit one `output` SSE event carrying a text chunk. The chunk is JSON-encoded as a
+    // string (JsonSerializer.Serialize) so embedded CR/LF — which a packet banner/prompt is
+    // full of — survive SSE's line framing: a raw \n in a data: line would terminate the
+    // event early. A plain string serializes identically under any options, so the default
+    // serializer is used.
+    private static Task WriteOutputAsync(HttpContext ctx, string chunk, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(chunk);
+        return WriteRawAsync(ctx, $"event: output\ndata: {json}\n\n", ct);
+    }
+
+    // Write a UTF-8 SSE chunk and flush it immediately. A mid-write cancellation or
+    // IOException means the client vanished while we were writing — a normal disconnect, not
+    // a server fault, so it's swallowed rather than bubbling up as a 500.
+    private static async Task WriteRawAsync(HttpContext ctx, string s, CancellationToken ct)
+    {
+        try
+        {
+            await ctx.Response.WriteAsync(s, ct).ConfigureAwait(false);
+            await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected mid-write — expected.
+        }
+        catch (IOException)
+        {
+            // Broken pipe to a vanished client — expected.
+        }
     }
 }
