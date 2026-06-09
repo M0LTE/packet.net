@@ -43,19 +43,22 @@ namespace Packet.Node.Api;
 /// dials on the deterministic default port / best NET/ROM route.
 /// </para>
 /// <para>
-/// <b>Ping is deferred</b> to a clear 501 (see <c>MapPdnSessionsApi</c>): a connectionless
-/// TEST ping needs a public "send a TEST command frame + correlate the TEST response"
-/// path on <see cref="Ax25Listener"/> that does not exist yet (the listener exposes
-/// connected-mode <see cref="Ax25Listener.SendData"/> and UI-frame
-/// <see cref="Ax25Listener.SendUiAsync"/>, but no TEST send, and its modem is private).
-/// Building it would mean widening the AX.25 library, which is out of scope for this
-/// endpoint pass — so the endpoint returns 501 with an explicit "later step" message
-/// rather than half-building it.
+/// <b>Ping (<c>POST /ping</c>).</b> A connectionless AX.25 TEST ping ("axping"): it sends N
+/// TEST command frames to a station and correlates each echo off the listener's
+/// <see cref="Ax25Listener.FrameTraced"/> stream to measure RTT. The correlation core lives
+/// in <see cref="AxPinger"/> (web-free, in <c>Packet.Node.Core</c>), driven here through a
+/// captured <see cref="Ax25Listener"/> wrapped in a <see cref="ListenerAxPingChannel"/>. The
+/// pinger only READS frames + calls the public <see cref="Ax25Listener.SendTestAsync"/>, so —
+/// unlike the connect/disconnect/send actions — it does NOT mutate the live port set and does
+/// NOT run under the host's <c>RunExclusiveAsync</c> gate (the listener reference is captured
+/// once, defensively; if the port is gone mid-run, sends throw and the run records loss). A
+/// peer that doesn't implement TEST simply never answers → all timeouts → loss 100%, which is
+/// a normal result returned as a 200, not an error.
 /// </para>
 /// <para>
 /// Auth is a later step — like the read API, the SSE feed, the config write API, and the
 /// port-management API, these are unauthenticated and the node binds 127.0.0.1 by default.
-/// RTT for the (deferred) ping would come from the injected <see cref="TimeProvider"/> /
+/// Ping RTT + per-ping timeout ride the injected <see cref="TimeProvider"/> /
 /// <c>Stopwatch</c>, never <c>DateTime.Now</c> (repo rule §2.7).
 /// </para>
 /// </remarks>
@@ -69,6 +72,16 @@ public static class PdnSessionsApi
     // SSE heartbeat cadence for the per-session output stream — a `: ping` comment keeps the
     // stream warm through buffering proxies between (possibly infrequent) output chunks.
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+
+    // Per-probe TEST-echo wait for the connectionless ping. ~5s comfortably covers a
+    // round trip over a slow RF / net-sim path; a peer that doesn't answer TEST simply
+    // times out per probe (loss), which is a normal result.
+    private static readonly TimeSpan PerPingTimeout = TimeSpan.FromSeconds(5);
+
+    // Clamp the requested probe count to a safe range so a single ping request can't
+    // tie the link up indefinitely (worst case MaxPingCount × PerPingTimeout sequentially).
+    private const int MinPingCount = 1;
+    private const int MaxPingCount = 20;
 
     /// <summary>
     /// Map the session-action + ping endpoints under <c>/api/v1</c>. Called from the node
@@ -297,17 +310,40 @@ public static class PdnSessionsApi
             }
         });
 
-        // Connectionless TEST ping — DEFERRED (501). See the type remarks: it needs a
-        // public TEST-frame send+correlate path on Ax25Listener that doesn't exist yet, and
-        // building it would widen the AX.25 library (out of scope for this endpoint pass).
-        v1.MapPost("/ping", () => Results.Json(
-            new
+        // Connectionless TEST ping ("axping"): validate the station + port, capture the
+        // port's listener, and run AxPinger over it. The pinger only reads frames + sends
+        // TEST commands, so it runs OUTSIDE the host gate (no port-set mutation); the
+        // listener reference is captured once, defensively. An all-timeout result (a peer
+        // that doesn't answer TEST) is a normal 200 with loss 100%, not an error.
+        v1.MapPost("/ping", async (PingRequest body, NodeHostedService host, TimeProvider clock, CancellationToken ct) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.Station))
             {
-                error = "Connectionless TEST ping is not implemented yet — it is a later step "
-                      + "(needs a TEST command-frame send + response-correlation path on the "
-                      + "AX.25 listener; only connected-mode send + UI-frame send exist today).",
-            },
-            statusCode: StatusCodes.Status501NotImplemented));
+                return Results.BadRequest(new { error = "A 'station' callsign is required." });
+            }
+            if (!Callsign.TryParse(body.Station.Trim(), out var target))
+            {
+                return Results.BadRequest(new { error = $"'{body.Station}' is not a valid callsign." });
+            }
+            if (string.IsNullOrWhiteSpace(body.PortId))
+            {
+                return Results.BadRequest(new { error = "A 'portId' is required." });
+            }
+
+            var listener = host.Supervisor?.GetPort(body.PortId!)?.Listener;
+            if (listener is null)
+            {
+                return Results.NotFound(new { error = $"Port '{body.PortId}' is not running." });
+            }
+
+            // Clamp the probe count to a safe range (default 5; the contract default).
+            int count = Math.Clamp(body.Count, MinPingCount, MaxPingCount);
+
+            var channel = new ListenerAxPingChannel(listener);
+            var result = await AxPinger.RunAsync(channel, target, count, PerPingTimeout, clock, ct)
+                .ConfigureAwait(false);
+            return Results.Ok(result);
+        });
     }
 
     /// <summary>The connect-out request body: a callsign or NET/ROM alias, optionally a port.</summary>
@@ -315,6 +351,10 @@ public static class PdnSessionsApi
 
     /// <summary>The send-line request body: one line of text (CR-terminated on the wire).</summary>
     public sealed record SendRequest(string Line);
+
+    /// <summary>The ping request body: the station to TEST-ping, the port to send on, and the
+    /// probe count (default 5, clamped to <c>1..20</c>).</summary>
+    public sealed record PingRequest(string Station, string PortId, int Count = 5);
 
     /// <summary>A live session matched from a <c>{portId}:{peer}</c> id, with its owning listener.</summary>
     private readonly record struct SessionMatch(string PortId, Ax25Listener Listener, Ax25Session Session);

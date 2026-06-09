@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   NodeStatus, PortStatus, PortConfig, SessionInfo, NetRomRoutingSnapshot, NodeConfig,
   LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
+  PingResult, PingReply,
 } from "./types";
 import * as mock from "./mock";
 
@@ -95,25 +96,20 @@ export const api = {
   // Send one text line into a connected-mode session (CR-terminated on the wire).
   // Resolves on 202; 404 throws Error.
   sendSessionLine: (id: string, line: string) => sendSessionLine(id, line),
-  // Connectionless TEST ping. Deferred server-side (501) → live mode throws
-  // PingUnavailable so the ping tool surfaces "not available yet" gracefully. Mock mode
-  // synthesises results (handled in the ping component, which doesn't call this).
+  // Connectionless TEST ping. Live mode POSTs /ping and returns the node's PingResult.
+  // Mock mode synthesises a believable result so the tool demos with no node. A graceful
+  // PingUnavailable fallback remains for the case a node ever 501s this again.
   pingTarget: (station: string, portId: string, count?: number) =>
     pingTarget(station, portId, count),
 };
 
-// The connectionless-ping result shape (docs/node-api.yaml PingResult). Only used once
-// the server implements /ping; today live mode throws PingUnavailable instead.
-export interface PingResult {
-  replies: { seq: number; rttMs: number | null; timeout: boolean }[];
-  minMs: number;
-  avgMs: number;
-  maxMs: number;
-  lossPct: number;
-}
+// The connectionless-ping result shape lives in ./types (PingResult); re-exported here so
+// callers importing from the API surface keep working.
+export type { PingResult } from "./types";
 
-// Ping isn't implemented on the node yet (the server returns 501). The ping tool catches
-// this to keep its graceful "not available yet" surface rather than crash.
+// A node that hasn't implemented /ping returns 501. The ping tool catches this to surface a
+// graceful "not available yet" message rather than crash. The endpoint is now implemented,
+// but the guard stays so an older/partial node degrades gracefully.
 export class PingUnavailable extends Error {
   constructor(message: string) {
     super(message);
@@ -171,12 +167,14 @@ async function sendSessionLine(id: string, line: string): Promise<void> {
   throw new Error(await errorMessage(res, `Send failed (${res.status}).`));
 }
 
-// Connectionless TEST ping. Live mode hits /ping; the node currently returns 501 (deferred),
-// which surfaces as PingUnavailable. Mock mode never calls this (the ping component
-// synthesises its own animated results).
+// Connectionless TEST ping. Live mode POSTs /ping and returns the node's PingResult; a 501
+// (a node that hasn't implemented TEST ping) still surfaces as PingUnavailable so the tool
+// degrades gracefully. Mock mode synthesises a believable result so the tool demos with no
+// node — a few fast replies plus one timeout, with the summary stats computed off them.
 async function pingTarget(station: string, portId: string, count = 5): Promise<PingResult> {
   if (MODE === "mock") {
-    throw new PingUnavailable("Mock mode — the ping tool synthesises results locally.");
+    await new Promise((r) => setTimeout(r, 250));
+    return mockPing(portId, count);
   }
   const res = await fetch(`${BASE}/ping`, {
     method: "POST",
@@ -188,6 +186,33 @@ async function pingTarget(station: string, portId: string, count = 5): Promise<P
   }
   if (!res.ok) throw new Error(await errorMessage(res, `Ping failed (${res.status}).`));
   return (await res.json()) as PingResult;
+}
+
+// Synthesise a plausible PingResult for mock mode. A fast link-dn (AXUDP) replies cleanly;
+// other ports get a slower RTT and drop one reply mid-run, so the loss/timeout rendering is
+// exercised. Summary stats are computed off the non-timed-out replies (lossPct=100 ⇒ 0/0/0).
+function mockPing(portId: string, count: number): PingResult {
+  const base = portId === "link-dn" ? 42 : portId === "hf-300" ? 2600 : 720;
+  const jitter = portId === "link-dn" ? 14 : portId === "hf-300" ? 900 : 280;
+  // drop a reply mid-run on the slower ports so a timeout shows in the demo
+  const dropAt = portId === "link-dn" ? -1 : Math.min(count, 3);
+  const replies: PingReply[] = [];
+  for (let seq = 1; seq <= count; seq++) {
+    const timeout = seq === dropAt;
+    const rttMs = timeout ? null : Math.max(20, Math.round(base + (Math.random() * 2 - 1) * jitter));
+    replies.push({ seq, rttMs, timeout });
+  }
+  const rtts = replies.filter((r) => r.rttMs != null).map((r) => r.rttMs as number);
+  const lossPct = Math.round(((count - rtts.length) / count) * 100);
+  return rtts.length
+    ? {
+        replies,
+        minMs: Math.min(...rtts),
+        avgMs: Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length),
+        maxMs: Math.max(...rtts),
+        lossPct,
+      }
+    : { replies, minMs: 0, avgMs: 0, maxMs: 0, lossPct: 100 };
 }
 
 // Shared PUT helper for the config write endpoints: returns the ReconcileResult,

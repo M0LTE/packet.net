@@ -122,6 +122,17 @@ export interface LinkStats {
   framesIn: number; framesOut: number;
 }
 
+// ---- connectionless TEST ping (docs/node-api.yaml PingResult) ----
+// One TEST-frame round trip. `timeout` true ⇒ no echo came back; `rttMs` is null
+// in that case. A peer that doesn't implement TEST simply never answers → every
+// reply times out and lossPct is 100 (a normal result to display, not an error).
+export interface PingReply { seq: number; rttMs: number | null; timeout: boolean }
+export interface PingResult {
+  replies: PingReply[];
+  minMs: number; avgMs: number; maxMs: number;
+  lossPct: number;
+}
+
 // ---- 6.3 monitor event (derived from FrameTraced) ----------
 export type FrameType =
   | "UI" | "SABM" | "SABME" | "I" | "RR" | "RNR" | "REJ" | "SREJ"

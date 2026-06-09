@@ -22,7 +22,7 @@ namespace Packet.Node.Tests.Integration;
 /// The actual connect / send / disconnect against a real peer can't be WAF-tested (no
 /// modem): the human live-verifies against GB7RDG. These cover the deterministically
 /// reachable contract — the 4xx/5xx behaviours when there is no live session / no running
-/// port / a bad target — plus the deferred ping's 501 shape and the pure session-id split
+/// port / a bad target — plus ping's no-running-port 404 and the pure session-id split
 /// helper (<see cref="SessionIdSplitTests"/>).
 /// </remarks>
 [Trait("Category", "Node")]
@@ -135,17 +135,17 @@ public sealed class SessionsApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Ping_is_deferred_with_a_501_and_a_message()
+    public async Task Ping_with_no_running_port_returns_404()
     {
         await using var factory = new NodeAppFactory();
         using var client = factory.CreateClient();
 
+        // This fixture configures no ports, so 'vhf' names no running port — ping has no
+        // listener to send the TEST command on. (The pinger's correlation core + validation
+        // matrix are covered by AxPingerTests + PingApiTests.)
         var resp = await client.PostAsJsonAsync("/api/v1/ping",
             new { station = "GB7RDG-1", portId = "vhf", count = 3 });
-        resp.StatusCode.Should().Be(HttpStatusCode.NotImplemented);
-
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-        doc.RootElement.GetProperty("error").GetString().Should().Contain("not implemented");
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

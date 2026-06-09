@@ -6,78 +6,46 @@
 // PingButton is the drop-in trigger imported by Routes (neighbours +
 // destinations) and the Ports header. It opens a self-contained
 // Ax25Ping modal, optionally pre-targeted.
+//
+// Both mock and live mode go through api.pingTarget → a single PingResult.
+// Live mode POSTs /ping; mock mode synthesises a believable result. A node
+// that doesn't implement TEST never answers → every reply times out and
+// lossPct is 100 — that renders as a clear "no response" state, not an error.
 // ============================================================
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button, Modal, Field, Input, Select, Icon, type ButtonVariant, type ButtonSize } from "@/components/ui";
 import { PORTS_LIST } from "@/lib/mock";
-import { api, apiMode, PingUnavailable } from "@/lib/api";
-
-// plausible round-trip baseline per transport (mock; live reads real RTTs)
-function pingBaseline(portId: string): { rtt: number; jitter: number; loss: number } {
-  // link-dn is an AXUDP network link → fast + reliable; serial/HF-ish ports are slow + lossy.
-  if (portId === "link-dn") return { rtt: 42, jitter: 14, loss: 0.02 };
-  if (portId === "hf-300") return { rtt: 2600, jitter: 900, loss: 0.18 }; // HF-ish
-  return { rtt: 720, jitter: 280, loss: 0.06 }; // VHF/UHF
-}
-
-interface PingResult { seq: number; rtt: number | null }
+import { api, PingUnavailable } from "@/lib/api";
+import type { PingResult } from "@/lib/types";
 
 function Ax25Ping({ station, portId, onClose }: { station: string; portId?: string; onClose: () => void }) {
   const [call, setCall] = useState(station ?? "");
   const [via, setVia] = useState(portId ?? PORTS_LIST[0]);
   const [count, setCount] = useState(5);
-  const [results, setResults] = useState<PingResult[]>([]);
+  const [result, setResult] = useState<PingResult | null>(null);
   const [running, setRunning] = useState(false);
-  // In live mode the node currently returns 501 for /ping (deferred); surface that
-  // gracefully ("not available yet") instead of the synthetic animation.
-  const [unavailable, setUnavailable] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+  // A node that hasn't implemented TEST ping returns 501 → PingUnavailable; surface that
+  // message gracefully. A genuine transport error (404 port, etc.) surfaces here too.
+  const [error, setError] = useState<string | null>(null);
 
   const run = async () => {
     if (!call.trim()) return;
-    setResults([]);
-    setUnavailable(null);
-
-    if (apiMode === "live") {
-      // Real node: hit /ping. It is deferred (501) → PingUnavailable surfaces the message;
-      // once the node implements TEST ping this renders the server's replies.
-      setRunning(true);
-      try {
-        const res = await api.pingTarget(call.trim(), via, count);
-        setResults(res.replies.map((r) => ({ seq: r.seq, rtt: r.timeout ? null : r.rttMs })));
-      } catch (e) {
-        if (e instanceof PingUnavailable) setUnavailable(e.message);
-        else setUnavailable(String((e as Error)?.message ?? e));
-      } finally {
-        setRunning(false);
-      }
-      return;
-    }
-
-    // Mock mode: synthesise an animated TEST-ping run so the tool demos with no node.
-    const base = pingBaseline(via);
+    setResult(null);
+    setError(null);
     setRunning(true);
-    let i = 0;
-    if (timer.current) clearInterval(timer.current);
-    timer.current = setInterval(() => {
-      const lost = Math.random() < base.loss;
-      const rtt = lost ? null : Math.max(20, Math.round(base.rtt + (Math.random() * 2 - 1) * base.jitter));
-      setResults((r) => [...r, { seq: i + 1, rtt }]);
-      i++;
-      if (i >= count) {
-        if (timer.current) clearInterval(timer.current);
-        setTimeout(() => setRunning(false), 300);
-      }
-    }, 700);
+    try {
+      setResult(await api.pingTarget(call.trim(), via, count));
+    } catch (e) {
+      if (e instanceof PingUnavailable) setError(e.message);
+      else setError(String((e as Error)?.message ?? e));
+    } finally {
+      setRunning(false);
+    }
   };
 
-  const got = results.filter((r) => r.rtt != null);
-  const rtts = got.map((r) => r.rtt as number);
-  const loss = results.length ? Math.round(((results.length - got.length) / results.length) * 100) : 0;
-  const stat = rtts.length
-    ? { min: Math.min(...rtts), avg: Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length), max: Math.max(...rtts) }
-    : null;
+  // A peer that doesn't implement TEST simply never answers — every reply timed out.
+  // This is a normal result to display ("no response"), not an error.
+  const noResponse = result != null && result.lossPct >= 100;
 
   return (
     <Modal open onClose={onClose} width="max-w-lg" title="AX.25 ping" footer={<>
@@ -98,30 +66,38 @@ function Ax25Ping({ station, portId, onClose }: { station: string; portId?: stri
           <Field label="Count" className="w-20"><Input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(20, +e.target.value)))} className="font-mono" /></Field>
         </div>
 
-        {unavailable && (
+        {error && (
           <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-warning">
             <Icon name="alert" size={13} className="mt-px shrink-0" />
-            <span>{unavailable}</span>
+            <span>{error}</span>
           </div>
         )}
 
-        {results.length > 0 && (
+        {result && (
           <div className="rounded-md border border-border bg-background/60 p-3 font-mono text-xs">
-            {results.map((r) => (
+            {result.replies.map((r) => (
               <div key={r.seq} className="flex items-center gap-3 py-0.5">
                 <span className="w-20 text-muted-foreground">TEST seq={r.seq}</span>
-                {r.rtt != null
-                  ? <span className="text-success">reply · {r.rtt} ms</span>
+                {!r.timeout && r.rttMs != null
+                  ? <span className="text-success">reply · {r.rttMs} ms</span>
                   : <span className="text-danger">no response (timeout)</span>}
               </div>
             ))}
-            {!running && stat && (
-              <div className="mt-2 border-t border-border pt-2 text-muted-foreground">
-                <div>{results.length} sent · {got.length} received · <span className={loss > 0 ? "text-warning" : "text-success"}>{loss}% loss</span></div>
-                <div>rtt min/avg/max = <span className="text-foreground/80">{stat.min}/{stat.avg}/{stat.max} ms</span></div>
-              </div>
-            )}
-            {!running && !stat && <div className="mt-2 border-t border-border pt-2 text-danger">No replies — station unreachable, or TEST unsupported.</div>}
+            <div className="mt-2 border-t border-border pt-2">
+              {noResponse ? (
+                <div className="text-danger">
+                  No response — station unreachable, or TEST unsupported ({result.lossPct}% loss).
+                </div>
+              ) : (
+                <div className="text-muted-foreground">
+                  <div>
+                    {result.replies.length} sent · {result.replies.filter((r) => !r.timeout).length} received ·{" "}
+                    <span className={result.lossPct > 0 ? "text-warning" : "text-success"}>{result.lossPct}% loss</span>
+                  </div>
+                  <div>rtt min/avg/max = <span className="text-foreground/80">{result.minMs}/{result.avgMs}/{result.maxMs} ms</span></div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

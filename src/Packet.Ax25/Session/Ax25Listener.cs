@@ -411,6 +411,30 @@ public sealed class Ax25Listener : IAsyncDisposable
         TraceFrame(frame, FrameDirection.Transmitted);
     }
 
+    /// <summary>
+    /// Send a connectionless AX.25 <b>TEST command</b> frame (§4.3.4.2) to
+    /// <paramref name="destination"/> with the given information field — the
+    /// "axping" probe. A spec-compliant responder echoes the information field back
+    /// in a TEST <em>response</em>; the caller correlates that response (via
+    /// <see cref="FrameTraced"/>) to measure round-trip time. Like
+    /// <see cref="SendUiAsync"/> this bypasses the session layer entirely (no
+    /// connection needed); the source is this listener's <see cref="MyCall"/>, the
+    /// frame is built via the strict <see cref="Ax25Frame.Test"/> factory, and it is
+    /// traced as <see cref="FrameDirection.Transmitted"/>. <paramref name="pollFinal"/>
+    /// defaults to the P bit set (a command soliciting a response). Not every node
+    /// implements TEST — a peer that doesn't simply never responds (the caller sees a
+    /// timeout / loss), which is not an error.
+    /// </summary>
+    public async Task SendTestAsync(
+        Callsign destination, ReadOnlyMemory<byte> info, bool pollFinal = true, CancellationToken ct = default)
+    {
+        EnsureNotDisposed();
+        var frame = Ax25Frame.Test(destination, MyCall, info.Span, isCommand: true, pollFinal: pollFinal);
+        var bytes = frame.ToBytes();
+        await modem.SendFrameAsync(bytes, ct).ConfigureAwait(false);
+        TraceFrame(frame, FrameDirection.Transmitted);
+    }
+
     /// <summary>Stop the inbound pump without disposing.</summary>
     public async ValueTask StopAsync()
     {
