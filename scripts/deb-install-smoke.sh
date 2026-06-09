@@ -51,7 +51,12 @@ dpkg -s packetnet 2>/dev/null | grep -q "^Status: install ok installed" || fail 
 [ -f /lib/systemd/system/packetnet.service ] || fail "systemd unit missing"
 [ -f /etc/packetnet/packetnet.yaml ]         || fail "conffile missing"
 id packetnet >/dev/null 2>&1                 || fail "postinst did not create the packetnet user"
-echo "  ok: installed; binary+unit+conffile present; user created; systemctl correctly skipped"
+# The management API rewrites the conffile in place, so postinst must hand the
+# config dir + file to the service user (the unix-perms half of the config-write
+# fix; ReadWritePaths=/etc/packetnet on the unit is the sandbox half).
+[ "$(stat -c %U /etc/packetnet)" = packetnet ]                || fail "/etc/packetnet not owned by packetnet (config-write would fail)"
+[ "$(stat -c %U /etc/packetnet/packetnet.yaml)" = packetnet ] || fail "conffile not owned by packetnet (config-write would fail)"
+echo "  ok: installed; binary+unit+conffile present; user created (owns its config dir); systemctl correctly skipped"
 
 echo "== 3. binary boots + serves /healthz on a bare base =="
 export DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/pnx HOME=/root

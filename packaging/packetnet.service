@@ -32,7 +32,13 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/packetnet
+# /var/lib/packetnet: the StateDirectory (pdn.db, bundle extract, HOME state).
+# /etc/packetnet: the node rewrites its own YAML conffile through the management
+# API (config-write, port management, first-run /setup) — an atomic write (a
+# .tmp in the same dir, then rename), so the config dir must be writable to the
+# service; ProtectSystem=strict otherwise keeps /etc read-only. postinst chowns
+# /etc/packetnet to the service user so the unix perms permit it too.
+ReadWritePaths=/var/lib/packetnet /etc/packetnet
 ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

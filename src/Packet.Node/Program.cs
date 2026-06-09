@@ -80,8 +80,13 @@ var signingKey = userStore.GetOrCreateSigningKey();
 var accessTokenLifetime = TimeSpan.FromMinutes(configProvider.Current.Management.Auth.AccessTokenMinutes ?? 60);
 JwtTokenService? tokenService =
     signingKey is not null ? new JwtTokenService(signingKey, accessTokenLifetime, TimeProvider.System) : null;
-// Registered only when the signing key is available; the endpoints inject a nullable
-// JwtTokenService? and handle a missing one (login → 503) rather than failing DI.
+// Registered only when the signing key is available. When it is NOT (e.g. pdn.db
+// unwritable), the service stays unregistered and the login handler's
+// `[FromServices] JwtTokenService?` parameter resolves to null → login returns 503,
+// while the node still boots and serves everything else. (The parameter MUST carry
+// [FromServices]: without it, minimal-API inference can't classify an unregistered
+// complex-type parameter and FAILS AT STARTUP — "Failure to infer … tokens | UNKNOWN"
+// — aborting the whole host instead of degrading.)
 if (tokenService is not null)
 {
     builder.Services.AddSingleton(tokenService);

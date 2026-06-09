@@ -73,7 +73,11 @@ public static class PdnAuthApi
 
         // Password login → JWT. Generic 401 on any failure; same timing for
         // unknown-user vs bad-password (see the type remarks).
-        v1.MapPost("/auth/login", (LoginRequest body, IUserStore users, JwtTokenService? tokens, TimeProvider clock) =>
+        // [FromServices] on the nullable token service: when the signing key is
+        // unavailable the service is unregistered, and an explicit optional-service
+        // binding resolves it to null (→ 503 below) instead of failing minimal-API
+        // parameter inference at startup (which would abort the whole host).
+        v1.MapPost("/auth/login", (LoginRequest body, IUserStore users, [Microsoft.AspNetCore.Mvc.FromServices] JwtTokenService? tokens, TimeProvider clock) =>
         {
             if (tokens is null)
             {
