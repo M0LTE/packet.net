@@ -161,7 +161,21 @@ public static class AxPinger
         channel.FrameTraced += OnFrame;
         try
         {
-            // Capture the send timestamp as close to the send as possible.
+            // Arm the per-probe timeout BEFORE sending. The timer (a Task.Delay over the
+            // injected clock) must be REGISTERED before the probe becomes observably
+            // "sent", because under a FakeTimeProvider a test advances the clock once it
+            // sees the send — and an advance that lands before the timer exists is simply
+            // lost (no timer to fire), so the probe would never time out and the run would
+            // hang. Creating the delay first closes that race deterministically; the
+            // sub-microsecond gap before the actual send is immaterial against a
+            // multi-second real timeout (and the RTT clock starts at the send below, so
+            // timing is unaffected). On the send-failure early-return the `using` cancels
+            // this delay (an unawaited cancelled Task.Delay raises nothing).
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var timeout = Task.Delay(perPingTimeout, clock, timeoutCts.Token);
+
+            // Capture the RTT start as close to the send as possible (after the timeout
+            // is armed, before the send).
             long startTs = clock.GetTimestamp();
             try
             {
@@ -174,8 +188,6 @@ public static class AxPinger
                 return new PingReply(seq, RttMs: null, Timeout: true);
             }
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var timeout = Task.Delay(perPingTimeout, clock, timeoutCts.Token);
             var winner = await Task.WhenAny(matched.Task, timeout).ConfigureAwait(false);
 
             if (winner == matched.Task)
