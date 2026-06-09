@@ -180,7 +180,11 @@ export function Ports() {
         </div>
       )}
 
-      {!testDismissed && (
+      {/* NinoTNC test-frame banner HIDDEN for now: it's mock-sourced (no live
+          endpoint yet — see the TODO in NinoTestFlash), so it shows spuriously on
+          a node with no NinoTNC. Re-enable once it's wired to a real nino-tnc-port
+          test-frame event (follow-up: "Fix false NinoTNC test frame received banner"). */}
+      {false && !testDismissed && (
         <NinoTestFlash
           onDismiss={() => setTestDismissed(true)}
           onConfigure={() => {
