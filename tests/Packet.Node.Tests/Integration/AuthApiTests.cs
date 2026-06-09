@@ -122,6 +122,32 @@ public sealed class AuthApiTests : IDisposable
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    // --- Degraded boot (pdn.db unwritable) ------------------------------------
+
+    [Fact]
+    public async Task Node_boots_and_degrades_to_503_when_the_db_is_unwritable()
+    {
+        // pdn.db under a directory that does not exist → SQLite cannot open it, so
+        // BOTH the routing store and the user store degrade (warn + disable). The
+        // host must still BOOT and serve — not abort at startup. Regression guard:
+        // with no signing key the token service is unregistered, and the login
+        // handler's [FromServices] JwtTokenService? must resolve to null (→ 503)
+        // rather than failing minimal-API parameter inference and crashing the host.
+        WriteConfig(authEnabled: false);
+        var unopenableDb = Path.Combine(dir, "no-such-dir", "pdn.db");
+        await using var factory = new NodeAppFactory(configPath, unopenableDb);
+        using var client = factory.CreateClient(); // throws here if the host aborted at startup
+
+        // Booted + serving: liveness and the (auth-off) read API both answer.
+        (await client.GetAsync("/healthz")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync("/api/v1/status")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Auth can't initialise (no key) → login degrades to 503, not a 500/crash.
+        var login = await client.PostAsJsonAsync(
+            "/api/v1/auth/login", new { username = "x", password = "yyyyyyyy" }, Web);
+        login.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
     // --- Login ----------------------------------------------------------------
 
     [Fact]

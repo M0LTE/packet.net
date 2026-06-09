@@ -11,6 +11,19 @@ case "$1" in
               --home /var/lib/packetnet --shell /usr/sbin/nologin packetnet
     fi
     install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet
+    # The management API rewrites the YAML conffile in place (config-write, port
+    # management, first-run /setup) via an atomic write — a .tmp in this dir, then
+    # a rename — so the service user must own the config dir (to create/rename)
+    # and the file (to replace it). The unit's ReadWritePaths=/etc/packetnet lifts
+    # ProtectSystem=strict for this path; this lifts the unix perms to match. Hand
+    # edits as root still work (root ignores perms). chmod the dir 0750 so it's not
+    # world-listable; the file 0640 so the token-free YAML isn't world-readable.
+    chown packetnet:packetnet /etc/packetnet 2>/dev/null || true
+    chmod 0750 /etc/packetnet 2>/dev/null || true
+    if [ -f /etc/packetnet/packetnet.yaml ]; then
+      chown packetnet:packetnet /etc/packetnet/packetnet.yaml 2>/dev/null || true
+      chmod 0640 /etc/packetnet/packetnet.yaml 2>/dev/null || true
+    fi
     ;;
 esac
 
