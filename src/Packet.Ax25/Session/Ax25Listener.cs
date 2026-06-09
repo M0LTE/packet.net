@@ -45,6 +45,11 @@ namespace Packet.Ax25.Session;
 /// </remarks>
 public sealed class Ax25Listener : IAsyncDisposable
 {
+    // U-frame control-octet classification (§4.3.3). The P/F bit (0x10) is masked
+    // out so a TEST with P=1 (a command soliciting a response) and P=0 both match.
+    private const byte UFrameControlMask = 0xEF;   // mask off the P/F bit
+    private const byte TestControl       = 0xE3;   // TEST, P/F-masked (mirrors AxPinger)
+
     private readonly IKissModem modem;
     private readonly Ax25ListenerOptions options;
     private readonly TimeProvider timeProvider;
@@ -515,6 +520,29 @@ public sealed class Ax25Listener : IAsyncDisposable
             return;
         }
 
+        // Connectionless TEST (§4.3.4.2), addressed to us — handle it BEFORE any
+        // session routing. TEST is link-independent: it must never enter the
+        // session machine (where it would fall to the Disconnected t05 catch-all
+        // and provoke a spurious DM, or disturb a live QSO's state).
+        //
+        //  • TEST *command* → we are the responder: reply with a TEST response
+        //    echoing the information field (the "axping" answer).
+        //  • TEST *response* → the echo to our own axping. The AxPinger initiator
+        //    correlates it via FrameTraced, which already fired upstream on the
+        //    pump (before DispatchInbound) — so we simply absorb it here. Routing
+        //    it onward would only emit a connectionless DM (the t05 catch-all),
+        //    which is spec-noise back at a station that just answered our probe.
+        //
+        // Either way we return without touching a session — observation-safe.
+        if ((parsed.Control & UFrameControlMask) == TestControl)
+        {
+            if (parsed.IsCommand)
+            {
+                RespondToTest(parsed);
+            }
+            return;
+        }
+
         var peer = parsed.Source.Callsign;
 
         // Existing session — deliver to the cached state machine and
@@ -591,17 +619,18 @@ public sealed class Ax25Listener : IAsyncDisposable
         //      SDL's figc4.1 t15 branch fires DM. Don't cache.
         //
         //  (b) Any other frame kind (DISC / RR / RNR / REJ / SREJ / I /
-        //      UI / FRMR / XID / TEST) addressed to us with no cached
-        //      session: route through a transient Disconnected session.
-        //      DISC has its own t13 (DM); UI has t11/t12 (UI_Check + DM
-        //      on P=1); UA has t10 (DL_ERROR_indication C/D); everything
-        //      else (RR/RNR/REJ/SREJ/I/FRMR/XID/TEST) falls to t05
+        //      UI / FRMR / XID) addressed to us with no cached session:
+        //      route through a transient Disconnected session. DISC has
+        //      its own t13 (DM); UI has t11/t12 (UI_Check + DM on P=1);
+        //      UA has t10 (DL_ERROR_indication C/D); everything else
+        //      (RR/RNR/REJ/SREJ/I/FRMR/XID) falls to t05
         //      (all_other_commands → DM). We re-post the latter cluster
         //      as AllOtherCommands so t05's chain fires — the classifier
         //      produces specific event types (RrReceived etc.) which are
         //      correct for *cached* sessions in Connected/etc. but have
         //      no transition in Disconnected. The catch-all is named
-        //      `all_other_commands` for exactly this case.
+        //      `all_other_commands` for exactly this case. (TEST never
+        //      reaches here — it is intercepted connectionlessly above.)
         //
         // The transient session uses the listener's current
         // AcceptIncoming for case (a)'s reject behaviour, and always
@@ -625,8 +654,10 @@ public sealed class Ax25Listener : IAsyncDisposable
         // Transient fall-through:
         //   SABM-shape with AcceptIncoming=false → figc4.1 t15 emits DM.
         //   DISC/UI/UA unknown peer            → specific Disconnected transition.
-        //   RR/RNR/REJ/SREJ/I/FRMR/XID/TEST    → reclassify as AllOtherCommands
-        //                                          so t05 fires DM.
+        //   RR/RNR/REJ/SREJ/I/FRMR/XID         → reclassify as AllOtherCommands
+        //                                          so t05 fires DM. (TEST is
+        //                                          intercepted connectionlessly
+        //                                          above and never arrives here.)
         //
         // Build, post, dispose. No cache write, no SessionAccepted
         // event.
@@ -639,11 +670,62 @@ public sealed class Ax25Listener : IAsyncDisposable
     }
 
     /// <summary>
+    /// Answer an inbound connectionless TEST <em>command</em> (§4.3.4.2) with a
+    /// TEST <em>response</em> that echoes the command's information field verbatim.
+    /// The response's F bit mirrors the command's P bit, the source is this
+    /// station's <see cref="MyCall"/>, and it is built via the strict
+    /// <see cref="Ax25Frame.Test"/> factory (the outbound construction path stays
+    /// spec-faithful). The frame is sent on the modem and traced as
+    /// <see cref="FrameDirection.Transmitted"/>, mirroring
+    /// <see cref="SendUiAsync"/> / <see cref="SendTestAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// Connectionless + observation-safe: it never touches a session's state, so a
+    /// TEST exchange cannot create, disturb, or tear down any link. Called from the
+    /// sync inbound pump (<see cref="DispatchInbound"/>); the modem send is async,
+    /// so we materialise the info field (the inbound buffer is reused after the
+    /// pump moves on) and fire-and-forget an awaited send on a tracked Task with a
+    /// try/catch — never block the pump, never leave an unobserved Task. A failed
+    /// send (modem torn down mid-flight) is swallowed: the inbound pump must not
+    /// die because a connectionless courtesy reply couldn't go out.
+    /// </remarks>
+    private void RespondToTest(Ax25Frame command)
+    {
+        // Materialise the echoed info: the pump may recycle the inbound buffer
+        // once DispatchInbound returns, but the send below runs after that.
+        var echo = command.Info.ToArray();
+        var responder = command.Source.Callsign;
+        // F bit of the response mirrors the P bit of the command (§4.3.4.2).
+        bool pollFinal = command.PollFinal;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var frame = Ax25Frame.Test(
+                    destination: responder, source: MyCall, info: echo,
+                    isCommand: false, pollFinal: pollFinal);
+                await modem.SendFrameAsync(frame.ToBytes()).ConfigureAwait(false);
+                // Trace AFTER the send so the monitor's TX order matches the wire
+                // (mirrors SendUiAsync / the per-session SendBytes ordering).
+                TraceFrame(frame, FrameDirection.Transmitted);
+            }
+            catch (Exception)
+            {
+                // Swallowed: a connectionless TEST reply that can't go out (modem
+                // disposed / write failed) must not tear the inbound pump down.
+            }
+        });
+    }
+
+    /// <summary>
     /// Map an inbound classified event to the event the Disconnected
     /// SDL knows how to handle. Specific events handled in Disconnected
     /// (DISC/UI/UA/SABM/SABME) pass through unchanged; everything else
-    /// (RR/RNR/REJ/SREJ/I/FRMR/XID/TEST) becomes <see cref="AllOtherCommands"/>
-    /// so the SDL's t05 catch-all emits DM. See figc4.1 — the catch-all
+    /// (RR/RNR/REJ/SREJ/I/FRMR/XID) becomes <see cref="AllOtherCommands"/>
+    /// so the SDL's t05 catch-all emits DM. (TEST is connectionless and never
+    /// routed into a session — see the intercept in <see cref="DispatchInbound"/>.)
+    /// See figc4.1 — the catch-all
     /// is named "all other commands" precisely for this case (the
     /// figure's per-frame-type column doesn't list RR/I-frame handling
     /// in Disconnected; they fall to the rightmost catch-all column).
