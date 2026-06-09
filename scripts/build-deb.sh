@@ -23,18 +23,31 @@ esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 proj="$root/src/Packet.Node/Packet.Node.csproj"
+ui="$root/web/packetnet-ui"
 pub="$root/artifacts/node/$rid"
 stage="$root/artifacts/deb/$rid"
 out="$root/artifacts/packetnet_${version}_${arch}.deb"
 
-echo "==> publish $rid (self-contained, single-file, R2R, invariant globalization)"
+echo "==> build the web UI (Vite SPA -> $ui/dist)"
+# The node serves this SPA from {ContentRoot}/wwwroot; it's gitignored/built here
+# (not carried by `dotnet publish`), so build it before staging the .deb tree.
+# A fresh CI checkout runs `npm ci` once; a dev box reuses its node_modules;
+# per-arch calls in the publish loop only rebuild dist (cheap).
+( cd "$ui" && { [ -d node_modules ] || npm ci; } && VITE_API_MODE=live npm run build )
+
+# PDN_FAST=1: a faster publish for the dev deploy loop — drops R2R (crossgen2) and
+# single-file bundling, at the cost of a slightly slower cold start (fine for the
+# lab). Releases (publish-node.yml) leave PDN_FAST unset and take the full path.
+publish_flags=( -p:InvariantGlobalization=true -p:DebugType=none -p:DebugSymbols=false )
+if [ "${PDN_FAST:-}" = "1" ]; then
+  echo "==> publish $rid (PDN_FAST: self-contained, no R2R/single-file, invariant globalization)"
+else
+  publish_flags+=( -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishReadyToRun=true )
+  echo "==> publish $rid (self-contained, single-file, R2R, invariant globalization)"
+fi
 dotnet publish "$proj" -c Release -r "$rid" --self-contained true \
   -p:Version="$version" \
-  -p:PublishSingleFile=true \
-  -p:IncludeNativeLibrariesForSelfExtract=true \
-  -p:PublishReadyToRun=true \
-  -p:InvariantGlobalization=true \
-  -p:DebugType=none -p:DebugSymbols=false \
+  "${publish_flags[@]}" \
   -v minimal -o "$pub"
 
 echo "==> stage .deb tree for $arch"
@@ -42,6 +55,9 @@ rm -rf "$stage"
 install -d "$stage/opt/packetnet/app" "$stage/lib/systemd/system" \
            "$stage/etc/packetnet" "$stage/DEBIAN"
 cp -a "$pub/." "$stage/opt/packetnet/app/"
+# The SPA: served from {ContentRoot=/opt/packetnet/app}/wwwroot.
+install -d "$stage/opt/packetnet/app/wwwroot"
+cp -a "$ui/dist/." "$stage/opt/packetnet/app/wwwroot/"
 cp "$root/packaging/packetnet.service" "$stage/lib/systemd/system/packetnet.service"
 cp "$root/packaging/packetnet.yaml"    "$stage/etc/packetnet/packetnet.yaml"
 sed -e "s/@ARCH@/$arch/" -e "s/@VERSION@/$version/" \
@@ -59,6 +75,8 @@ echo "==> built $out"
 dpkg-deb --info "$out"
 echo "--- contents (top) ---"
 dpkg-deb --contents "$out" | awk '{print $1, $6}' | head -30
+echo "--- wwwroot (the served SPA) ---"
+dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/opt/packetnet/app/wwwroot/' | head -10
 if command -v lintian >/dev/null 2>&1; then
   lintian "$out" || true
 else

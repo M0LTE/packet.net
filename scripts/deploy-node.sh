@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 #
-# deploy-node.sh — build the Packet.NET node host and push it to the live box.
+# deploy-node.sh — build a real .deb and install it on the live box.
 #
 # The tight build -> deploy -> show loop for the node host (src/Packet.Node),
-# bypassing CI/GHA: publish a self-contained linux-x64 binary, rsync it to the
-# deploy box, restart the systemd service, then print a liveness summary
-# (service state, /healthz, recent logs) so you can see it came up.
+# bypassing CI/GHA but using the SAME packaging as the release: build a .deb with
+# scripts/build-deb.sh (PDN_FAST=1 — skips R2R/single-file for a fast publish; the
+# .deb includes the built web UI under app/wwwroot), scp it to the box, `dpkg -i`
+# it (keeping the lab's edited /etc/packetnet/packetnet.yaml conffile), restart the
+# systemd service, then print a liveness summary (service state, /healthz, recent
+# logs) so you can see it came up. Shipping the real .deb means the dev loop and
+# the release install the identical artifact shape — no hand-staged wwwroot.
 #
 # Default target is root@packetdotnet (Ubuntu/systemd LXC on the LAN, no .NET
 # runtime installed -> self-contained). Layout there: /opt/packetnet/app holds
-# the binaries (root-owned, read-only to the service); /opt/packetnet holds the
-# config (packetnet.yaml) + data, owned by the unprivileged `packetnet` user.
+# the binaries + wwwroot (root-owned, read-only to the service); /opt/packetnet
+# holds the data, /etc/packetnet the config conffile, owned/edited on the box.
 
 set -euo pipefail
 
@@ -21,30 +25,37 @@ SERVICE="${PACKETNET_SERVICE:-packetnet}"
 REMOTE_APP="${PACKETNET_REMOTE_APP:-/opt/packetnet/app}"
 HTTP_PORT="${PACKETNET_HTTP_PORT:-8080}"
 RID="linux-x64"
+ARCH="amd64"
+# A dev version that's distinct per build and sorts ABOVE the last release (the
+# +dev<timestamp> build-metadata segment makes `dpkg --compare-versions` rank it
+# above plain 0.1.0 while staying obviously non-release).
+VERSION="${PACKETNET_DEB_VERSION:-0.1.0+dev$(date +%Y%m%d%H%M%S)}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT="$REPO_ROOT/src/Packet.Node/Packet.Node.csproj"
-ARTIFACT="$REPO_ROOT/artifacts/node-$RID"
 
 usage() {
   cat <<'EOF'
-deploy-node.sh — build the node host and push it to the live box.
+deploy-node.sh — build a real .deb and install it on the live box.
 
-Publishes a self-contained linux-x64 binary, rsyncs it to the deploy box,
-restarts the systemd service, and prints a liveness summary. The tight
-build->deploy->show dev loop for src/Packet.Node, no CI wait.
+Builds a .deb with scripts/build-deb.sh (PDN_FAST=1; the .deb includes the web
+UI), scp's it to the deploy box, dpkg-installs it (keeping the box's edited
+config conffile), restarts the systemd service, and prints a liveness summary.
+The tight build->deploy->show dev loop for src/Packet.Node, no CI wait — and the
+same artifact shape GHA ships.
 
 Usage: scripts/deploy-node.sh [--skip-build] [--logs] [-h|--help]
 
-  --skip-build   Deploy the existing artifact without rebuilding.
+  --skip-build   Deploy the most recent existing artifacts/packetnet_*_amd64.deb
+                 without rebuilding.
   --logs         Follow the service log after deploying (Ctrl-C to stop).
 
 Env overrides:
-  PACKETNET_HOST        (default root@packetdotnet)
-  PACKETNET_SSH_KEY     (default ~/.ssh/id_ed25519)
-  PACKETNET_SERVICE     (default packetnet)
-  PACKETNET_REMOTE_APP  (default /opt/packetnet/app)
-  PACKETNET_HTTP_PORT   (default 8080)
+  PACKETNET_HOST         (default root@packetdotnet)
+  PACKETNET_SSH_KEY      (default ~/.ssh/id_ed25519)
+  PACKETNET_SERVICE      (default packetnet)
+  PACKETNET_REMOTE_APP   (default /opt/packetnet/app)
+  PACKETNET_HTTP_PORT    (default 8080)
+  PACKETNET_DEB_VERSION  (default 0.1.0+dev<UTCstamp>)
 EOF
 }
 
@@ -60,26 +71,46 @@ for arg in "$@"; do
 done
 
 SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes)
+SCP=(scp -i "$SSH_KEY" -o BatchMode=yes)
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
-# --- 1. Build ---------------------------------------------------------------
+# --- 1. Build the .deb ------------------------------------------------------
+# PDN_FAST=1: a fast publish (no R2R/single-file) — the dev-loop tradeoff. The
+# .deb carries the built web UI under app/wwwroot.
 if [[ "$SKIP_BUILD" -eq 1 ]]; then
-  say "Skipping build; deploying existing $ARTIFACT"
-  [[ -x "$ARTIFACT/packetnet" ]] || { echo "no artifact at $ARTIFACT — build first (run without --skip-build)" >&2; exit 1; }
+  DEB="$(ls -t "$REPO_ROOT"/artifacts/packetnet_*_"$ARCH".deb 2>/dev/null | head -n1)"
+  [[ -n "$DEB" && -f "$DEB" ]] || { echo "no artifacts/packetnet_*_${ARCH}.deb — build first (run without --skip-build)" >&2; exit 1; }
+  say "Skipping build; deploying most recent .deb: $DEB"
 else
-  say "Publishing $RID self-contained"
-  dotnet publish "$PROJECT" -c Release -r "$RID" --self-contained true -v minimal -o "$ARTIFACT"
+  say "Building .deb $VERSION ($RID, PDN_FAST)"
+  PDN_FAST=1 "$REPO_ROOT/scripts/build-deb.sh" "$RID" "$VERSION"
+  DEB="$REPO_ROOT/artifacts/packetnet_${VERSION}_${ARCH}.deb"
+  [[ -f "$DEB" ]] || { echo "expected $DEB but it wasn't produced" >&2; exit 1; }
 fi
+DEB_BASE="$(basename "$DEB")"
 
-# --- 2. Sync ----------------------------------------------------------------
-# --no-o/--no-g: don't carry the local uid/gid onto the box, so app/ stays
-# root-owned and stable across redeploys. Config/data live outside app/ and are
-# left untouched by --delete.
-say "Syncing to $HOST:$REMOTE_APP"
-rsync -az --delete --no-o --no-g -e "ssh -i $SSH_KEY -o BatchMode=yes" \
-  "$ARTIFACT/" "$HOST:$REMOTE_APP/"
+# --- 2. Ship + install ------------------------------------------------------
+# scp to /tmp, then dpkg -i (reinstalls regardless of version; --force-confold
+# keeps the box's edited /etc/packetnet/packetnet.yaml conffile). Fall back to
+# apt -f install only if dpkg reports unmet deps (the box already has
+# adduser+libc6, so this should be clean). Then remove the staged .deb.
+say "Shipping $DEB_BASE to $HOST:/tmp"
+"${SCP[@]}" "$DEB" "$HOST:/tmp/$DEB_BASE"
+
+say "Installing on $HOST (dpkg -i --force-confold)"
+"${SSH[@]}" "$HOST" bash -s "$DEB_BASE" <<'REMOTE'
+set -e
+deb="$1"
+if ! dpkg -i --force-confold "/tmp/$deb"; then
+  echo "dpkg reported unmet deps — running apt-get -f install"
+  apt-get -y -f install
+fi
+rm -f "/tmp/$deb"
+REMOTE
 
 # --- 3. Restart -------------------------------------------------------------
+# The .deb postinst try-restarts on upgrade, but be explicit: a fresh install or
+# a stopped unit wouldn't be (re)started by the loaded new binary otherwise.
 say "Restarting $SERVICE"
 "${SSH[@]}" "$HOST" "systemctl restart $SERVICE"
 

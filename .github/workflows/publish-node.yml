@@ -41,6 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # build-deb.sh builds the web UI (npm ci + vite build) before publishing.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - id: v
         name: Resolve version
         run: |
