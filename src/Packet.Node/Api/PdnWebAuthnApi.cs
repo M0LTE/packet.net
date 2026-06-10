@@ -48,10 +48,11 @@ namespace Packet.Node.Api;
 /// <para>
 /// <b>Default-off contract.</b> These endpoints are ALWAYS mapped, but a node only
 /// becomes usable via passkeys when <c>management.auth.enabled</c> is on AND a user has
-/// enrolled one. The begin/complete-register endpoints are <c>operate</c>-gated (a
-/// logged-in user enrols a passkey for THEMSELVES — the username comes from the
-/// authenticated principal, never the body); the assert endpoints are always open (a
-/// passwordless login can't carry a bearer token); the credential list/delete are gated.
+/// enrolled one. The register + credential-management endpoints are <c>read</c>-gated —
+/// the floor for an authenticated self-service action: a logged-in user enrols/manages a
+/// passkey for THEMSELVES (the username comes from the authenticated principal, never the
+/// body), so any authenticated user may add a passkey to their own account. The assert
+/// endpoints are always open (a passwordless login can't carry a bearer token).
 /// </para>
 /// </remarks>
 public static class PdnWebAuthnApi
@@ -62,7 +63,8 @@ public static class PdnWebAuthnApi
     /// can apply the conditional auth gate the same way every other gated group is wired.
     /// </summary>
     /// <returns>The gated <c>/auth/webauthn</c> route group (register + credentials),
-    /// for the caller to require <c>operate</c>.</returns>
+    /// for the caller to require <c>read</c> (the floor for an authenticated user
+    /// managing their own login credential).</returns>
     public static RouteGroupBuilder MapPdnWebAuthnApi(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);

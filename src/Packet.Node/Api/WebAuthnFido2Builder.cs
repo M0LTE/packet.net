@@ -43,6 +43,30 @@ public static class WebAuthnFido2Builder
         ArgumentNullException.ThrowIfNull(cfg);
         ArgumentNullException.ThrowIfNull(request);
 
+        var config = new Fido2Configuration
+        {
+            ServerDomain = cfg.RelyingPartyId,
+            ServerName = cfg.RelyingPartyName,
+            Origins = AcceptedOrigins(cfg, request),
+        };
+        return new Fido2(config, metadataService: null);
+    }
+
+    /// <summary>
+    /// Compute the exact set of origins the verifier will accept for THIS request — the
+    /// load-bearing tier split. <b>When the operator has pinned
+    /// <see cref="WebAuthnConfig.AllowedOrigins"/> (the real-domain / §2a path) we trust
+    /// ONLY those</b>: the request's own origin is deliberately NOT added, so a request
+    /// arriving with a spoofed <c>Host</c> header can never widen the accepted set past
+    /// what the operator configured. When the list is empty (the zero-config localhost
+    /// default) we accept the request's actual serving origin plus the loopback origins,
+    /// so a same-machine node works over <c>http://localhost</c> with no setup.
+    /// </summary>
+    public static IReadOnlySet<string> AcceptedOrigins(WebAuthnConfig cfg, HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(cfg);
+        ArgumentNullException.ThrowIfNull(request);
+
         var origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (cfg.AllowedOrigins.Count > 0)
         {
@@ -66,14 +90,7 @@ public static class WebAuthnFido2Builder
             origins.Add($"http://localhost:{request.Host.Port ?? 80}");
             origins.Add("http://localhost");
         }
-
-        var config = new Fido2Configuration
-        {
-            ServerDomain = cfg.RelyingPartyId,
-            ServerName = cfg.RelyingPartyName,
-            Origins = origins,
-        };
-        return new Fido2(config, metadataService: null);
+        return origins;
     }
 
     /// <summary>The serving origin (scheme://host[:port]) the browser used for this
