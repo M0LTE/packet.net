@@ -260,6 +260,10 @@ preset doesn't care about APRS status text encoding).
 by Xrouter yet. Seed it as a copy of `Strict` and let it grow as we
 discover specific quirks during interop testing.
 
+## Node surface: per-port `compat:` (#366, 2026-06-10)
+
+The AX.25-layer flags and presets above are **operator-reachable at the node** via a per-port `compat:` block in the node config (and a preset dropdown in the web UI's port editor): `compat.preset` names one of `strict | lenient | bpq | xrouter | direwolf`, the three AX.25 flags (`allowEmptyCallsignBase`, `allowInfoOnSupervisoryFrames`, `allowCommandFrameAsResponse`) can be overridden individually on top of the preset (explicit wins), and `compat.quirks` selects the `Ax25SessionQuirks` set (`default | strictly-faithful`) for sessions on that port. Absent `compat:` = `Lenient` + `Default` — the node's historical behaviour. The mapping authority is `Packet.Node.Core.Configuration.Ax25CompatPresets`; resolution is per-port so an operator matches each port to its neighbour (a BPQ-facing port runs `bpq`, a clean v2.2 link can run `strict`). A frame the resolved options reject is dropped before the monitor trace and session dispatch — a strict port is deaf to it end-to-end. Changes apply live (no port restart): parse options from the next inbound frame, quirks for newly-built sessions.
+
 ## What's not in scope of this audit
 
 - The session machine (`Packet.Ax25.Session`) — strictness questions

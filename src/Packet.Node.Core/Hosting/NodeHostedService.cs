@@ -343,6 +343,7 @@ public sealed partial class NodeHostedService : BackgroundService
         if (p.ToRestart.Count > 0) parts.Add($"{p.ToRestart.Count} restart");
         if (p.KissParamsChanged.Count > 0) parts.Add($"{p.KissParamsChanged.Count} kiss-live");
         if (p.Ax25ParamsChanged.Count > 0) parts.Add($"{p.Ax25ParamsChanged.Count} ax25-live");
+        if (p.CompatChanged.Count > 0) parts.Add($"{p.CompatChanged.Count} compat-live");
         if (p.TelnetChanged) parts.Add("telnet restart");
         if (p.ServicesChanged) parts.Add("services swap");
         return parts.Count == 0 ? "(no-op)" : string.Join(", ", parts);

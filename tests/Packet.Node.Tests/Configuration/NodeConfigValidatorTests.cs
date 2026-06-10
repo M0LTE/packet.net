@@ -267,6 +267,44 @@ public class NodeConfigValidatorTests
         Validator.Validate(config).IsValid.Should().Be(expectValid);
     }
 
+    [Theory]
+    [InlineData(null, true)]         // no preset = lenient = valid
+    [InlineData("", true)]          // blank = lenient = valid
+    [InlineData("strict", true)]
+    [InlineData("lenient", true)]
+    [InlineData("bpq", true)]
+    [InlineData("xrouter", true)]
+    [InlineData("direwolf", true)]
+    [InlineData("Direwolf", true)]  // case-insensitive
+    [InlineData("kenwood", false)]  // unknown preset = config error, not a silent default
+    public void Compat_preset_must_be_a_known_name_or_absent(string? preset, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+            Compat = new PortCompatConfig { Preset = preset },
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Theory]
+    [InlineData(null, true)]                 // no selector = default quirks = valid
+    [InlineData("default", true)]
+    [InlineData("strictly-faithful", true)]
+    [InlineData("StrictlyFaithful", true)]   // case- + separator-insensitive
+    [InlineData("faithful", false)]          // unknown selector = config error
+    public void Compat_quirks_must_be_a_known_selector_or_absent(string? quirks, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+            Compat = new PortCompatConfig { Quirks = quirks },
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
     [Fact]
     public void Rejects_out_of_range_ax25_window()
     {

@@ -241,6 +241,42 @@ public sealed class ReconfigDeltaIntegrationTests
     }
 
     [Fact]
+    public async Task Compat_change_reseeds_live_without_restarting_the_port()
+    {
+        // A compat-only change is HOT (#366): the listener keeps its identity and
+        // its live parameter record now carries the resolved parse options +
+        // session quirks. (The behavioural halves — parse options gating the very
+        // next inbound frame, quirks seeding the next-built session — are pinned
+        // at the listener layer in Ax25ListenerCompatTests.)
+        var bus = new SharedRadioBus();
+        var before = Config(Port("a", 1));
+        var config = new TestConfigProvider(before);
+        var factory = new FakeTransportFactory().Provide(Endpoint(1), bus.Attach());
+
+        await using var supervisor = new PortSupervisor(config, factory, TimeProvider.System, NullLoggerFactory.Instance);
+        await supervisor.StartAsync();
+        await Wait.ForAsync(() => supervisor.RunningPortIds.Contains("a"), "port up");
+
+        var listenerBefore = supervisor.GetPort("a")!.Listener;
+        listenerBefore.CurrentSessionParameters.ParseOptions.Should().Be(Ax25ParseOptions.Lenient,
+            "no compat block = the historical lenient default");
+        listenerBefore.CurrentSessionParameters.Quirks.Should().BeSameAs(Ax25SessionQuirks.Default);
+
+        var after = Config(Port("a", 1) with
+        {
+            Compat = new PortCompatConfig { Preset = "strict", Quirks = "strictly-faithful" },
+        });
+        config.Apply(after);
+        await supervisor.ApplyAsync(ReconcilePlanner.Plan(before, after), after);
+
+        supervisor.GetPort("a")!.Listener.Should().BeSameAs(listenerBefore,
+            "a compat reseed must not restart the port");
+        listenerBefore.CurrentSessionParameters.ParseOptions.Should().Be(Ax25ParseOptions.Strict,
+            "the reseed resolved and applied the new preset");
+        listenerBefore.CurrentSessionParameters.Quirks.Should().BeSameAs(Ax25SessionQuirks.StrictlyFaithful);
+    }
+
+    [Fact]
     public async Task Idempotent_reapply_of_the_same_config_is_a_noop()
     {
         var bus = new SharedRadioBus();

@@ -308,6 +308,18 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         {
             ApplyAx25Params(port);
         }
+
+        // Compat-profile changes ride the same reseed (the rebuilt parameter
+        // record carries the parse options + session quirks); split out only so
+        // the log says what actually changed. A port the params loop already
+        // reseeded carries the new compat too — skip it.
+        foreach (var port in plan.CompatChanged)
+        {
+            if (!plan.Ax25ParamsChanged.Contains(port))
+            {
+                ApplyCompat(port);
+            }
+        }
     }
 
     private async Task BringUpAsync(PortConfig port, Identity identity, CancellationToken ct)
@@ -356,7 +368,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
                 timeProvider);
         }
 
-        var options = BuildListenerOptions(effectiveAx25, myCall);
+        var options = BuildListenerOptions(effectiveAx25, port.Compat, myCall);
         var listener = new Ax25Listener(modem, options, timeProvider);
         var connector = new Ax25OutboundConnector(port.Id, listener, r => ClaimOutbound(r));
         listener.SessionAccepted += (_, e) => OnSessionAccepted(listener, connector, e.Session);
@@ -474,9 +486,28 @@ public sealed partial class PortSupervisor : IAsyncDisposable
 
         // Live-reseed: new sessions on this listener pick up the new AX.25 params;
         // existing sessions keep their identity and their in-flight state.
-        running.Listener.UpdateSessionParameters(MapAx25Params(effectiveAx25));
+        running.Listener.UpdateSessionParameters(MapAx25Params(effectiveAx25, port.Compat));
         RebaselineConfig(port);
         LogAx25ParamsApplied(port.Id);
+    }
+
+    private void ApplyCompat(PortConfig port)
+    {
+        RunningPort? running;
+        lock (ports)
+        {
+            ports.TryGetValue(port.Id, out running);
+        }
+        if (running is null) return;   // not up (e.g. faulted) — the next bring-up reads the new config
+
+        var (effectiveAx25, _) = ChannelProfiles.Resolve(port);
+
+        // Same live reseed as ApplyAx25Params — the parameter record carries the
+        // compat values. Parse options apply from the next inbound frame; quirks
+        // seed sessions built from now on. Existing sessions untouched.
+        running.Listener.UpdateSessionParameters(MapAx25Params(effectiveAx25, port.Compat));
+        RebaselineConfig(port);
+        LogCompatApplied(port.Id);
     }
 
     private static async Task ApplyKissParamsToModemAsync(IKissModem modem, KissParams? kiss, CancellationToken ct)
@@ -509,9 +540,9 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         }
     }
 
-    private static Ax25ListenerOptions BuildListenerOptions(Ax25PortParams? ax25, Callsign myCall)
+    private static Ax25ListenerOptions BuildListenerOptions(Ax25PortParams? ax25, PortCompatConfig? compat, Callsign myCall)
     {
-        var p = MapAx25Params(ax25);
+        var p = MapAx25Params(ax25, compat);
         return new Ax25ListenerOptions
         {
             MyCall = myCall,
@@ -521,14 +552,16 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             N2 = p.N2,
             K = p.K,
             MaxCachedPeers = p.MaxCachedPeers,
+            ParseOptions = p.ParseOptions,
+            Quirks = p.Quirks,
         };
     }
 
-    // Map the config's AX.25 knobs to the engine's live-reseedable parameter
-    // record. The single definition both BringUp (construction-time seed) and the
-    // hot AX.25-params reconcile (UpdateSessionParameters) share, so the two paths
-    // can never drift.
-    private static Ax25SessionParameters MapAx25Params(Ax25PortParams? ax25) => new()
+    // Map the config's AX.25 knobs (+ the compat profile) to the engine's
+    // live-reseedable parameter record. The single definition both BringUp
+    // (construction-time seed) and the hot reconcile paths (UpdateSessionParameters)
+    // share, so the paths can never drift.
+    private static Ax25SessionParameters MapAx25Params(Ax25PortParams? ax25, PortCompatConfig? compat) => new()
     {
         T1V = ax25?.T1Ms is { } t1 ? TimeSpan.FromMilliseconds(t1) : null,
         T2 = ax25?.T2Ms is { } t2 ? TimeSpan.FromMilliseconds(t2) : null,
@@ -536,6 +569,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         N2 = ax25?.N2,
         K = ax25?.WindowSize,
         MaxCachedPeers = ax25?.MaxCachedPeers ?? 64,
+        ParseOptions = Ax25CompatPresets.ResolveParseOptions(compat),
+        Quirks = Ax25CompatPresets.ResolveQuirks(compat),
     };
 
     private void OnSessionAccepted(Ax25Listener listener, Ax25OutboundConnector connector, Ax25Session session)
@@ -627,6 +662,9 @@ public sealed partial class PortSupervisor : IAsyncDisposable
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Port {Id}: AX.25 parameters reseeded live; new sessions use them (existing sessions untouched).")]
     private partial void LogAx25ParamsApplied(string id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Port {Id}: AX.25 compatibility profile applied live — inbound parsing from the next frame, session quirks for new sessions (existing sessions untouched).")]
+    private partial void LogCompatApplied(string id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Console session for {PeerId} faulted.")]
     private partial void LogConsoleFaulted(Exception ex, string peerId);

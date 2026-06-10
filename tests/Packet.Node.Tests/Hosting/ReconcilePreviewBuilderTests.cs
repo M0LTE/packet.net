@@ -76,6 +76,23 @@ public class ReconcilePreviewBuilderTests
     }
 
     [Fact]
+    public void A_compat_profile_change_is_a_live_change()
+    {
+        var baseline = Base() with { Ports = [Tcp("vhf")] };
+        var to = baseline with
+        {
+            Ports = [Tcp("vhf") with { Compat = new PortCompatConfig { Preset = "strict" } }],
+        };
+
+        var preview = ReconcilePreviewBuilder.Build(baseline, to);
+
+        preview.Live.Should().ContainSingle()
+            .Which.Path.Should().Be("ports.vhf.compat");
+        preview.PortRestart.Should().BeEmpty();
+        preview.NodeReset.Should().BeEmpty();
+    }
+
+    [Fact]
     public void An_identical_config_yields_no_changes()
     {
         var c = Base();

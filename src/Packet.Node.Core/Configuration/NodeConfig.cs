@@ -114,6 +114,17 @@ public sealed record PortConfig
     public KissParams? Kiss { get; init; }
 
     /// <summary>
+    /// Optional AX.25 compatibility profile for this port: which wire frames it
+    /// accepts (an <c>Ax25ParseOptions</c> preset — <c>strict</c> / <c>lenient</c> /
+    /// <c>bpq</c> / <c>xrouter</c> / <c>direwolf</c> — plus per-flag overrides) and
+    /// which SDL session quirks new sessions run with. Null = lenient parsing +
+    /// default (spec-correct) quirks, the node's historical behaviour. Applied
+    /// live on edit: parsing changes take effect on the next inbound frame, quirks
+    /// on the next-built session. See <see cref="PortCompatConfig"/>.
+    /// </summary>
+    public PortCompatConfig? Compat { get; init; }
+
+    /// <summary>
     /// Optional per-port ID-beacon override. Null = inherit the system default
     /// (<see cref="NodeConfig.Beacon"/>) wholesale. When present, its
     /// <see cref="PortBeaconConfig.Enabled"/> flag wins outright, and its nullable

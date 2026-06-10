@@ -485,7 +485,13 @@ public sealed class Ax25Listener : IAsyncDisposable
             await foreach (var kiss in modem.ReadFramesAsync(ct).ConfigureAwait(false))
             {
                 if (kiss.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(kiss.Payload, out var parsed)) continue;
+                // Parse under the port's configured options (read live, so a
+                // reseed applies from the next frame). A frame the options
+                // reject is dropped here — before tracing and dispatch — so a
+                // Strict port is deaf to it end-to-end (no session can open
+                // from it, and the monitor/NET-ROM taps don't see it either).
+                var parseOptions = Volatile.Read(ref sessionParameters).ParseOptions ?? Ax25ParseOptions.Lenient;
+                if (!Ax25Frame.TryParse(kiss.Payload, parseOptions, out var parsed)) continue;
 
                 // Each per-frame step is isolated from the next so a
                 // throwing event-handler or a misbehaving session
@@ -494,7 +500,7 @@ public sealed class Ax25Listener : IAsyncDisposable
                 try { TraceFrame(parsed, FrameDirection.Received); }
                 catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
 
-                try { DispatchInbound(parsed, kiss.Payload); }
+                try { DispatchInbound(parsed, kiss.Payload, parseOptions); }
                 catch (Exception) { /* swallowed: see Note on event-handler exceptions */ }
             }
         }
@@ -511,7 +517,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         // event so consumers that DO care can observe.
     }
 
-    private void DispatchInbound(Ax25Frame parsed, ReadOnlyMemory<byte> payload)
+    private void DispatchInbound(Ax25Frame parsed, ReadOnlyMemory<byte> payload, Ax25ParseOptions parseOptions)
     {
         // Frames not addressed to us: monitor-only (trace already
         // fired). Don't route to any session.
@@ -561,7 +567,7 @@ public sealed class Ax25Listener : IAsyncDisposable
             // extended (modulo-128) I/S frame's 2-octet control field was
             // mis-read. Re-decode at the session's negotiated modulo before
             // classifying so N(S)/N(R)/PID/info land correctly.
-            var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context);
+            var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context, parseOptions);
             var cachedClassified = Ax25FrameClassifier.Classify(frame);
 
             // XID / FRMR-of-XID routing — these belong to the MDL machine, not
@@ -750,13 +756,16 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// link's I/S frames, falling back to <paramref name="routed"/> if the
     /// second parse somehow fails (it can't, given the first succeeded).
     /// </summary>
-    private static Ax25Frame ReparseAtSessionModulo(Ax25Frame routed, ReadOnlyMemory<byte> payload, Ax25SessionContext ctx)
+    private static Ax25Frame ReparseAtSessionModulo(
+        Ax25Frame routed, ReadOnlyMemory<byte> payload, Ax25SessionContext ctx, Ax25ParseOptions parseOptions)
     {
         if (!ctx.IsExtended) return routed;               // modulo-8 link: the routing parse was correct
         if (routed.IsExtendedControl) return routed;      // already 2-octet (defensive; the routing parse is mod-8)
         bool isUFrame = (routed.Control & 0x03) == 0x03;  // U frames are 1 octet in both modes
         if (isUFrame) return routed;
-        return Ax25Frame.TryParse(payload.Span, Ax25ParseOptions.Lenient, extended: true, out var ext)
+        // Same options as the routing parse — a frame can't get stricter or
+        // looser treatment just because its session negotiated mod-128.
+        return Ax25Frame.TryParse(payload.Span, parseOptions, extended: true, out var ext)
             ? ext
             : routed;
     }
@@ -807,6 +816,10 @@ public sealed class Ax25Listener : IAsyncDisposable
             Remote = peer,
             AcceptIncoming = allowAccept,
         };
+        // Seed the port's configured session quirks before any SDL transition
+        // runs. Like the timing knobs below, this is build-time only — a later
+        // reseed never reaches into an existing session's context.
+        if (sp.Quirks is { } quirks) ctx.Quirks = quirks;
         if (sp.N2 is { } n2)   ctx.N2 = n2;
         if (sp.K  is { } k)    ctx.K  = k;
         if (sp.T2  is { } t2)  ctx.T2  = t2;
@@ -835,7 +848,10 @@ public sealed class Ax25Listener : IAsyncDisposable
             // order frames hit the wire.
             _ = modem.SendFrameAsync(bytes);
             // Trace at this session's modulo so an extended (mod-128) I/S frame's
-            // N(S)/N(R) render correctly in the monitor.
+            // N(S)/N(R) render correctly in the monitor. Deliberately Lenient even
+            // when the port's inbound ParseOptions are stricter: these bytes came
+            // from our own strict frame factories, and the only thing strictness
+            // could achieve here is hiding our own transmission from the monitor.
             if (Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsedTx))
             {
                 TraceFrame(parsedTx, FrameDirection.Transmitted);
@@ -1088,6 +1104,29 @@ public sealed class Ax25ListenerOptions
     public int MaxCachedPeers { get; init; } = 64;
 
     /// <summary>
+    /// Wire-parse options for this port's <em>inbound</em> frames. If
+    /// <c>null</c>, the listener uses <see cref="Ax25ParseOptions.Lenient"/> —
+    /// the historical behaviour of the parameterless decoder overloads. Set
+    /// <see cref="Ax25ParseOptions.Strict"/> for spec-exact acceptance, or a
+    /// peer preset (<see cref="Ax25ParseOptions.Bpq"/> etc.) to match a known
+    /// neighbour. A frame the options reject is dropped before tracing or
+    /// dispatch — the port is deaf to it, exactly as if it had failed CRC.
+    /// The outbound construction path is unaffected (frames we build are
+    /// always strict).
+    /// </summary>
+    public Ax25ParseOptions? ParseOptions { get; init; }
+
+    /// <summary>
+    /// SDL figure-defect / de-facto-interop quirks seeded onto each new
+    /// session's <see cref="Ax25SessionContext.Quirks"/>. If <c>null</c>,
+    /// sessions use <see cref="Ax25SessionQuirks.Default"/> (spec-correct —
+    /// the existing behaviour). <see cref="Ax25SessionQuirks.StrictlyFaithful"/>
+    /// runs the figures exactly as drawn, defects included — conformance
+    /// study only, not for on-air use.
+    /// </summary>
+    public Ax25SessionQuirks? Quirks { get; init; }
+
+    /// <summary>
     /// Optional hook called once per newly-built session, before any
     /// events flow into it. Use to attach <c>onData</c> /
     /// <c>onDisconnect</c> handlers on the session's signal stream
@@ -1102,7 +1141,9 @@ public sealed class Ax25ListenerOptions
 /// <see cref="Ax25Listener"/> can live-reseed via
 /// <see cref="Ax25Listener.UpdateSessionParameters"/> — the per-session AX.25
 /// timing / window / cache knobs that only ever affect a session at the moment
-/// it is built. Identity (<see cref="Ax25ListenerOptions.MyCall"/>) and the
+/// it is built, plus the port's compatibility knobs (<see cref="ParseOptions"/>,
+/// read live per inbound frame, and <see cref="Quirks"/>, seeded at session
+/// build like the timers). Identity (<see cref="Ax25ListenerOptions.MyCall"/>) and the
 /// <see cref="Ax25ListenerOptions.ConfigureSession"/> hook are deliberately
 /// excluded: a callsign change is a different identity (a node-wide reset), and
 /// the configure hook is fixed wiring, not a tunable.
@@ -1132,6 +1173,20 @@ public sealed record Ax25SessionParameters
     /// <summary>LRU cap on cached per-peer sessions. Defaults to 64 (the <see cref="Ax25ListenerOptions"/> default).</summary>
     public int MaxCachedPeers { get; init; } = 64;
 
+    /// <summary>
+    /// Inbound wire-parse options. <c>null</c> ⇒ <see cref="Ax25ParseOptions.Lenient"/>.
+    /// Unlike the timing knobs this is not seeded into a session at build time —
+    /// the inbound pump reads the live value per frame, so a reseed takes effect
+    /// on the very next frame off the modem (it gates what the port hears at all,
+    /// not how an established session behaves).
+    /// </summary>
+    public Ax25ParseOptions? ParseOptions { get; init; }
+
+    /// <summary>Session quirks seeded onto newly-built sessions. <c>null</c> ⇒
+    /// <see cref="Ax25SessionQuirks.Default"/>. Like the timing knobs, existing
+    /// sessions keep the quirks they were built with.</summary>
+    public Ax25SessionQuirks? Quirks { get; init; }
+
     /// <summary>Project the live-reseedable subset out of a full options record.</summary>
     public static Ax25SessionParameters FromOptions(Ax25ListenerOptions options)
     {
@@ -1144,6 +1199,8 @@ public sealed record Ax25SessionParameters
             N2 = options.N2,
             K = options.K,
             MaxCachedPeers = options.MaxCachedPeers,
+            ParseOptions = options.ParseOptions,
+            Quirks = options.Quirks,
         };
     }
 }

@@ -45,6 +45,14 @@ public sealed record ReconcilePlan
     /// No restart. Keyed by the new config.</summary>
     public IReadOnlyList<PortConfig> Ax25ParamsChanged { get; init; } = [];
 
+    /// <summary>Ports whose AX.25 compatibility profile (<see cref="PortConfig.Compat"/>)
+    /// changed but nothing restart-class did → same live reseed mechanism as
+    /// <see cref="Ax25ParamsChanged"/> (the reseeded parameter record carries the
+    /// parse options + session quirks). Parse options take effect on the next
+    /// inbound frame; quirks on the next-built session — existing sessions
+    /// untouched. Keyed by the new config.</summary>
+    public IReadOnlyList<PortConfig> CompatChanged { get; init; } = [];
+
     /// <summary>True if the telnet console bind/port/enabled changed → restart
     /// just the telnet listener.</summary>
     public bool TelnetChanged { get; init; }
@@ -59,5 +67,5 @@ public sealed record ReconcilePlan
         !NodeWideReset && !TelnetChanged && !ServicesChanged &&
         ToBringUp.Count == 0 && ToTearDown.Count == 0 && ToRestart.Count == 0 &&
         ToDisable.Count == 0 && ToEnable.Count == 0 &&
-        KissParamsChanged.Count == 0 && Ax25ParamsChanged.Count == 0;
+        KissParamsChanged.Count == 0 && Ax25ParamsChanged.Count == 0 && CompatChanged.Count == 0;
 }

@@ -28,6 +28,19 @@ export interface Ax25PortParams {
 export interface KissParams {
   txDelay?: number; persistence?: number; slotTime?: number; txTail?: number;
 }
+// Per-port AX.25 compatibility profile (Packet.Node.Core.Configuration.PortCompatConfig).
+// preset picks the Ax25ParseOptions preset (null = lenient, the historical default);
+// the nullable booleans override individual flags on top of the preset; quirks selects
+// the SDL session-quirks set (null = default, the spec-correct one). Absent/null compat
+// = lenient + default — no behavioural change.
+export type CompatPreset = "strict" | "lenient" | "bpq" | "xrouter" | "direwolf";
+export interface PortCompatConfig {
+  preset?: CompatPreset | null;
+  allowEmptyCallsignBase?: boolean | null;
+  allowInfoOnSupervisoryFrames?: boolean | null;
+  allowCommandFrameAsResponse?: boolean | null;
+  quirks?: "default" | "strictly-faithful" | null;
+}
 export interface PortConfig {
   id: string;
   enabled: boolean;
@@ -36,6 +49,7 @@ export interface PortConfig {
   ax25: Ax25PortParams | null;
   kiss: KissParams | null;
   beacon: PortBeacon | null;
+  compat?: PortCompatConfig | null;
 }
 // The system-default ID beacon (Packet.Node.Core.Configuration.BeaconConfig).
 // enabled defaults false (a node that never beaconed keeps not beaconing).

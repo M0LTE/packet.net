@@ -109,6 +109,34 @@ public sealed class PortConfigValidator : AbstractValidator<PortConfig>
 
         When(p => p.Beacon is not null, () =>
             RuleFor(p => p.Beacon!).SetValidator(new PortBeaconValidator()));
+
+        When(p => p.Compat is not null, () =>
+            RuleFor(p => p.Compat!).SetValidator(new PortCompatValidator()));
+    }
+}
+
+/// <summary>
+/// Validates a per-port AX.25 compatibility profile (<see cref="PortCompatConfig"/>).
+/// A typo'd preset or quirks name is a config error — it would otherwise silently
+/// resolve as the default, the accept-then-ignore failure the named-flag discipline
+/// exists to prevent. Name knowledge lives in <see cref="Ax25CompatPresets"/> (the
+/// same authority the supervisor resolves with), not here.
+/// </summary>
+public sealed class PortCompatValidator : AbstractValidator<PortCompatConfig>
+{
+    public PortCompatValidator()
+    {
+        RuleFor(c => c.Preset)
+            .Must(Ax25CompatPresets.IsKnownPreset)
+            .WithMessage(c =>
+                $"compat.preset '{c.Preset}' is not a known AX.25 parse preset " +
+                $"(expected one of: {string.Join(", ", Ax25CompatPresets.PresetNames)} — or omit it for lenient).");
+
+        RuleFor(c => c.Quirks)
+            .Must(Ax25CompatPresets.IsKnownQuirks)
+            .WithMessage(c =>
+                $"compat.quirks '{c.Quirks}' is not a known session-quirks selector " +
+                $"(expected one of: {string.Join(", ", Ax25CompatPresets.QuirksNames)} — or omit it for default).");
     }
 }
 
