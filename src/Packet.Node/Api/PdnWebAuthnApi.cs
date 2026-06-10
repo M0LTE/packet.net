@@ -230,6 +230,8 @@ public static class PdnWebAuthnApi
             var (token, expiresAt) = tokens.Issue(user.Username, user.Scope);
             var refreshToken = refresh.Issue(user.Username);
             users.UpdateLastLogin(user.Username, clock.GetUtcNow());
+            // Set the gateway cookie so a passwordless passkey login also reaches proxied app UIs.
+            PdnAppGateway.SetGatewayCookie(http, token, expiresAt);
             AuthLog.PasskeyAssertionSucceeded(audit, user.Username, ip, user.Scope);
             return Results.Ok(new PdnAuthApi.LoginResponse(token, expiresAt, user.Scope, refreshToken, user.Username));
         });

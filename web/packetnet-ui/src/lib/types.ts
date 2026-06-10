@@ -268,6 +268,12 @@ export interface TotpEnrollCompleteResponse { enrolled: boolean; callsign: strin
 // GET /auth/totp/enroll body: whether the signed-in user has an over-RF code enrolled, and
 // the bound callsign (null when not enrolled). Never the secret.
 export interface TotpEnrollState { enrolled: boolean; callsign: string | null }
+// ---- node app platform (GET /api/v1/apps) ------------------
+// One registered app that exposes a web UI. `icon` is an optional lucide-react
+// icon name (kebab-case, e.g. "message-square"); may be null/absent → the launcher
+// falls back to a generic app glyph. `url` is always "/apps/{id}/" — an absolute path
+// on the same origin that pdn reverse-proxies, NOT a client-side SPA route.
+export interface NodeApp { id: string; name: string; icon?: string | null; url: string }
 export interface LogLine { t: string; lvl: "info" | "warn" | "error"; msg: string }
 export interface ToggleHelp { label: string; desc: string }
 export interface FieldHelp { label: string; unit: string; help: string }

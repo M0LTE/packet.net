@@ -167,6 +167,10 @@ public static class PdnAuthApi
             var (token, expiresAt) = tokens.Issue(user.Username, user.Scope);
             var refreshToken = refresh.Issue(user.Username);
             users.UpdateLastLogin(user.Username, clock.GetUtcNow());
+            // Set the HttpOnly gateway cookie so a browser navigation to a proxied app UI
+            // (/apps/{id}/*) authenticates without an Authorization header (the panel's fetch
+            // API still uses the bearer token from the body). See PdnAppGateway.
+            PdnAppGateway.SetGatewayCookie(http, token, expiresAt);
             AuthLog.LoginSucceeded(audit, user.Username, ip, user.Scope);
             return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, refreshToken, user.Username));
         });
@@ -230,6 +234,9 @@ public static class PdnAuthApi
             }
 
             var (token, expiresAt) = tokens.Issue(user.Username, user.Scope);
+            // Refresh the gateway cookie alongside the access token so a long-lived panel
+            // session keeps proxied app UIs authenticated.
+            PdnAppGateway.SetGatewayCookie(http, token, expiresAt);
             AuthLog.RefreshSucceeded(audit, user.Username, ip);
             return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, result.NewToken, user.Username));
         });
@@ -250,6 +257,8 @@ public static class PdnAuthApi
                 var ip = ClientIp(http);
                 AuthLog.Logout(audit, redacted, ip);
             }
+            // Clear the gateway cookie so proxied app UIs are no longer reachable post-logout.
+            PdnAppGateway.ClearGatewayCookie(http);
             return Results.NoContent();
         });
 

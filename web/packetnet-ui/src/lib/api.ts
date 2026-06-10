@@ -14,7 +14,7 @@ import type {
   LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
   WebAuthnCredential, AssertBeginResponse, RegisterCompleteResponse,
-  TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState,
+  TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp,
 } from "./types";
 import * as mock from "./mock";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
@@ -199,6 +199,9 @@ export const api = {
   recentFrames: (limit = 250) => get<MonitorEvent[]>(`/monitor/recent?limit=${limit}`, () => mock.seedFrames(limit)),
   users: () => get<User[]>("/users", () => mock.USERS),
   log: () => get<LogLine[]>("/log", () => mock.LOG_TAIL),
+  // Registered apps that expose a web UI (read-gated like the other read endpoints).
+  // The array may be empty (no apps registered) → the launcher renders an empty state.
+  apps: () => get<NodeApp[]>("/apps", () => mock.APPS),
 
   // ---- config write (Slice-3 step 2) ----
   // PUT the whole config; dryRun returns the reconcile preview without applying.
@@ -300,6 +303,11 @@ export const api = {
   // Remove the signed-in user's over-RF code.
   totpRemove: () => totpRemove(),
 };
+
+/** List the node's registered apps that expose a web UI. Thin named alias over
+ *  api.apps() (same authFetch/base-URL/mock path as every other read call) — the
+ *  Apps launcher imports this directly. */
+export const listApps = (): Promise<NodeApp[]> => api.apps();
 
 // The connectionless-ping result shape lives in ./types (PingResult); re-exported here so
 // callers importing from the API surface keep working.

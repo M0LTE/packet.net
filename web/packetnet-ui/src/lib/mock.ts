@@ -8,7 +8,7 @@ import type {
   NodeConfig, NetRomRoutingSnapshot, NodeStatus, PortStatus, SessionInfo,
   LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
-  User, LogLine, ToggleHelp, FieldHelp,
+  User, LogLine, ToggleHelp, FieldHelp, NodeApp,
 } from "./types";
 
 // 6.1 NodeConfig tree ----------------------------------------
@@ -170,6 +170,13 @@ export const LOG_TAIL: LogLine[] = [
 
 export const USERS: User[] = [
   { name: "tom", role: "admin", scopes: ["read", "operate", "admin"], passkeys: 2, lastLogin: "2026-06-08 14:02" },
+];
+
+// Registered apps that expose a web UI (GET /api/v1/apps). The launcher lists these
+// and links to each app's reverse-proxied URL. Icons are lucide-react names; an app
+// with no icon falls back to a generic glyph in the UI.
+export const APPS: NodeApp[] = [
+  { id: "wall", name: "WALL", icon: "message-square", url: "/apps/wall/" },
 ];
 
 // formatters -------------------------------------------------
