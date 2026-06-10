@@ -26,6 +26,9 @@
          (web-free); this package provides the IFido2 attestation/assertion verifier
          and its DI registration, which are wired here in the host. -->
     <PackageReference Include="Fido2.AspNet" />
+    <!-- App-gateway reverse proxy (the human plane): IHttpForwarder forwards
+         /apps/{id}/* to an app's loopback web server. See docs/app-gateway.md. -->
+    <PackageReference Include="Yarp.ReverseProxy" />
   </ItemGroup>
 
   <ItemGroup>

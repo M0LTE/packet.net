@@ -96,3 +96,11 @@ management:
 #     args: [ /usr/share/packetnet/apps/wall/wall.py ]
 #     workingDirectory: /var/lib/packetnet/apps/wall    # where wall.txt is kept (owned by the service user)
 #     capabilities: [ session ]
+#     # Optional human-plane web UI: run the app's own loopback web server (e.g.
+#     #   python3 /usr/share/packetnet/apps/wall/wall_web.py 9090
+#     # as your own service), then pdn reverse-proxies /apps/wall/ to it and shows a
+#     # launcher tile. The app must bind loopback only. See docs/app-gateway.md.
+#     ui:
+#       upstream: http://127.0.0.1:9090
+#       name: WALL
+#       icon: message-square

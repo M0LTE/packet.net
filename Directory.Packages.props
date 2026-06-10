@@ -25,6 +25,10 @@
          shared framework; it depends on Microsoft.IdentityModel.* 8.x, aligned
          with the JsonWebTokens/Tokens pins above. -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
+    <!-- YARP's direct-forwarding primitive (IHttpForwarder) backs the app-gateway reverse
+         proxy (/apps/{id}/* → an app's loopback web server). Used standalone (no config-driven
+         proxy model) — just correct streaming/header/WebSocket forwarding. See docs/app-gateway.md. -->
+    <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
 
     <!-- Logging / telemetry (opt-in only) -->
     <PackageVersion Include="Serilog" Version="4.2.0" />

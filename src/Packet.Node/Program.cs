@@ -194,6 +194,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                             context.Token = queryToken;
                         }
                     }
+                    else if (path.StartsWithSegments("/apps"))
+                    {
+                        // A browser navigation to a proxied app UI (/apps/{id}/*) can't set an
+                        // Authorization header, so read the access token from the HttpOnly
+                        // gateway cookie pdn sets at login/refresh. Same full validation applies.
+                        var cookie = context.Request.Cookies[PdnAppGateway.CookieName];
+                        if (!string.IsNullOrEmpty(cookie))
+                        {
+                            context.Token = cookie;
+                        }
+                    }
                 }
                 return Task.CompletedTask;
             },
@@ -204,6 +215,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 // flag-aware ScopeRequirementHandler (registered scoped so it reads the live config).
 builder.Services.AddAuthorization(options => options.AddPdnScopePolicies());
 builder.Services.AddScoped<IAuthorizationHandler, ScopeRequirementHandler>();
+
+// The app-gateway reverse proxy (human plane): IHttpForwarder forwards /apps/{id}/* to an
+// app's loopback web server. See PdnAppGateway + docs/app-gateway.md.
+builder.Services.AddHttpForwarder();
 
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
@@ -336,6 +351,12 @@ app.MapPdnPortsApi();
 // win over /api/{**rest} regardless of order. (Auth is a later step — unauthenticated,
 // node binds 127.0.0.1.)
 app.MapPdnSessionsApi();
+
+// App-gateway (the human plane, app platform Slice 3): the launcher feed
+// (GET /api/v1/apps) + the reverse proxy (/apps/{id}/* → a registered app's loopback web
+// server, with the authenticated identity injected). Mapped before the SPA fallback so the
+// /apps/* proxy route wins over index.html. See PdnAppGateway + docs/app-gateway.md.
+app.MapPdnAppGateway();
 
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*

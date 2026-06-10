@@ -224,7 +224,19 @@ public sealed class ApplicationConfigValidator : AbstractValidator<ApplicationCo
         RuleFor(a => a.Command)
             .NotEmpty().WithMessage("application.command is required for a process application.")
             .When(a => a.Kind == ApplicationKind.Process);
+
+        // When a ui block is present, its upstream must be an absolute http(s) URL — pdn
+        // reverse-proxies to it, so anything else is unusable config.
+        When(a => a.Ui is not null, () =>
+            RuleFor(a => a.Ui!.Upstream)
+                .Must(BeAnAbsoluteHttpUrl)
+                .WithMessage(a => $"application.ui.upstream '{a.Ui!.Upstream}' must be an absolute http(s) URL (e.g. http://127.0.0.1:9090)."));
     }
+
+    private static bool BeAnAbsoluteHttpUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url)
+        && Uri.TryCreate(url, UriKind.Absolute, out var u)
+        && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
     // The verb is safe iff the parser does NOT recognise it as a command — i.e. it falls
     // through to Unknown (or is empty). Anything that parses to a real verb (or a malformed

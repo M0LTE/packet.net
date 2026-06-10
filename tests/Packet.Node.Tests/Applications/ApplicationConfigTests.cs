@@ -146,4 +146,53 @@ public sealed class ApplicationConfigTests
         var cfg = Valid(new ApplicationConfig { Id = "wall", Match = "", Command = "/bin/cat" });
         Assert.False(Validate(cfg).IsValid);
     }
+
+    // ── The human-plane ui block (Slice 3) ──────────────────────────────
+
+    [Fact]
+    public void Ui_block_binds_from_yaml()
+    {
+        var yaml = BaseIdentity + """
+            applications:
+              - id: wall
+                match: WALL
+                command: /usr/bin/python3
+                ui:
+                  upstream: http://127.0.0.1:9090
+                  name: WALL
+                  icon: message-square
+            """;
+
+        var app = Assert.Single(NodeConfigYaml.Parse(yaml).Applications);
+        Assert.NotNull(app.Ui);
+        Assert.Equal("http://127.0.0.1:9090", app.Ui!.Upstream);
+        Assert.Equal("WALL", app.Ui.Name);
+        Assert.Equal("message-square", app.Ui.Icon);
+    }
+
+    [Fact]
+    public void A_well_formed_ui_app_validates()
+    {
+        var cfg = Valid(new ApplicationConfig
+        {
+            Id = "wall", Match = "WALL", Command = "/bin/cat",
+            Ui = new AppUiConfig { Upstream = "http://127.0.0.1:9090", Name = "WALL" },
+        });
+        Assert.True(Validate(cfg).IsValid);
+    }
+
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("127.0.0.1:9090")]   // no scheme
+    [InlineData("ftp://127.0.0.1")]  // wrong scheme
+    [InlineData("")]
+    public void An_invalid_ui_upstream_is_rejected(string upstream)
+    {
+        var cfg = Valid(new ApplicationConfig
+        {
+            Id = "wall", Match = "WALL", Command = "/bin/cat",
+            Ui = new AppUiConfig { Upstream = upstream },
+        });
+        Assert.False(Validate(cfg).IsValid);
+    }
 }

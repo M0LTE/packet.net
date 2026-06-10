@@ -60,6 +60,48 @@ wall>
 
 (The blank line after each `wall>` is the prompt on its own line — over a real packet session it precedes the user's typed line.)
 
+## Web view (human plane)
+
+`wall.py` is the **packet plane** — it serves stations that connect over the radio session. [`wall_web.py`](wall_web.py) is the **human plane**: a tiny, read-only web page of the *same wall*, served to ordinary browsers behind pdn's reverse-proxy gateway. The two planes share exactly one thing — the on-disk state file — and nothing else. Like `wall.py`, the web server is a standalone **Python 3 program (stdlib only)** that imports no pdn code; its only contract is the HTTP gateway described below. That's the same seam, demonstrated again in a second plane.
+
+It is **read-only in v1** — there is no posting form. Posting happens over the packet session (the page says so: *"Post by connecting to the node and typing WALL"*). It reads the wall the same way `wall.py` does: lock-free (whole-file read, take the tail), `WALL_FILE` if set else `wall.txt` in the cwd, one tab-separated `ISO-ts \t callsign \t text` record per line. A missing file is a friendly empty wall, malformed lines are skipped, and it never returns a 500.
+
+### How to run it
+
+```sh
+# binds 127.0.0.1:9090 by default
+python3 wall_web.py 9090
+
+# port from argv[1], else WALL_WEB_PORT, else 9090; wall file via WALL_FILE
+WALL_FILE=/tmp/wall.txt WALL_WEB_PORT=9090 python3 wall_web.py
+```
+
+- It **binds loopback only** (`127.0.0.1`) — never a public interface. That is a security requirement: only pdn's gateway should be able to reach it. The port comes from `argv[1]`, else the **`WALL_WEB_PORT`** env var, else `9090`.
+- The wall file is resolved exactly like `wall.py`: the **`WALL_FILE`** env var if set, otherwise `wall.txt` in the current working directory. Point both planes at the same `WALL_FILE` and the web view shows what packet stations post in real time.
+
+### The gateway contract
+
+pdn reverse-proxies browser requests for `GET /apps/wall/<path>` to the server's upstream (e.g. `http://127.0.0.1:9090/<path>`) with the **`/apps/wall` prefix stripped** — so the server only ever sees `<path>` from the site root (it serves `GET /`, and 404s everything else). Because the browser is actually under `/apps/wall/`, the page emits **relative URLs only** (it's a single self-contained page with inline CSS and an `<base href="./">`, so there's nothing to get wrong). pdn injects trusted request headers (stripping any client-supplied copies first): **`X-Pdn-User`** (the viewer's callsign, may be empty), `X-Pdn-Scope` (`read`/`operate`/`admin`), and `X-Pdn-Gateway: 1`. The page reads `X-Pdn-User` to greet the viewer (*"viewing as M0LTE-7"*, or *"viewing anonymously"* when empty). All post text is escaped with `html.escape` before it reaches the page, so a hostile post can never inject markup or script.
+
+### Run it standalone (for testing)
+
+```sh
+WALL_FILE=/tmp/wall.txt python3 wall_web.py 9090 &
+curl -s -H 'X-Pdn-User: M0LTE-7' http://127.0.0.1:9090/
+```
+
+You'll get a self-contained HTML page: a header with the wall name, post count, and who's viewing; the most recent posts newest-first; and a footer pointing posters at the packet session.
+
+### Test it
+
+[`test_wall_web.py`](test_wall_web.py) is a stdlib `unittest` suite that starts `wall_web.py` as a subprocess on an ephemeral loopback port (with `WALL_FILE` at a temp file) and drives it with `http.client`, all bounded by short timeouts. It asserts `GET /` returns 200 with a known post's text and callsign, that a `<script>` post is rendered escaped (not raw), that `X-Pdn-User` is reflected on the page (and anonymous when absent), that an empty/missing wall renders the friendly empty state without crashing, and that other paths 404. Run either:
+
+```sh
+python3 -m unittest examples/wall/test_wall_web.py
+# or, from this directory:
+python3 test_wall_web.py
+```
+
 ## Tests
 
 `test_wall.py` is a stdlib `unittest` suite that drives `wall.py` as a subprocess exactly as the node would (writes a header, feeds commands, closes stdin), with `WALL_FILE` pointed at a temp file. It asserts the banner appears, a `POST` then `LIST` round-trips attributed to the header callsign, an unknown command doesn't crash, EOF/`BYE` exits promptly, and that posts persist across separate invocations. Run either:
@@ -87,3 +129,14 @@ applications:
 ```
 
 The wall file lands in `workingDirectory` as `wall.txt` by default; set the **`WALL_FILE`** environment variable (e.g. via the process environment) to put it elsewhere — point several `match` aliases at the same `WALL_FILE` and they share one wall, or give each its own file for separate walls.
+
+To expose the human-plane web view, add a `ui:` block to the same app entry. pdn runs the web server (a long-running process you start separately, or under your own supervisor — it is *not* spawned per-connect like the packet plane) and reverse-proxies `/apps/wall/` to its `upstream`, stripping the prefix and injecting the `X-Pdn-*` headers. `name` and `icon` are how the app appears in pdn's web app launcher:
+
+```yaml
+    ui:
+      upstream: http://127.0.0.1:9090
+      name: WALL
+      icon: message-square
+```
+
+Run the web server so it listens on that upstream (`WALL_FILE=/var/lib/packetnet/apps/wall/wall.txt python3 .../wall_web.py 9090`, binding `127.0.0.1:9090`), pointed at the **same `WALL_FILE`** as the packet-plane app, and the browser view will track what stations post over RF.

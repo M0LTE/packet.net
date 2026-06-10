@@ -1,6 +1,6 @@
 # pdn app extensibility — design (the "applications" platform)
 
-**Status:** agreed 2026-06-10 (Tom + Claude); supersedes the in-process `.dll`-plugin sketch in plan §5.9. **Slice 1 built** — the `INodeApplication` seam + the `applications:` registry + the `pdn-app/1` external-process stdio wire ([`app-local-session-wire.md`](app-local-session-wire.md)) + the shipped **WALL** reference app ([`examples/wall/`](../examples/wall/)).
+**Status:** agreed 2026-06-10 (Tom + Claude); supersedes the in-process `.dll`-plugin sketch in plan §5.9. **Slices 1 + 3 built.** Slice 1 — the `INodeApplication` seam + the `applications:` registry + the `pdn-app/1` external-process stdio wire ([`app-local-session-wire.md`](app-local-session-wire.md)) + the shipped **WALL** reference app ([`examples/wall/`](../examples/wall/)). Slice 3 — the **app-gateway** (manifest + reverse-proxy + auth-gateway shell): the launcher + `/apps/{id}/*` reverse proxy with injected identity ([`app-gateway.md`](app-gateway.md)) + WALL's web view.
 **Supersedes:** the original Phase-9 idea — `Packet.Node.Extensions/IApplicationModule.cs` loaded from `*.dll` in an isolated `AssemblyLoadContext`. That model is .NET-only and in-process; this design replaces it with **out-of-process, language-agnostic** apps. See [Why not in-proc .NET plugins](#why-not-in-proc-net-plugins).
 
 ## Why
@@ -35,7 +35,7 @@ The split is not about wire ergonomics — it's about whether the app uses **the
 
 ### Human plane — the app-gateway shell
 
-How an app exposes a UI *through* pdn without pdn knowing about the app: the **manifest + reverse-proxy + auth-gateway** pattern (how Home-Assistant ingress / k8s dashboard proxies work).
+**Built in slice 3** — the app-author contract is [`app-gateway.md`](app-gateway.md). How an app exposes a UI *through* pdn without pdn knowing about the app: the **manifest + reverse-proxy + auth-gateway** pattern (how Home-Assistant ingress / k8s dashboard proxies work).
 
 1. An app registers a manifest: `{ id, name, icon, ui: { upstream: http://127.0.0.1:9001 }, packet: {...}, capabilities: [...] }`.
 2. pdn's web shell renders a **launcher** from the registered manifests (an "Apps" section — pdn knows the *tile*, not the behaviour).
@@ -90,7 +90,7 @@ The platform is **two adopt/build decisions, not four invent decisions**: *adopt
 
 1. **`INodeApplication` + registry + the `pdn-app/1` stdio wire + WALL (BUILT).** Extract `INodeApplication` from `NodeCommandService` (console becomes app #0, zero behaviour change); add the `applications:` registry to `NodeConfig` (read live per launch — each connect spawns fresh, so a config edit applies to the next launch with no reconcile machinery); route a console verb to a registered app; implement the **external-process stdio wire** ([`app-local-session-wire.md`](app-local-session-wire.md)) — spawn-per-connect, session bridged over stdio with a connect header + newline translation + clean teardown; ship **WALL** as a fully-separated out-of-process **Python** app ([`examples/wall/`](../examples/wall/)). The external wire is folded into slice 1 deliberately — it *is* the separation boundary (see below). Proves the abstraction + registry + a useful, arm's-length app, end to end.
 2. **Next rung of the local-session seam.** A long-running local socket (Unix-domain / WS) the node bridges sessions to, for apps wanting shared in-memory state across users (vs the spawn-per-connect stdio floor). Plus broader worked-example / tutorial docs built around WALL.
-3. **The app-gateway (human plane).** Manifest + reverse-proxy + auth injection + a launcher in the web UI; WALL gets a proxied web view. Now WALL exercises both planes.
+3. **The app-gateway (human plane). ✅ DONE.** Manifest (`ui:` block) + the `GET /api/v1/apps` launcher feed + an Apps screen in the web UI + the `/apps/{id}/*` reverse proxy (YARP `IHttpForwarder`) with the authenticated identity injected (HttpOnly gateway cookie for browser navigations; client `X-Pdn-*` stripped, `X-Pdn-User`/`X-Pdn-Scope`/`X-Pdn-Gateway` injected). WALL gained a proxied web view ([`examples/wall/wall_web.py`](../examples/wall/wall_web.py)), so it now exercises both planes. Contract: [`app-gateway.md`](app-gateway.md).
 4. **`Packet.Rhp2.Server` (network plane).** RHPv2 server over pdn's AX.25 + NET-ROM engine, validated against rhp2lib's mock / Testcontainers-vs-XRouter conformance suite. Unblocks the network apps.
 5. **BBS / Chat / DAPPS** on the above. BBS stress-tests the full surface; chat needs the BPQ-compatible link protocol (a separate spec from RHPv2 — scope it on its own).
 

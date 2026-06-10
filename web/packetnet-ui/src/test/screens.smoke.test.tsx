@@ -13,6 +13,7 @@ import type { ReactElement } from "react";
 import { Dashboard } from "@/screens/dashboard";
 import { Monitor } from "@/screens/monitor";
 import { Sessions } from "@/screens/sessions";
+import { Apps } from "@/screens/apps";
 import { Routes } from "@/screens/routes";
 import { Ports } from "@/screens/ports";
 import { Config } from "@/screens/config";
@@ -46,6 +47,17 @@ describe("screens render without crashing", () => {
     const { container } = mount(<Sessions />);
     expect(container.firstChild).toBeTruthy();
     await waitFor(() => expect(screen.getAllByText(/Sessions/i).length).toBeGreaterThan(0));
+  });
+
+  it("Apps lists the registered web apps", async () => {
+    const { container } = mount(<Apps />);
+    expect(container.firstChild).toBeTruthy();
+    // The mock apps list (lib/mock APPS) includes the WALL tile, linking to /apps/wall/.
+    // Match the display name exactly ("WALL") to avoid also matching the id subtext ("wall").
+    await waitFor(() => {
+      const link = screen.getByText("WALL").closest("a");
+      expect(link).toHaveAttribute("href", "/apps/wall/");
+    });
   });
 
   it("Routes renders the destinations/neighbours view", async () => {

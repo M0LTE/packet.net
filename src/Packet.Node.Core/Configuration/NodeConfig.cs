@@ -111,6 +111,31 @@ public sealed record ApplicationConfig
     /// over); <c>network</c>/<c>config</c>/<c>storage</c> are mediated by later slices. Free-form
     /// for forward-compatibility.</summary>
     public IReadOnlyList<string> Capabilities { get; init; } = [];
+
+    /// <summary>The optional human-plane web-UI manifest. When present, the app appears in the
+    /// control panel's Apps launcher and pdn reverse-proxies <c>/apps/{id}/*</c> to
+    /// <see cref="AppUiConfig.Upstream"/>, injecting the authenticated identity. Absent = a
+    /// packet-plane-only app (no launcher tile, no proxy). See <c>docs/app-gateway.md</c>.</summary>
+    public AppUiConfig? Ui { get; init; }
+}
+
+/// <summary>
+/// The human-plane manifest for an application: where its own web server lives and how its
+/// launcher tile reads. pdn reverse-proxies to <see cref="Upstream"/> and never imports the
+/// app — it is a broker (see <c>docs/app-gateway.md</c>).
+/// </summary>
+public sealed record AppUiConfig
+{
+    /// <summary>The app's own web server base URL — <b>loopback</b> (e.g.
+    /// <c>http://127.0.0.1:9090</c>). pdn reverse-proxies <c>/apps/{id}/*</c> here, stripping
+    /// the prefix. Required when a <c>ui</c> block is present; must be an absolute http(s) URL.</summary>
+    public required string Upstream { get; init; }
+
+    /// <summary>The launcher tile label. Null = the app's <see cref="ApplicationConfig.Id"/>.</summary>
+    public string? Name { get; init; }
+
+    /// <summary>An optional lucide icon name for the launcher tile (purely cosmetic).</summary>
+    public string? Icon { get; init; }
 }
 
 /// <summary>

@@ -8,6 +8,7 @@ import { Setup } from "@/screens/setup";
 import { Dashboard } from "@/screens/dashboard";
 import { Monitor } from "@/screens/monitor";
 import { Sessions } from "@/screens/sessions";
+import { Apps } from "@/screens/apps";
 import { Routes } from "@/screens/routes";
 import { Ports } from "@/screens/ports";
 import { Config } from "@/screens/config";
@@ -102,6 +103,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "monitor", element: <Monitor /> },
       { path: "sessions", element: <Sessions /> },
+      { path: "apps", element: <Apps /> },
       { path: "routes", element: <Routes /> },
       { path: "ports", element: <Ports /> },
       { path: "config", element: <Config /> },
