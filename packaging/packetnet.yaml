@@ -104,3 +104,14 @@ management:
 #       upstream: http://127.0.0.1:9090
 #       name: WALL
 #       icon: message-square
+#   # LOBBY — the long-running-socket rung: a daemon (Unix socket) holding shared in-memory
+#   # state across users (live WHO + SAY broadcast), which the spawn-per-connect floor can't do.
+#   # Run the daemon yourself (e.g. a systemd unit):
+#   #   python3 /usr/share/packetnet/apps/lobby/lobby.py /run/packetnet/lobby.sock
+#   # then pdn connects per session. See docs/app-local-session-wire.md §6.
+#   - id: lobby
+#     match: LOBBY
+#     enabled: true
+#     kind: socket
+#     socketPath: /run/packetnet/lobby.sock
+#     capabilities: [ session ]

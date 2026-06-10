@@ -59,14 +59,20 @@ public sealed record NodeConfig
     public IReadOnlyList<ApplicationConfig> Applications { get; init; } = [];
 }
 
-/// <summary>How a registered application is run. Slice 1 supports only an out-of-process
-/// child (<see cref="Process"/>); the long-running-socket rung and a future in-WASM tier are
-/// later additions to this closed set.</summary>
+/// <summary>How a registered application is run. <see cref="Process"/> is the spawn-per-connect
+/// floor; <see cref="Socket"/> is the long-running-daemon rung (shared in-memory state across
+/// users); a future in-WASM tier is a later addition to this closed set.</summary>
 public enum ApplicationKind
 {
     /// <summary>An external process spawned per connect, the session piped over its stdio
-    /// per the <c>pdn-app/1</c> wire. Any language.</summary>
+    /// per the <c>pdn-app/1</c> wire. Any language. No shared state across users.</summary>
     Process,
+
+    /// <summary>A long-running daemon listening on a Unix-domain socket; the node opens a fresh
+    /// connection per connect and bridges the session over it (same <c>pdn-app/1</c> wire). Lets
+    /// the app hold shared in-memory state across users + push unsolicited output. The owner runs
+    /// the daemon; the node only connects (it does not manage its lifecycle).</summary>
+    Socket,
 }
 
 /// <summary>
@@ -97,6 +103,11 @@ public sealed record ApplicationConfig
     /// <summary>The executable to spawn (<see cref="ApplicationKind.Process"/>) — e.g.
     /// <c>/usr/bin/python3</c>. Required for a process app.</summary>
     public string? Command { get; init; }
+
+    /// <summary>The Unix-domain socket the daemon listens on (<see cref="ApplicationKind.Socket"/>)
+    /// — e.g. <c>/run/packetnet/lobby.sock</c>. The node connects here per session. Required for a
+    /// socket app.</summary>
+    public string? SocketPath { get; init; }
 
     /// <summary>Arguments passed to <see cref="Command"/> (e.g. the script path). Each element
     /// is one argument, passed without shell interpretation.</summary>

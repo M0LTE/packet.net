@@ -70,6 +70,12 @@ install -m 0755 "$root/examples/wall/wall.py" "$stage/usr/share/packetnet/apps/w
 # owner runs and pdn reverse-proxies under /apps/wall/. See docs/app-gateway.md.
 install -m 0755 "$root/examples/wall/wall_web.py" "$stage/usr/share/packetnet/apps/wall/wall_web.py"
 install -m 0644 "$root/examples/wall/README.md" "$stage/usr/share/packetnet/apps/wall/README.md"
+# The LOBBY example app — the long-running-socket rung (app platform Slice 2): a Python
+# daemon (Unix socket) demonstrating shared in-memory state + broadcast across users. The
+# owner runs it as their own service; pdn connects per session. See docs/app-local-session-wire.md §6.
+install -d "$stage/usr/share/packetnet/apps/lobby"
+install -m 0755 "$root/examples/lobby/lobby.py" "$stage/usr/share/packetnet/apps/lobby/lobby.py"
+install -m 0644 "$root/examples/lobby/README.md" "$stage/usr/share/packetnet/apps/lobby/README.md"
 sed -e "s/@ARCH@/$arch/" -e "s/@VERSION@/$version/" \
     "$root/packaging/control.in" > "$stage/DEBIAN/control"
 cp "$root/packaging/conffiles" "$root/packaging/postinst" \

@@ -79,6 +79,7 @@ public sealed partial class ApplicationHost : IApplicationHost
             impl = app.Kind switch
             {
                 ApplicationKind.Process => new ExternalProcessApplication(app, loggerFactory.CreateLogger<ExternalProcessApplication>()),
+                ApplicationKind.Socket => new SocketApplication(app, loggerFactory.CreateLogger<SocketApplication>()),
                 _ => throw new NotSupportedException($"Unsupported application kind '{app.Kind}'."),
             };
         }
