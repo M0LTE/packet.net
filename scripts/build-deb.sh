@@ -60,6 +60,13 @@ install -d "$stage/opt/packetnet/app/wwwroot"
 cp -a "$ui/dist/." "$stage/opt/packetnet/app/wwwroot/"
 cp "$root/packaging/packetnet.service" "$stage/lib/systemd/system/packetnet.service"
 cp "$root/packaging/packetnet.yaml"    "$stage/etc/packetnet/packetnet.yaml"
+# The WALL reference application — the shipped, language-agnostic example of the app
+# platform (a Python program speaking the pdn-app/1 stdio wire; see examples/wall/). The
+# node shares no code with it; it's an out-of-process program the owner opts into by adding
+# an `applications:` entry. Recommends: python3 pulls in the interpreter on a default install.
+install -d "$stage/usr/share/packetnet/apps/wall"
+install -m 0755 "$root/examples/wall/wall.py" "$stage/usr/share/packetnet/apps/wall/wall.py"
+install -m 0644 "$root/examples/wall/README.md" "$stage/usr/share/packetnet/apps/wall/README.md"
 sed -e "s/@ARCH@/$arch/" -e "s/@VERSION@/$version/" \
     "$root/packaging/control.in" > "$stage/DEBIAN/control"
 cp "$root/packaging/conffiles" "$root/packaging/postinst" \

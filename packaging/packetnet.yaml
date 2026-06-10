@@ -80,3 +80,19 @@ management:
   #   # webAuthn:                     # passkeys (default rp.id localhost — set on a real domain)
   #   #   relyingPartyId: pdn.example
   #   #   allowedOrigins: [ "https://pdn.example:8443" ]
+
+# Applications — the app-extensibility platform. Each entry is an out-of-process program the
+# node launches when a connected user types its `match` verb at the prompt; the session is
+# bridged to the app over the pdn-app/1 stdio wire (docs/app-local-session-wire.md). The node
+# shares no code with the app — any language works. Default: none (a node with no entries has
+# no apps). The package ships the WALL example app (a Python message wall) under
+# /usr/share/packetnet/apps/wall; uncomment to enable it (needs python3, a Recommends):
+# applications:
+#   - id: wall
+#     match: WALL                 # users type WALL at the prompt to enter it
+#     enabled: true
+#     kind: process
+#     command: /usr/bin/python3
+#     args: [ /usr/share/packetnet/apps/wall/wall.py ]
+#     workingDirectory: /var/lib/packetnet/apps/wall    # where wall.txt is kept (owned by the service user)
+#     capabilities: [ session ]

@@ -48,6 +48,69 @@ public sealed record NodeConfig
     /// beaconed keeps not beaconing. A port may override it with
     /// <see cref="PortConfig.Beacon"/>. See <see cref="BeaconConfig"/>.</summary>
     public BeaconConfig Beacon { get; init; } = new();
+
+    /// <summary>Registered node applications — the app-extensibility platform. Each entry
+    /// is launched (out-of-process) when a connected user types its <see cref="ApplicationConfig.Match"/>
+    /// verb at the node prompt; the session is bridged to the app over the
+    /// <c>pdn-app/1</c> stdio wire (<c>docs/app-local-session-wire.md</c>). Default-empty: a
+    /// node with no entries has no apps and behaves exactly as before. Read live at launch
+    /// time — because each connect spawns a fresh process, a config edit is picked up by the
+    /// next launch with no reconcile/restart machinery. See <c>docs/app-extensibility.md</c>.</summary>
+    public IReadOnlyList<ApplicationConfig> Applications { get; init; } = [];
+}
+
+/// <summary>How a registered application is run. Slice 1 supports only an out-of-process
+/// child (<see cref="Process"/>); the long-running-socket rung and a future in-WASM tier are
+/// later additions to this closed set.</summary>
+public enum ApplicationKind
+{
+    /// <summary>An external process spawned per connect, the session piped over its stdio
+    /// per the <c>pdn-app/1</c> wire. Any language.</summary>
+    Process,
+}
+
+/// <summary>
+/// One registered node application. <see cref="Id"/> is the stable identity (log / reconcile
+/// key); <see cref="Match"/> is the console verb that launches it. Out-of-process by design —
+/// the node never links app code (see <c>docs/app-extensibility.md</c>).
+/// </summary>
+public sealed record ApplicationConfig
+{
+    /// <summary>Stable, operator-chosen identifier (e.g. <c>"myapp"</c>). Must be unique
+    /// within <see cref="NodeConfig.Applications"/>; surfaced to the app in its connect
+    /// header and used in logs.</summary>
+    public required string Id { get; init; }
+
+    /// <summary>The console verb a connected user types to launch this app (e.g. <c>"MYAPP"</c>).
+    /// Matched case-insensitively, exact (no prefix abbreviation), and only after the built-in
+    /// console verbs — so an app can never shadow <c>BYE</c>/<c>CONNECT</c>/etc. Must be unique
+    /// within <see cref="NodeConfig.Applications"/> and must not collide with a built-in verb.</summary>
+    public required string Match { get; init; }
+
+    /// <summary>Whether this app is launchable. A disabled entry is retained in config but
+    /// never spawned (its verb falls through to "unknown command"). Default <c>true</c>.</summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>How to run the app. Default <see cref="ApplicationKind.Process"/>.</summary>
+    public ApplicationKind Kind { get; init; } = ApplicationKind.Process;
+
+    /// <summary>The executable to spawn (<see cref="ApplicationKind.Process"/>) — e.g.
+    /// <c>/usr/bin/python3</c>. Required for a process app.</summary>
+    public string? Command { get; init; }
+
+    /// <summary>Arguments passed to <see cref="Command"/> (e.g. the script path). Each element
+    /// is one argument, passed without shell interpretation.</summary>
+    public IReadOnlyList<string> Args { get; init; } = [];
+
+    /// <summary>Working directory for the spawned process (e.g. where the app keeps its state
+    /// file). Null = inherit the node's working directory.</summary>
+    public string? WorkingDirectory { get; init; }
+
+    /// <summary>The capabilities the owner grants this app, declared in config (the owner-owns-trust
+    /// model). In slice 1 only <c>session</c> is meaningful (the local session is always handed
+    /// over); <c>network</c>/<c>config</c>/<c>storage</c> are mediated by later slices. Free-form
+    /// for forward-compatibility.</summary>
+    public IReadOnlyList<string> Capabilities { get; init; } = [];
 }
 
 /// <summary>

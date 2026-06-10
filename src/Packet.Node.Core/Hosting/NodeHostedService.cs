@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Node.Core.Applications;
 using Packet.Node.Core.Auth;
 using Packet.Node.Core.Beacons;
 using Packet.Node.Core.Configuration;
@@ -47,6 +48,10 @@ public sealed partial class NodeHostedService : BackgroundService
     private PortSupervisor? supervisor;
     private TelnetConsoleListener? telnet;
     private NetRomService? netRom;
+    // The registered-application launcher, built once at start from the config provider.
+    // Reads config.Current.Applications live, so a hot edit applies to the next launch with
+    // no reconcile machinery (each connect spawns a fresh app process). Null only before start.
+    private IApplicationHost? applicationHost;
     private IDisposable? changeSubscription;
     private NodeConfig appliedConfig;
     private int pendingReconcile;
@@ -114,7 +119,11 @@ public sealed partial class NodeHostedService : BackgroundService
         // consoles (AX.25 + NET/ROM) can serve SYSOP; the telnet factory reads the same field.
         sysopContext = BuildSysopContext();
 
-        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons, sysopContext);
+        // The application launcher — built before the supervisor so its per-connection consoles
+        // (AX.25 + NET/ROM) can launch registered apps; the telnet factory reads the same field.
+        applicationHost = new ApplicationHost(config, loggerFactory);
+
+        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons, sysopContext, applicationHost);
         await supervisor.StartAsync(stoppingToken).ConfigureAwait(false);
 
         StartTelnet(startConfig.Management.Telnet, stoppingToken);
@@ -318,7 +327,7 @@ public sealed partial class NodeHostedService : BackgroundService
             // up, Connect reports "not available". Resolved per session so it
             // reflects the live port set.
             var connector = supervisor?.ResolveDefaultConnector();
-            var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext);
+            var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost);
             return new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
         };
     }

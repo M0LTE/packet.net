@@ -1,3 +1,4 @@
+using Packet.Node.Core.Applications;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.NetRom;
 
@@ -38,16 +39,26 @@ public sealed class NodeConsoleEnvironment
     /// </summary>
     public SysopContext? Sysop { get; }
 
+    /// <summary>
+    /// The registered-application launcher. Null when the app platform isn't wired (older call
+    /// sites / tests) — the console then has no apps and an unknown verb is just "unknown
+    /// command", exactly as before. When present, a verb the console doesn't recognise that
+    /// matches a registered app launches it over the session.
+    /// </summary>
+    public IApplicationHost? Applications { get; }
+
     public NodeConsoleEnvironment(
         IConfigProvider config,
         IOutboundConnector? outboundConnector,
         INetRomRoutingView? netRom = null,
-        SysopContext? sysop = null)
+        SysopContext? sysop = null,
+        IApplicationHost? applications = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         OutboundConnector = outboundConnector;
         NetRom = netRom;
         Sysop = sysop;
+        Applications = applications;
     }
 
     /// <summary>The default over-RF elevation lifetime when the config leaves it unset.</summary>

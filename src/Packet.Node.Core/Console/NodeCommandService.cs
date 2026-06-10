@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Core;
+using Packet.Node.Core.Applications;
 using Packet.Node.Core.Auth;
 
 namespace Packet.Node.Core.Console;
@@ -21,7 +22,7 @@ namespace Packet.Node.Core.Console;
 /// / <c>?</c> (command list). An unknown command re-prompts without
 /// disconnecting.
 /// </remarks>
-public sealed partial class NodeCommandService
+public sealed partial class NodeCommandService : INodeApplication
 {
     private readonly NodeConsoleEnvironment env;
     private readonly ILogger<NodeCommandService> logger;
@@ -124,6 +125,15 @@ public sealed partial class NodeCommandService
         }
     }
 
+    /// <summary>
+    /// The console <b>is application #0</b>: it satisfies <see cref="INodeApplication"/> so the
+    /// node-prompt session is just "the first app". The launch context is unused — the console
+    /// reads identity / ports / services from its <see cref="NodeConsoleEnvironment"/> — so this
+    /// delegates to the existing prompt loop unchanged.
+    /// </summary>
+    Task INodeApplication.RunAsync(INodeConnection session, NodeAppContext context, CancellationToken cancellationToken)
+        => RunAsync(session, cancellationToken);
+
     private enum DispatchOutcome { Continue, Disconnect }
 
     private async Task<DispatchOutcome> DispatchAsync(
@@ -187,6 +197,13 @@ public sealed partial class NodeCommandService
                 return DispatchOutcome.Continue;
 
             case UnknownCommand unknown:
+                // A verb the console doesn't own may be a registered application — built-in
+                // verbs are matched first (above), so an app can never shadow one. If it
+                // launches, control returns here when the app exits and we re-prompt.
+                if (await TryLaunchAppAsync(connection, unknown, ct).ConfigureAwait(false))
+                {
+                    return DispatchOutcome.Continue;
+                }
                 await WriteLineAsync(connection,
                     $"Unknown command: {Sanitise(unknown.Raw)}  (type H for help)", ct).ConfigureAwait(false);
                 return DispatchOutcome.Continue;
@@ -242,6 +259,50 @@ public sealed partial class NodeCommandService
             await ConsoleRelay.PipeAsync(relayInbound, outbound, ct).ConfigureAwait(false);
             await WriteLineAsync(inbound, $"Disconnected from {connect.Target}.", ct).ConfigureAwait(false);
         }
+    }
+
+    // ─── Application launch (the app platform — console as app #0 launches app N) ─────
+    // An unknown verb that matches a registered application launches it over THIS session via
+    // the application host (out-of-process; the node shares no code with the app). The app
+    // gets the connecting callsign / transport / arrival port / args; control returns here to
+    // re-prompt when the app exits. Returns false (→ "unknown command") when no app matches or
+    // the platform isn't wired.
+    private async Task<bool> TryLaunchAppAsync(INodeConnection connection, UnknownCommand unknown, CancellationToken ct)
+    {
+        var host = env.Applications;
+        if (host is null || string.IsNullOrWhiteSpace(unknown.Raw))
+        {
+            return false;
+        }
+
+        // First whitespace-delimited token is the launch verb; the remainder are args.
+        var parts = unknown.Raw.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return false;
+        }
+
+        var app = host.Resolve(parts[0]);
+        if (app is null)
+        {
+            return false;
+        }
+
+        var args = parts.Length > 1
+            ? parts[1].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            : [];
+        var callsign = Callsign.TryParse(connection.PeerId, out var call) ? call.ToString() : connection.PeerId;
+        var context = new NodeAppContext
+        {
+            Callsign = callsign,
+            Transport = connection.TransportKind,
+            PortId = env.OutboundConnector?.PortId,   // the working port (== arrival port for same-port AX.25)
+            Args = args,
+            SysopElevated = false,                    // reserved — apps launch from the unelevated prompt in slice 1
+        };
+
+        await host.RunAsync(app, connection, context, ct).ConfigureAwait(false);
+        return true;
     }
 
     // ─── Text builders ──────────────────────────────────────────────────
