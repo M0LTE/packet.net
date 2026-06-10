@@ -1,6 +1,6 @@
 # pdn app extensibility — design (the "applications" platform)
 
-**Status:** agreed 2026-06-10 (Tom + Claude); supersedes the in-process `.dll`-plugin sketch in plan §5.9. First slice (WALL) in progress.
+**Status:** agreed 2026-06-10 (Tom + Claude); supersedes the in-process `.dll`-plugin sketch in plan §5.9. **Slice 1 built** — the `INodeApplication` seam + the `applications:` registry + the `pdn-app/1` external-process stdio wire ([`app-local-session-wire.md`](app-local-session-wire.md)) + the shipped **WALL** reference app ([`examples/wall/`](../examples/wall/)).
 **Supersedes:** the original Phase-9 idea — `Packet.Node.Extensions/IApplicationModule.cs` loaded from `*.dll` in an isolated `AssemblyLoadContext`. That model is .NET-only and in-process; this design replaces it with **out-of-process, language-agnostic** apps. See [Why not in-proc .NET plugins](#why-not-in-proc-net-plugins).
 
 ## Why
@@ -27,7 +27,7 @@ App capability splits cleanly into a **packet plane** (how the app touches sessi
 The split is not about wire ergonomics — it's about whether the app uses **the node's own inbound session** (local) or **the network** (mesh). Interop is a network-plane property only: a local-only app has no "run it against XRouter too" story, so the router-centric model is pure overhead for it.
 
 **(a) Local-session seam — pdn-native, minimal, owner-trusted.** The node hands the app the connected user's session (the `INodeConnection` equivalent — a transport-agnostic byte stream + the connecting callsign / arrival port / transport / sysop-elevation status), keyed by an alias or console verb. For apps that just want "the user who connected to *me*": WALL, a local info service, a menu.
-- *Floor:* an external process spawned per connect, session piped over stdio + a small connect header (callsign/port/transport). Any language; a guestbook is ~30 lines + a state file. No network, no callsign registration.
+- *Floor:* an external process spawned per connect, session piped over stdio + a small connect header (callsign/port/transport) — the **`pdn-app/1` wire**, specified in [`app-local-session-wire.md`](app-local-session-wire.md). Any language; a guestbook is ~30 lines + a state file. No network, no callsign registration. **Built in slice 1** (`ExternalProcessApplication`); WALL is its worked example.
 - *Next rung:* a long-running local socket (Unix-domain / WS) the node bridges sessions to, for apps wanting shared in-memory state across users.
 - The built-in console (`NodeCommandService`) is itself the first local-session app — this seam *generalises what the console already does*, it isn't a new subsystem.
 
@@ -60,6 +60,19 @@ Out-of-process by default (blast radius is a process boundary). Each app declare
 
 The original §5.9 sketch loaded `IApplicationModule` `.dll`s in an `AssemblyLoadContext`. Out-of-process language-agnostic apps win on every axis that matters here: (1) **any language**, not just .NET; (2) **blast radius** — a crashing/hostile app is a dead process, not a corrupted node; (3) **independent release cadence** — apps (and DAPPS, which is its own project) evolve without recompiling pdn; (4) **interop** — the network seam *is* RHPv2, so apps target the broader XRouter ecosystem, not a pdn-private ABI. The only thing the DLL model wins is raw in-proc speed, which a packet node does not need.
 
+## Keeping app code separate from node code
+
+WALL is the proof that the seam works, so the separation between app and node is *the* property under test — and it is enforced, not merely intended. Six mechanisms, layered:
+
+1. **No shared code, no compile-time link.** The app links nothing from the node; the node links nothing from the app. The only contract is the documented `pdn-app/1` wire. (`Packet.Node*` references no application project — asserted by an arch test.)
+2. **Out-of-process from day one.** Slice 1 *is* the external wire — there is no in-proc-first shortcut to retrofit. The process boundary is the blast-radius boundary.
+3. **A language boundary, for the reference app.** WALL is **Python**, deliberately. A .NET WALL could always be *suspected* of quietly reaching into node internals; a separate-language process structurally *cannot*. The cleanest separation is one the type system can't even express across.
+4. **Discovery via config + manifest only.** The node learns an app exists from an `applications:` entry (its verb, its command) — never from compiled-in knowledge. The node does not name WALL anywhere in its source (its config examples use a neutral placeholder); the WALL-specific path lives only in the deployment config.
+5. **An enforced CI guardrail.** An architecture test fails the build if `Packet.Node*` gains a project reference to an app, or hardcodes the WALL app (`wall.py` / `examples/wall`) into its source. Drift is caught mechanically.
+6. **Dogfooding the public contract.** WALL is built against exactly the `pdn-app/1` wire a third-party author would use — no privileged side channel. If WALL needs something the wire doesn't give, the *wire* gets fixed (for everyone), not WALL (specially).
+
+The payoff: "write a node app in any language, fully separated from the node" stops being a slogan and becomes a thing the repo *can't accidentally break*.
+
 ## The validating cast
 
 | App | Local-session seam | Network seam (RHPv2) | Human plane (proxied web) | State |
@@ -75,8 +88,8 @@ WALL and BBS bracket the whole range — **floor** (local session + tiny store, 
 
 The platform is **two adopt/build decisions, not four invent decisions**: *adopt* RHPv2 on the server side (packet/network plane); *build* the manifest+reverse-proxy+auth shell (human plane). Sliced so each step is independently shippable:
 
-1. **`INodeApplication` + registry + WALL (packet side).** Extract `INodeApplication` from `NodeCommandService` (console becomes app #0, zero behaviour change); add the `applications:` registry to `NodeConfig`; route a console verb / connect-alias to a registered app; ship **WALL** as the first app over the packet session (read/post to a store). Proves the abstraction + registry + a useful app, cheaply.
-2. **External local-session wire + WALL as the worked example.** Generalise to an external-process (stdio) app with a connect header — re-present WALL as a language-agnostic external example (the documentation template). This is where "easy to deliver for, any language" becomes concrete.
+1. **`INodeApplication` + registry + the `pdn-app/1` stdio wire + WALL (BUILT).** Extract `INodeApplication` from `NodeCommandService` (console becomes app #0, zero behaviour change); add the `applications:` registry to `NodeConfig` (read live per launch — each connect spawns fresh, so a config edit applies to the next launch with no reconcile machinery); route a console verb to a registered app; implement the **external-process stdio wire** ([`app-local-session-wire.md`](app-local-session-wire.md)) — spawn-per-connect, session bridged over stdio with a connect header + newline translation + clean teardown; ship **WALL** as a fully-separated out-of-process **Python** app ([`examples/wall/`](../examples/wall/)). The external wire is folded into slice 1 deliberately — it *is* the separation boundary (see below). Proves the abstraction + registry + a useful, arm's-length app, end to end.
+2. **Next rung of the local-session seam.** A long-running local socket (Unix-domain / WS) the node bridges sessions to, for apps wanting shared in-memory state across users (vs the spawn-per-connect stdio floor). Plus broader worked-example / tutorial docs built around WALL.
 3. **The app-gateway (human plane).** Manifest + reverse-proxy + auth injection + a launcher in the web UI; WALL gets a proxied web view. Now WALL exercises both planes.
 4. **`Packet.Rhp2.Server` (network plane).** RHPv2 server over pdn's AX.25 + NET-ROM engine, validated against rhp2lib's mock / Testcontainers-vs-XRouter conformance suite. Unblocks the network apps.
 5. **BBS / Chat / DAPPS** on the above. BBS stress-tests the full surface; chat needs the BPQ-compatible link protocol (a separate spec from RHPv2 — scope it on its own).

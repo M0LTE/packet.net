@@ -1,6 +1,7 @@
 using FluentValidation;
 using Packet.Core;
 using Packet.NetRom.Wire;
+using Packet.Node.Core.Console;
 
 namespace Packet.Node.Core.Configuration;
 
@@ -43,12 +44,34 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
         RuleFor(c => c.NetRom).NotNull().SetValidator(new NetRomValidator());
 
         RuleFor(c => c.Beacon).NotNull().SetValidator(new BeaconConfigValidator());
+
+        // Empty applications is the default (a node with no apps). Each entry is validated,
+        // and ids / match-verbs must be unique across the list (the launch + log keys).
+        RuleForEach(c => c.Applications).SetValidator(new ApplicationConfigValidator());
+
+        RuleFor(c => c.Applications)
+            .Must(HaveUniqueAppIds)
+            .WithMessage("Each application must have a unique Id.")
+            .Must(HaveUniqueAppMatches)
+            .WithMessage("Two applications may not share the same Match verb (case-insensitive).");
     }
 
     private static bool HaveUniqueIds(IReadOnlyList<PortConfig> ports)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         return ports.All(p => p.Id is not null && seen.Add(p.Id));
+    }
+
+    private static bool HaveUniqueAppIds(IReadOnlyList<ApplicationConfig> apps)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return apps.All(a => a.Id is not null && seen.Add(a.Id));
+    }
+
+    private static bool HaveUniqueAppMatches(IReadOnlyList<ApplicationConfig> apps)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return apps.All(a => string.IsNullOrWhiteSpace(a.Match) || seen.Add(a.Match.Trim()));
     }
 
     private static bool HaveUniqueEndpoints(IReadOnlyList<PortConfig> ports)
@@ -174,6 +197,47 @@ public sealed class PortBeaconValidator : AbstractValidator<PortBeaconConfig>
         RuleFor(b => b.Text!).NotEmpty()
             .When(b => b.Enabled && b.Text is not null)
             .WithMessage("port beacon.text must be non-empty when set on an enabled beacon.");
+    }
+}
+
+/// <summary>
+/// Validates one <see cref="ApplicationConfig"/>: a stable id, a launch verb that does not
+/// collide with a built-in console verb, and the fields its <see cref="ApplicationKind"/>
+/// requires (a process app needs a command). The built-in-verb collision is checked by
+/// running the verb through <see cref="NodeCommandParser"/> — the single source of truth for
+/// what the console already understands — and rejecting anything it classifies as a real
+/// command (so a registered app can never be dead config, shadowed by a built-in).
+/// </summary>
+public sealed class ApplicationConfigValidator : AbstractValidator<ApplicationConfig>
+{
+    public ApplicationConfigValidator()
+    {
+        RuleFor(a => a.Id)
+            .NotEmpty().WithMessage("application.id is required.");
+
+        RuleFor(a => a.Match)
+            .NotEmpty().WithMessage("application.match (the launch verb) is required.")
+            .Must(NotABuiltInVerb)
+            .WithMessage(a => $"application.match '{a.Match}' collides with a built-in console verb " +
+                "(CONNECT/BYE/NODES/INFO/HELP/SYSOP/SESSIONS/KICK/PORT/RELOAD or an abbreviation) — pick another.");
+
+        RuleFor(a => a.Command)
+            .NotEmpty().WithMessage("application.command is required for a process application.")
+            .When(a => a.Kind == ApplicationKind.Process);
+    }
+
+    // The verb is safe iff the parser does NOT recognise it as a command — i.e. it falls
+    // through to Unknown (or is empty). Anything that parses to a real verb (or a malformed
+    // form of one, e.g. a bare "C") would be intercepted by the console before the app could
+    // ever launch, so reject it at config time rather than ship dead config.
+    private static bool NotABuiltInVerb(string? match)
+    {
+        if (string.IsNullOrWhiteSpace(match))
+        {
+            return true;   // emptiness is reported by the NotEmpty rule above.
+        }
+        var parsed = NodeCommandParser.Parse(match.Trim());
+        return parsed is UnknownCommand or EmptyCommand;
     }
 }
 

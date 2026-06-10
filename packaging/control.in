@@ -3,6 +3,7 @@ Version: @VERSION@
 Architecture: @ARCH@
 Maintainer: Tom Fanning <tom@m0lte.uk>
 Depends: adduser, libc6
+Recommends: python3
 Section: hamradio
 Priority: optional
 Homepage: https://github.com/m0lte/packet.net
