@@ -231,7 +231,7 @@ public static class PdnWebAuthnApi
             var refreshToken = refresh.Issue(user.Username);
             users.UpdateLastLogin(user.Username, clock.GetUtcNow());
             AuthLog.PasskeyAssertionSucceeded(audit, user.Username, ip, user.Scope);
-            return Results.Ok(new PdnAuthApi.LoginResponse(token, expiresAt, user.Scope, refreshToken));
+            return Results.Ok(new PdnAuthApi.LoginResponse(token, expiresAt, user.Scope, refreshToken, user.Username));
         });
 
         // ===== GATED: registration + credential management =====================

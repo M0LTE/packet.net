@@ -58,7 +58,7 @@ export function Login() {
     setError(null);
     try {
       const res = await api.login(username, pw);
-      auth.login(res.token, res.scopes, username, res.refreshToken);
+      auth.login(res.token, res.scopes, res.username, res.refreshToken);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Unauthorized
@@ -76,7 +76,9 @@ export function Login() {
     setError(null);
     try {
       const res = await api.passkeyAssert(username.trim() || undefined);
-      auth.login(res.token, res.scopes, username.trim(), res.refreshToken);
+      // Use the server-resolved username, NOT the typed box: a discoverable passkey
+      // sign-in leaves the box empty, and the identity comes from the signed credential.
+      auth.login(res.token, res.scopes, res.username, res.refreshToken);
       navigate("/", { replace: true });
     } catch (err) {
       // A user-cancelled / aborted ceremony (NotAllowedError) is not an error to shout

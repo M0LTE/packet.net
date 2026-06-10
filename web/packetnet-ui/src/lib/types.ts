@@ -215,7 +215,9 @@ export interface UserSummary {
 // scope string; `refreshToken` is the opaque one-time-use token the client stores and
 // presents to /auth/refresh (may be null only if the node couldn't persist one — the
 // access token still works until it expires).
-export interface LoginResult { token: string; expiresAt: string; scopes: string; refreshToken: string | null }
+// `username` is the authenticated account as the server resolved it — authoritative, so
+// a passwordless passkey sign-in (no typed username) shows the right identity, not a guess.
+export interface LoginResult { token: string; expiresAt: string; scopes: string; refreshToken: string | null; username: string }
 // GET /setup/state body.
 export interface SetupState { needsSetup: boolean }
 // POST /setup request body (identity + first admin + optional first port).

@@ -520,7 +520,7 @@ async function login(username: string, password: string): Promise<LoginResult> {
   if (MODE === "mock") {
     await new Promise((r) => setTimeout(r, 200));
     if (!username || !password) throw new Unauthorized("Invalid username or password.");
-    return mockTokens("admin");
+    return mockTokens("admin", username);
   }
   const res = await fetch(`${BASE}/auth/login`, {
     method: "POST",
@@ -535,12 +535,13 @@ async function login(username: string, password: string): Promise<LoginResult> {
 
 // Synthesise a fresh token pair (mock mode) — a unique refresh token each call so a
 // mock /auth/refresh visibly "rotates" the pair, mirroring the live one-time-use shape.
-function mockTokens(scope: string): LoginResult {
+function mockTokens(scope: string, username: string): LoginResult {
   return {
     token: "mock.jwt." + Math.random().toString(36).slice(2),
     expiresAt: new Date(Date.now() + 36e5).toISOString(),
     scopes: scope,
     refreshToken: "mock.rt." + Math.random().toString(36).slice(2),
+    username,
   };
 }
 
@@ -551,7 +552,7 @@ function mockTokens(scope: string): LoginResult {
 async function refresh(): Promise<LoginResult> {
   if (MODE === "mock") {
     await new Promise((r) => setTimeout(r, 80));
-    return mockTokens("admin");
+    return mockTokens("admin", "tom");
   }
   const rt = refreshToken();
   const res = await fetch(`${BASE}/auth/refresh`, {
