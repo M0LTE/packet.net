@@ -166,6 +166,9 @@ public sealed class AuthApiTests : IDisposable
         var body = await ok.Content.ReadFromJsonAsync<JsonElement>(Web);
         body.GetProperty("token").GetString().Should().NotBeNullOrEmpty();
         body.GetProperty("scopes").GetString().Should().Be("admin");
+        // The response carries the authenticated username so the client need not derive it
+        // (a passwordless passkey sign-in has no typed username to fall back on).
+        body.GetProperty("username").GetString().Should().Be("sysop");
 
         // Bad password → 401, generic message.
         var badPw = await client.PostAsJsonAsync("/api/v1/auth/login",
@@ -211,6 +214,7 @@ public sealed class AuthApiTests : IDisposable
         rotated.Should().NotBeNullOrEmpty();
         rotated.Should().NotBe(refreshToken);
         refreshBody.GetProperty("scopes").GetString().Should().Be("admin");
+        refreshBody.GetProperty("username").GetString().Should().Be("sysop");
 
         // The ORIGINAL (now-consumed) token is rejected (one-time use → 401).
         var replay = await client.PostAsJsonAsync("/api/v1/auth/refresh",

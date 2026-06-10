@@ -168,7 +168,7 @@ public static class PdnAuthApi
             var refreshToken = refresh.Issue(user.Username);
             users.UpdateLastLogin(user.Username, clock.GetUtcNow());
             AuthLog.LoginSucceeded(audit, user.Username, ip, user.Scope);
-            return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, refreshToken));
+            return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, refreshToken, user.Username));
         });
 
         // Rotate a refresh token → a fresh access JWT + a fresh refresh token (same
@@ -231,7 +231,7 @@ public static class PdnAuthApi
 
             var (token, expiresAt) = tokens.Issue(user.Username, user.Scope);
             AuthLog.RefreshSucceeded(audit, user.Username, ip);
-            return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, result.NewToken));
+            return Results.Ok(new LoginResponse(token, expiresAt, user.Scope, result.NewToken, user.Username));
         });
 
         // Log out → revoke the presented token's whole family (every descendant). Always
@@ -415,11 +415,13 @@ public static class PdnAuthApi
     /// <summary>The <c>/auth/login</c> request body.</summary>
     public sealed record LoginRequest(string Username, string Password);
 
-    /// <summary>The <c>/auth/login</c> + <c>/auth/refresh</c> success body. <c>Scopes</c>
-    /// is the single granted scope string; <c>RefreshToken</c> is the opaque token the
-    /// client stores + presents to <c>/auth/refresh</c> (null only if the refresh-token
-    /// store could not persist it — the access token still works until it expires).</summary>
-    public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt, string Scopes, string? RefreshToken);
+    /// <summary>The <c>/auth/login</c> + <c>/auth/refresh</c> (and passkey-assert) success
+    /// body. <c>Scopes</c> is the single granted scope string; <c>RefreshToken</c> is the
+    /// opaque token the client stores + presents to <c>/auth/refresh</c> (null only if the
+    /// refresh-token store could not persist it — the access token still works until it
+    /// expires); <c>Username</c> is the authenticated account, so the client need not
+    /// derive it (a passwordless passkey sign-in has no typed username to fall back on).</summary>
+    public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt, string Scopes, string? RefreshToken, string Username);
 
     /// <summary>The <c>/auth/refresh</c> + <c>/auth/logout</c> request body.</summary>
     public sealed record RefreshRequest(string RefreshToken);
