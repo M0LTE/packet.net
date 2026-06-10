@@ -225,6 +225,10 @@ public sealed class ApplicationConfigValidator : AbstractValidator<ApplicationCo
             .NotEmpty().WithMessage("application.command is required for a process application.")
             .When(a => a.Kind == ApplicationKind.Process);
 
+        RuleFor(a => a.SocketPath)
+            .NotEmpty().WithMessage("application.socketPath is required for a socket application.")
+            .When(a => a.Kind == ApplicationKind.Socket);
+
         // When a ui block is present, its upstream must be an absolute http(s) URL — pdn
         // reverse-proxies to it, so anything else is unusable config.
         When(a => a.Ui is not null, () =>

@@ -81,3 +81,26 @@ applications:
 The user types `WALL` (or `WALL last 5`) at the node prompt; pdn spawns the app, writes the header (with `args: last 5`), and bridges the session. Built-in console verbs always win, so an app cannot shadow `BYE`/`CONNECT`/etc. — the validator rejects a `match` that collides with a built-in.
 
 See [`examples/wall/`](../examples/wall/) for the worked example this contract is documented around.
+
+## 6. The long-running-socket rung (`kind: socket`)
+
+The stdio floor spawns a fresh process per connect, so each user is isolated — fine for a wall or a menu, but it can't let users see or message **each other**. The next rung keeps the *exact same `pdn-app/1` wire* but changes the transport: the app is a **long-running daemon** that listens on a **Unix-domain socket**, and the node opens a **new connection to that socket per connect**, bridging the session over it. Because the daemon holds every live connection, it can keep **shared in-memory state across users** and **push unsolicited output** (a broadcast appears in another user's session live).
+
+```yaml
+applications:
+  - id: lobby
+    match: LOBBY
+    enabled: true
+    kind: socket
+    socketPath: /run/packetnet/lobby.sock   # the daemon's listening socket
+    capabilities: [ session ]
+```
+
+For an app author the contract is identical to the floor — **per accepted connection**: read the connect header (§1), then exchange line-oriented UTF-8 (§2: read the user's `\n`-terminated lines, reply with `\n` line endings only, the node translates). The differences:
+
+- **Your program is the server, the node is the client.** Bind the Unix socket, `listen`, `accept` in a loop, handle each accepted connection concurrently (one connection = one user session). The owner runs your daemon (e.g. a systemd unit) — **the node does not manage its lifecycle**, it only connects (so a daemon that isn't listening just reports the app unavailable to the user).
+- **Bind loopback / local only** and set the socket mode so the node's service user can connect (the owner owns trust — the daemon is reachable only on the local machine).
+- **EOF = that user left.** When the user disconnects, the node closes the connection; your `recv` for it returns empty. Drop them from your shared state (and tell the others, if you broadcast presence).
+- **Shared state is yours to hold.** Guard it (a lock) — multiple connections run concurrently. A write to a vanished peer may fail; catch it and reap that entry rather than crashing the broadcast.
+
+See [`examples/lobby/`](../examples/lobby/) for the worked example — a presence + broadcast "lobby" where `WHO` lists who's connected right now and `SAY` reaches every connected user, which the spawn-per-connect floor structurally cannot do.

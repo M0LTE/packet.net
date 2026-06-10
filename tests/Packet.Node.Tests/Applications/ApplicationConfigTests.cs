@@ -181,6 +181,36 @@ public sealed class ApplicationConfigTests
         Assert.True(Validate(cfg).IsValid);
     }
 
+    // ── The socket rung (Slice 2) ───────────────────────────────────────
+
+    [Fact]
+    public void A_socket_app_binds_from_yaml_and_validates()
+    {
+        var yaml = BaseIdentity + """
+            applications:
+              - id: lobby
+                match: LOBBY
+                kind: socket
+                socketPath: /run/packetnet/lobby.sock
+            """;
+
+        var app = Assert.Single(NodeConfigYaml.Parse(yaml).Applications);
+        Assert.Equal(ApplicationKind.Socket, app.Kind);
+        Assert.Equal("/run/packetnet/lobby.sock", app.SocketPath);
+        Assert.True(Validate(new NodeConfig
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            Applications = [app],
+        }).IsValid);
+    }
+
+    [Fact]
+    public void A_socket_app_without_a_socket_path_is_rejected()
+    {
+        var cfg = Valid(new ApplicationConfig { Id = "lobby", Match = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = null });
+        Assert.False(Validate(cfg).IsValid);
+    }
+
     [Theory]
     [InlineData("not-a-url")]
     [InlineData("127.0.0.1:9090")]   // no scheme
