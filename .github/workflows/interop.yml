@@ -114,6 +114,18 @@ jobs:
           rm -rf "${RUNNER_TEMP}/ax25-ts"
           git clone --depth=1 --branch main https://github.com/m0lte/ax25-ts.git "${RUNNER_TEMP}/ax25-ts"
 
+      # Cross-stack parity drift guard: ax25-ts ships scripts/parity-check.mjs,
+      # which compares the C# named-flag / preset / listener-surface inventories
+      # (THIS checkout — i.e. the PR head) against the TS ones (ax25-ts main).
+      # A C# change that adds a named flag or widens the listener surface fails
+      # here until the TS parity leg exists — or until a reviewed exception is
+      # recorded in ax25-ts scripts/parity-exceptions.json (ship that first,
+      # then this re-runs green). The mirror of this check runs in ax25-ts's own
+      # ci.yml against packet.net main, so drift fails CI on whichever side
+      # introduces it. Costs ~a second; runs before the stack comes up.
+      - name: ax25-ts parity check (drift guard)
+        run: node "${RUNNER_TEMP}/ax25-ts/scripts/parity-check.mjs" --csharp . --ts "${RUNNER_TEMP}/ax25-ts"
+
       - name: recreate stack (phase B — ax25-ts)
         run: scripts/interop-recreate-stack.sh
         env:
