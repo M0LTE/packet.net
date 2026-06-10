@@ -4,8 +4,9 @@
 >
 > If you are reading this for the first time: start with [Why Packet.NET?](#1-why-packetnet) and [Working agreements](#2-working-agreements). If you are looking for *what to build next*, jump to [Roadmap](#5-phased-roadmap). If you are an agent: read [Working agreements](#2-working-agreements) carefully — those are the operating instructions that take precedence over your defaults.
 
-**As of:** 2026-05-17
-**Current phase:** Phase 2 in progress — `Ax25Session` runner online. First transcribed transitions (figc4.4a cols 5+6) drive end-to-end through the orchestrator. Phase 3 (KISS hardening) pulled partially forward overnight on 2026-05-14 against the live NinoTNC pair: serial driver, ACKMODE round-trip, TX-Test frame parser, adaptive-parameter scaffolding, adaptive-transport glue, and a first soak campaign producing [`docs/nino-tnc-characterisation.md`](nino-tnc-characterisation.md). Next: more SDL pages, plus a real-RF soak campaign once we have field data to compare against the bench.
+**As of:** 2026-06-10
+**Current phase:** Phases 0–5 complete; on the Phase 6/7 horizon. The AX.25 v2.2 Data-Link engine (Phase 2) is conformance-complete — mod-8 **and mod-128** connected-mode data transfer, REJ/SREJ recovery, segmentation, Timer Recovery, all green against the conformance + property harnesses (the on-air 10 kB lossy bench loop, #214, is the one residual, gated on TNC hardware not code). KISS hardening (Phase 3), the node host (Phase 4 — `Packet.Node`/`Packet.Node.Core`, deployable `.deb`), and the React web control panel (Phase 5) are all shipped and **live on the lab** (`pdn.m0lte.uk`): NET/ROM L3+L4 + INP3 routing, beacons, and a complete auth story (TLS · refresh-token rotation · WebAuthn passkeys · over-RF sysop TOTP) reachable over a real trusted cert with passkeys working on phone + laptop. A 2026-06-10 correctness sweep reconciled the issue tracker (it had drifted well behind the code) — see §17. **Next:** Phase 6 (AGW/RHPv2 external app surfaces) or Phase 7 (apt-repo distribution + signed one-click update); the deferred link-tuner is parked in Phase 8; per-frame RSSI/SNR (Tait 8100/8200, #363) is the Phase 10 adaptive-RF seed.
+**Latest amendment:** [§17 entry 2026-06-10 — Correctness sweep + tracker reconciliation + roadmap true-up. The issue tracker had drifted well behind the code: closed #231 (retransmit renumbering — fixed cabd071/#232), #292 (half-duplex t1Ms — 2b8c616/#302), #239 (mod-128 connected-mode data transfer — implemented + conformance-tested, the throw is gone), #230 (T2/T3 options now flow into the dispatcher arm durations), #144 (resolved by #239 — the runtime genuinely does mod-128 now), and #167/#260/#177 (node host / SP-010 / direwolf harness — all shipped), each with green-test evidence. The §5 roadmap + the status header are refreshed to reality (Phases 0–5 ✅; Phase 6 next; Phase 7 part-done; Phase 9 partly landed early via NET/ROM+INP3; Phase 10 added). #142 (reject a SABM with the C=Response bit) stays as a scoped library follow-up — it wants the strict-default-plus-named-escape-hatch treatment (a legacy AX.25 v1.x peer may not set the command bit the v2.2 way), not a silent tightening. New work item #363: per-frame RSSI/SNR via an IRadioControl abstraction (Tait 8100/8200 CCDI) feeding the link-tuner/INP3/monitor — Phase 10 / unblocks the deferred link-tuner](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-10 — Fix passkey-login identity: a passwordless passkey sign-in showed the wrong user (empty username → a "node" placeholder) and lost admin nav, because the SPA set the session username from the login FORM, which a discoverable-credential assert leaves blank. The server already resolves the account at every issue point, so `LoginResponse` now carries `Username` (login + refresh + passkey-assert), and `login.tsx` uses `res.username` on BOTH paths instead of the typed box. `LoginResult.username` added client-side (mock `mockTokens` too). +2 test asserts (login + refresh responses include the username). Verified end-to-end on the lab over `pdn.m0lte.uk`](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-09 — Auth part 3/4: WebAuthn / passkeys (localhost-first, tier-1) — the login screen's "Continue with passkey" button now signs in passwordlessly, and a signed-in user enrols + manages passkeys for themselves. Scope is tier 1 per `docs/passkeys-lan-trust-pattern.md` §2/§4/§8: the RP id + expected origin are CONFIGURABLE but default to `localhost` (where they coincide — the zero-config case that works today over plain HTTP on a loopback secure context); the distribution tiers (mDNS/ACME/IP-names/redirects) are PARKED per the §8 gate. New web-free Core credential store (`IWebAuthnCredentialStore`/`SqliteWebAuthnCredentialStore`, resilient pdn.db pattern; `webauthn_credential` table) + the security-critical `WebAuthnChallengeCache` (server-generated, single-use atomic `Take`, expiring off `TimeProvider`, user-keyed for register / per-attempt-session-keyed for assert — never trust a client challenge). Per-request `IFido2` (Fido2.AspNet 4.0.0-beta.16) built from the live config + the ACTUAL serving origin; RP id fixed, origins = explicit allow-list else request-origin+loopback. Endpoints (`PdnWebAuthnApi.cs`): register begin/complete GATED + username from the PRINCIPAL not the body; assert begin/complete ALWAYS-OPEN (username-less/discoverable OK, no existence oracle) → verify + `sign_count` CLONE-DETECTION (reject a non-advancing counter) → issue the SAME `{token,expiresAt,scopes,refreshToken}` as `/auth/login`; credentials list/delete (own only). Web: `@simplewebauthn/browser` startAuthentication/startRegistration; button enables only in a secure context; mock mode doesn't fake a ceremony. Pinned `Microsoft.Bcl.Memory` 9.0.14 (Fido2's transitive 9.0.0 carried CVE-2026-26127). HEADLINE: a Docker-Playwright CDP VIRTUAL-AUTHENTICATOR E2E (`scripts/passkey-e2e.*`) runs the node + chromium on `http://localhost:8080` and drives a real register→passwordless-sign-in ceremony. Integrated with a `WebAuthnFido2BuilderTests` tier split (pinned origins are trusted exclusively — a spoofed `Host` can't widen the set) + `read`-gate doc fix, readying the configurable knobs for the lab/iPhone `pdn.m0lte.uk` path. 474 Node tests (+40) + UI 10/10 green; Release clean under warnings-as-errors](#17-amendment-log)
 **Latest amendment:** [§17 entry 2026-06-09 — Auth part 2/4: refresh tokens + silent renew + login lockout — short access JWT now paired with an opaque 256-bit refresh token (stored hash-only, SHA-256; new `IRefreshTokenStore`/`SqliteRefreshTokenStore` + `RefreshTokenService` in Core, same resilient pdn.db pattern). One-time-use ROTATION on `POST /auth/refresh` (consume the presented token, mint a successor in the same family); REUSE DETECTION (a replayed already-revoked token revokes the whole family — the stolen-token bound); `POST /auth/logout` revokes the family. Login HARDENING: a `TimeProvider`-driven sliding-window `LoginThrottle` keyed per-username AND per-source-IP (5 fails / 5 min → 429, self-healing, success resets) checked before the password verify; structured no-secrets audit log (login/refresh/reuse/lockout/logout). `AuthConfig.RefreshTokenMinutes` (default 7d, must exceed access). Web: refresh token persisted in `pdn.session`; `authFetch` does ONE shared-in-flight silent renew + single retry on 401 (no loop — `/auth/refresh` uses a bare fetch; no stampede — concurrent 401s coalesce), logout best-effort revokes server-side. No new package. 434 Node tests (+35) + UI 10/10 green; Release clean under warnings-as-errors](#17-amendment-log)
@@ -298,16 +299,19 @@ Effort key: S ≤ 3 days, M ≤ 2 weeks, L ≤ 1 month, XL > 1 month. Status: �
 |---|---|---|---|
 | 0 | Foundation + SDL spike | M | ✅ |
 | 1 | KISS + AX.25 framing + AXUDP | M | ✅ |
-| 2 | AX.25 v2.2 Data-Link state machine | XL | ⬜ next |
-| 3 | KISS hardening: ACKMODE + NinoTNC + multi-drop | M | ⬜ |
-| 4 | Node host, REST, auth, persistence | L | ⬜ |
-| 5 | Web UI | L | ⬜ |
-| 6 | External app surfaces: RHPv2 + AGW | L | ⬜ |
-| 7 | Packaging + one-click signed update | M | ⬜ |
-| 8 | MCP + live monitor v2 + link troubleshooting | M | ⬜ |
-| 9 | Plugin API + NET/ROM + hardening (post-v1) | L–XL | ⬜ |
+| 2 | AX.25 v2.2 Data-Link state machine | XL | ✅ (on-air bench loop residual, #214) |
+| 3 | KISS hardening: ACKMODE + NinoTNC + multi-drop | M | ✅ |
+| 4 | Node host, REST, auth, persistence | L | ✅ |
+| 5 | Web UI | L | ✅ |
+| 6 | External app surfaces: RHPv2 + AGW | L | ⬜ next |
+| 7 | Packaging + one-click signed update | M | 🟡 (.deb + node-v* release done; apt repo + signed one-click update pending) |
+| 8 | MCP + live monitor v2 + link troubleshooting | M | ⬜ (home of the deferred link-tuner) |
+| 9 | Plugin API + NET/ROM + hardening (post-v1) | L–XL | 🟡 (NET/ROM L3+L4 + INP3 shipped cross-stack; plugin API + hardening remain) |
+| 10 | Hardware ecosystem & adaptive RF (post-v1) | XL | ⬜ (per-frame RSSI/SNR — Tait 8100/8200, #363) |
 
-v1 is **phases 0–7 plus phase 8**. Phase 9 follows v1 on the v1.x train.
+v1 is **phases 0–7 plus phase 8**. Phases 0–5 are complete; Phase 6 (AGW/RHPv2) is the next v1 capability, Phase 7 (distribution) part-done. Phase 9 follows v1 on the v1.x train; Phase 10 is the adaptive-RF horizon (NET/ROM + INP3 already landed early under Phase 9).
+
+**Status as of 2026-06-10:** the node host (Phase 4) is built, web-managed (Phase 5), authenticated end-to-end (TLS + refresh tokens + passkeys + over-RF sysop TOTP), packaged as a `.deb`, and **live on the lab over a real domain** (`pdn.m0lte.uk`, passkeys working on phone + laptop). The AX.25 runtime (Phase 2) is conformance-complete incl. mod-128 connected-mode data transfer + SREJ recovery; a 2026-06-10 correctness sweep found the issue tracker had drifted well behind the code and reconciled it (closed #231/#292/#239/#230/#167/#260/#177/#144 as fixed-but-open). The one residual library-conformance item is the #142 SABM-C-bit guard (a strict-default-plus-named-escape-hatch change, scoped). Next: Phase 6 (AGW) or Phase 7 (distribution).
 
 ### 5.0 Phase 0 — Foundation + SDL spike ✅
 
@@ -370,7 +374,9 @@ Goal: send and receive AX.25 UI frames over KISS-over-TCP and AXUDP. No state ma
 - The KISS encoder escapes the command byte too, deviating from the spec text. See [§17 entry 2026-05-11 KISS command-byte escape](#17-amendment-log) for the why.
 - LinBPQ doesn't natively host a KISS-TCP listener — needs Direwolf / UZ7HO bridged in. Phase 1 KISS-TCP interop therefore moves to net-sim. See amendment log.
 
-### 5.2 Phase 2 — AX.25 v2.2 Data-Link state machine ⬜ ([#168](https://github.com/m0lte/packet.net/issues/168))
+### 5.2 Phase 2 — AX.25 v2.2 Data-Link state machine ✅ ([#168](https://github.com/m0lte/packet.net/issues/168))
+
+> **Status 2026-06-10:** complete. mod-8 + mod-128 connected-mode data transfer, REJ/SREJ recovery, segmentation, Timer Recovery, and the conformance/property harnesses are all in and green; the runtime drives the `Packet.Ax25.Sdl` tables. The sole residual is the on-air hardware-loop bench confirmation of the 10 kB lossy transfer (#214), gated on the TNC bench, not on code. (#239/#231/#230 were closed in the 2026-06-10 reconciliation as fixed-but-open; #142 SABM-C-bit guard is the one scoped library follow-up.)
 
 Goal: full AX.25 connected-mode operation against LinBPQ — connect, send, retry, disconnect, mod-8 and mod-128.
 
@@ -391,11 +397,11 @@ Goal: full AX.25 connected-mode operation against LinBPQ — connect, send, retr
 - ✅ FsCheck property tests prove window invariants (`V(A) ≤ V(S) ≤ V(A)+k`, no orphan transitions, no stuck Timer Recovery). (#212, 2026-05-21)
 - 🟡 Hardware loop sustains 10 kB transfer across NinoTNCs with 0–30 % scripted loss. *No-loss matrix passes end-to-end across modes 0 + 6 × TXDELAY 50–400 ms in the steady-state case (#213, 2026-05-21). Both recovery-path SDL gaps are now fixed: [ax25sdl#44](https://github.com/m0lte/ax25sdl/issues/44) (`Invoke_Retransmission` recovered as a real loop in Packet.Ax25.Sdl 0.7.0 and executed by the runtime — `SdlLoopExecutor`, shared by transition + subroutine paths) and [ax25sdl#43](https://github.com/m0lte/ax25sdl/issues/43) (`Enquiry_Response` F:=1, already on main). In-process proof that REJ recovery re-emits every unacked I-frame: `DataLinkConnectedRetransmitTests.Invoke_Retransmission_Requeues_Every_Unacked_Frame_Not_Just_One`. The scripted-loss matrix's unconditional skip is removed; it now runs on the hardware-loop runner and awaits on-air confirmation on the bench before this criterion flips to ✅. Downstream tracker: [#214](https://github.com/m0lte/packet.net/issues/214).*
 
-### 5.3 Phase 3 — KISS hardening ⬜ ([#169](https://github.com/m0lte/packet.net/issues/169))
+### 5.3 Phase 3 — KISS hardening ✅ ([#169](https://github.com/m0lte/packet.net/issues/169))
 
 ACKMODE round-trip, multi-drop, NinoTNC mode catalog (0–15) + SETHW byte (mode + 16 for non-persist), TX-Test frame parser, ParameterSendInterval. Verified against both LinBPQ container and the back-to-back NinoTNC pair.
 
-### 5.4 Phase 4 — Node host 🟡 ([#167](https://github.com/m0lte/packet.net/issues/167))
+### 5.4 Phase 4 — Node host ✅ ([#167](https://github.com/m0lte/packet.net/issues/167))
 
 The full phase target: ASP.NET Core 10 minimal-API host. `Konscious.Security.Cryptography` Argon2id + `Fido2NetLib` WebAuthn + `Microsoft.IdentityModel.JsonWebTokens` JWT. SQLite via `Microsoft.Data.Sqlite` + `Dapper`. First-start bootstrap: random admin password + one-time `/setup?token=…` URL. Delivered as a sequence of slices behind stable seams so each is independently reviewable and shippable.
 
@@ -422,7 +428,7 @@ The full phase target: ASP.NET Core 10 minimal-API host. `Konscious.Security.Cry
 
 **NET/ROM L3+L4 🟡 (landed alongside the node host; full detail in [§5.9](#59-phase-9--plugin-api--netrom--hardening--post-v1-174) + [§17](#17-amendment-log)).** A node-level `NetRomService` subscribes every port's `Ax25Listener.FrameTraced` tap, hears NODES broadcasts (UI, PID 0xCF, dest `NODES`), and builds a routing table (in the new hand-written `Packet.NetRom` library) it surfaces in `Nodes` — the read-only awareness slice (on by default; harmless; cannot disturb a session). The **full vanilla L3+L4 body** then rode in behind it: NODES origination (opt-in `netRom.broadcast`), the L4 virtual-circuit transport + `CircuitManager`, interlink sessions, and `connect <alias>` routing across the network (opt-in `netRom.connect`). INP3 + real-BPQ-L4 interop are deferred. See §5.9.
 
-### 5.5 Phase 5 — Web UI 🟡 ([#170](https://github.com/m0lte/packet.net/issues/170))
+### 5.5 Phase 5 — Web UI ✅ ([#170](https://github.com/m0lte/packet.net/issues/170))
 
 Vite + React + TS + Tailwind + shadcn/ui. **Built at [`web/packetnet-ui/`](../web/packetnet-ui) (2026-06-08)** — all ten screens (login, setup, dashboard, live monitor, sessions, routes, ports, config, users + link-tuner/ping tools) recreated from the converged Claude Design handoff, running against a typed mock backend (flip `VITE_API_MODE=live` to talk to the real Slice-3 API). `tsc`+`vite build` clean; a `vitest` render smoke test covers every screen (10/10). Awaiting the Slice-3 backend (`docs/node-api.yaml`) to go live against the node. See §17 (2026-06-08 Phase-5-UI entry).
 
@@ -1037,6 +1043,24 @@ Most recent first. Format:
 ### YYYY-MM-DD — short title
 What changed, why, where to look for details.
 ```
+
+
+### 2026-06-10 — Correctness sweep: tracker reconciliation + roadmap true-up
+
+Stepping back after the auth arc, a correctness review of the open AX.25/runtime issues found the **issue tracker had drifted well behind the code** — most "open" conformance bugs were already fixed (by the conformance-harness + SP-010 work) but never closed. This pass verified each against green tests + the resolving commit and reconciled the tracker rather than re-implementing:
+
+- **#231** (retransmits renumbered → no loss recovery) — fixed `cabd071` (PR #232); `DataLinkConnectedRetransmitTests` green. Closed.
+- **#292** (half-duplex stall / per-port t1Ms no-op) — fixed `2b8c616` (PR #302, the establishment-param clobber class) + channel-profile plumbing; `HalfDuplexContentionTests` + `ChannelProfileIntegrationTests` green. Closed.
+- **#239** (mod-128 connected-mode data transfer unimplemented — first I-frame threw) — the `RequireMod8`/`NotSupportedException` throw is gone; N(S)/N(R) extraction is mode-aware (7-bit under extended), and `Mod128LossRecoveryConformanceTests` + `Mod128EstablishmentConformanceTests` + `Ax25FrameExtendedControlTests` (34) are green — loss recovery exercises real extended I-frame data transfer. Closed.
+- **#230** (Ax25Listener T2/T3 options silently ignored) — `Ax25Listener` now flows configured T2/T3 into `ActionDispatcher.T2Duration/T3Duration` (which the timers arm from). Closed.
+- **#144** (figc4.1 t16 accepts SABME without a version_2_2 guard "though the runtime can't do mod-128") — premise no longer holds (mod-128 works, #239), so faithful-to-figc4.1 is correct. Closed.
+- **#167 / #260 / #177** (build out the node host / SP-010 typed verbs / direwolf-reference harness) — all shipped. Closed.
+
+**Roadmap true-up:** the §5 status table + per-phase headings + the document status header were badly stale (header read "Phase 2 in progress", 2026-05-17). Refreshed to reality: Phases 0–5 ✅; Phase 6 (AGW/RHPv2) is the next v1 capability; Phase 7 (distribution) is 🟡 (.deb + node-v* release done, apt-repo + signed one-click update pending); Phase 9 partly landed early (NET/ROM L3+L4 + INP3 cross-stack); a Phase 10 (hardware ecosystem & adaptive RF) row was added.
+
+**Residual / new:** **#142** (a SABM with the C=Response bit is accepted; spec §4.3.3.1 says SABM is always a command) stays a scoped library follow-up — the classifier maps `0x2F`/`0x6F` → SabmReceived/SabmeReceived without a C-bit guard. Per the repo's "pragmatism is a named flag" rule it wants a strict-default classifier guard **plus a named listener escape-hatch** (a legacy AX.25 v1.x peer may not set the command bit the v2.2 way) + a strict/pragmatic-audit row + a paired test — a focused PR, not a silent tightening. **#363** (new) captures deep radio integration: per-frame RSSI → SNR via an `IRadioControl` abstraction with a Tait 8100/8200 CCDI driver, feeding the monitor + INP3 + the (deferred) link-tuner — Phase 10, and the measurement the closed-loop tuner needs.
+
+No code changed in this entry beyond closing issues + this doc; the sweep's one code item (#142) is tracked separately.
 
 
 ### 2026-06-10 — Fix: passkey login showed the wrong identity (empty username → "node")
