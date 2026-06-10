@@ -110,6 +110,24 @@ public class ReconcilePlannerTests
     }
 
     [Fact]
+    public void Compat_change_only_is_hot_no_restart()
+    {
+        // A compat-profile-only change is HOT: classified into CompatChanged with
+        // no restart class. The supervisor live-reseeds the running listener so
+        // parse options apply from the next inbound frame and quirks seed new
+        // sessions — existing sessions untouched.
+        var before = Config("M0LTE-1", Tcp("a"));
+        var to = Config("M0LTE-1", Tcp("a") with { Compat = new PortCompatConfig { Preset = "bpq" } });
+        var plan = ReconcilePlanner.Plan(before, to);
+
+        plan.CompatChanged.Select(p => p.Id).Should().Equal("a");
+        plan.ToRestart.Should().BeEmpty();
+        plan.Ax25ParamsChanged.Should().BeEmpty();
+        plan.KissParamsChanged.Should().BeEmpty();
+        plan.IsNoOp.Should().BeFalse();
+    }
+
+    [Fact]
     public void Callsign_change_is_a_node_wide_reset()
     {
         var before = Config("M0LTE-1", Tcp("a"), Tcp("b", 8002));

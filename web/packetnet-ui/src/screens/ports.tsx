@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { PingButton } from "@/components/ping";
 import type {
   PortConfig, PortStatus, TransportConfig, Ax25PortParams, KissParams, PortSetup, PortBeacon,
+  PortCompatConfig, CompatPreset,
 } from "@/lib/types";
 import {
   NODE_CONFIG, PORT_STATUS, RADIO_PROFILES, NINO_MODES, CHANNEL_MODES,
@@ -35,6 +36,9 @@ interface PortDraft {
   // The per-port beacon override is edited on the Config → Beacons tab, not here;
   // carried through untouched so a transport/timing edit never clobbers it.
   beacon: PortBeacon | null;
+  // AX.25 compatibility profile. The editor only drives the preset dropdown;
+  // YAML-set flag overrides / quirks are carried through untouched.
+  compat: PortCompatConfig | null;
   _new?: boolean;
   // The id the draft was opened against (the reconcile key for an edit) — set on edit,
   // unset on add. Lets a rename in the editor edit the original entry rather than 404.
@@ -109,6 +113,7 @@ export function Ports() {
     kiss: { ...KISS_DEFAULTS },
     setup: { radio: RADIO_PROFILES[0].id, channel: "shared", difficulty: "moderate", custom: false },
     beacon: null,
+    compat: null,
     _new: true,
   });
 
@@ -121,6 +126,7 @@ export function Ports() {
       kiss: { ...KISS_DEFAULTS, ...(p.kiss ?? {}) },
       setup: PORT_SETUP[p.id] ?? { radio: RADIO_PROFILES[0].id, channel: "shared", difficulty: "moderate", custom: true },
       beacon: p.beacon,
+      compat: p.compat ?? null,
       _origId: p.id,
     });
   };
@@ -139,6 +145,7 @@ export function Ports() {
       // Preserve any existing per-port beacon override (edited on the Config →
       // Beacons tab); a brand-new port inherits the system default.
       beacon: d.beacon ?? null,
+      compat: d.compat,
     };
     try {
       if (d._new) await api.addPort(saved);
@@ -319,6 +326,23 @@ function NinoTestFlash({ onDismiss, onConfigure }: { onDismiss: () => void; onCo
   );
 }
 
+// ---- AX.25 compatibility presets (mirrors Ax25CompatPresets server-side) ----
+// Labels + help distilled from docs/strict-vs-pragmatic-audit.md: the presets are
+// named bundles of the parser's spec-vs-pragmatic flags.
+const COMPAT_PRESETS: { id: CompatPreset; label: string }[] = [
+  { id: "lenient", label: "Lenient — accept every known real-world quirk (default)" },
+  { id: "strict", label: "Strict — exactly AX.25 v2.2, drop everything else" },
+  { id: "bpq", label: "BPQ — match a BPQ / LinBPQ neighbour" },
+  { id: "xrouter", label: "XRouter — match an XRouter neighbour" },
+  { id: "direwolf", label: "Dire Wolf — match a Dire Wolf neighbour" },
+];
+const COMPAT_HELP =
+  "Which inbound AX.25 frames this port accepts. Lenient (the default) accepts the documented real-world quirks: " +
+  "all-space callsign slots (BPQ ID beacons), trailing bytes on supervisory frames, and AX.25 v1.x connect frames " +
+  "that lack the v2 command bits. Strict accepts exactly what AX.25 v2.2 describes and drops the rest — including " +
+  "v1.x peers. The named presets match a specific neighbour implementation. Frames the node sends are always " +
+  "spec-strict regardless. Applied live: parsing changes on the next received frame; existing sessions are untouched.";
+
 // ---- transport defaults per kind (used when switching the Type select) ----
 function transportDefaults(kind: TransportConfig["kind"]): TransportConfig {
   switch (kind) {
@@ -364,6 +388,17 @@ function PortEditor({ draft, onClose, onSave, statusById }: {
     setModel((d) => (d ? { ...d, ax25: { ...d.ax25, [k]: v } } : d));
   const setKiss = (k: keyof KissParams, v: number) =>
     setModel((d) => (d ? { ...d, kiss: { ...d.kiss, [k]: v } } : d));
+  // The dropdown drives only the preset; YAML-set per-flag overrides / quirks are
+  // preserved. A compat that says nothing beyond the default collapses back to
+  // null so the stored config stays minimal (absent = lenient + default quirks).
+  const setCompatPreset = (preset: CompatPreset) =>
+    setModel((d) => {
+      if (!d) return d;
+      const next: PortCompatConfig = { ...(d.compat ?? {}), preset: preset === "lenient" ? null : preset };
+      const isDefault = !next.preset && next.allowEmptyCallsignBase == null &&
+        next.allowInfoOnSupervisoryFrames == null && next.allowCommandFrameAsResponse == null && !next.quirks;
+      return { ...d, compat: isDefault ? null : next };
+    });
 
   const profile = RADIO_PROFILES.find((r) => r.id === setup.radio);
   const baseline: Record<string, number> = profile ? profile.baseline : { ...AX25_DEFAULTS, ...KISS_DEFAULTS };
@@ -397,7 +432,7 @@ function PortEditor({ draft, onClose, onSave, statusById }: {
   } else if (transportChanged || enabledChanged) {
     disrupt = { tone: "warning", text: `Port ${orig.id} will restart.${sessions > 0 ? ` ${sessions} session${sessions > 1 ? "s" : ""} on this port will drop.` : " No sessions are connected."}` };
   } else {
-    disrupt = { tone: "success", text: `Modem parameters apply live to ${orig.id}. No sessions drop.` };
+    disrupt = { tone: "success", text: `Parameter changes apply live to ${orig.id}. No sessions drop.` };
   }
 
   return (
@@ -499,6 +534,27 @@ function PortEditor({ draft, onClose, onSave, statusById }: {
               </Field>
             </div>
           </div>
+        </div>
+
+        {/* AX.25 compatibility profile (#366) */}
+        <div className="rounded-lg border border-border p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <Label className="text-foreground">AX.25 compatibility</Label>
+            {(model.compat?.quirks || model.compat?.allowEmptyCallsignBase != null ||
+              model.compat?.allowInfoOnSupervisoryFrames != null || model.compat?.allowCommandFrameAsResponse != null) && (
+              <Tooltip text="This port also has per-flag overrides or a quirks selector set in the config file. The dropdown changes only the preset; those are kept.">
+                <Badge variant="warning">customised</Badge>
+              </Tooltip>
+            )}
+          </div>
+          <Field label="Frame acceptance" info={COMPAT_HELP}>
+            <Select
+              value={model.compat?.preset ?? "lenient"}
+              onChange={(e) => setCompatPreset(e.target.value as CompatPreset)}
+            >
+              {COMPAT_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </Select>
+          </Field>
         </div>
 
         {/* advanced parameters */}

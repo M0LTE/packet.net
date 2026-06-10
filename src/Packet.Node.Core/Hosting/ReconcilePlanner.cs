@@ -26,6 +26,10 @@ namespace Packet.Node.Core.Hosting;
 /// object identity and in-flight state. (Slice 1 deferred this to the next
 /// bring-up because the engine seeded options at construction only; the engine
 /// now exposes a live reseed, so this class is HOT — non-disrupting.)</item>
+/// <item><b>Compat profile changed</b> (only) → live-reseed via the same
+/// mechanism: the reseeded parameter record carries the parse options (read
+/// per inbound frame, so they apply to the very next frame) and the session
+/// quirks (build-time, so new sessions only). No restart.</item>
 /// <item><b>Telnet bind/port/enabled changed</b> → restart the telnet listener.</item>
 /// <item><b>Services text changed</b> → reference swap (read live by the console).</item>
 /// </list>
@@ -71,6 +75,7 @@ public static class ReconcilePlanner
         var enable = new List<PortConfig>();
         var kissChanged = new List<PortConfig>();
         var ax25Changed = new List<PortConfig>();
+        var compatChanged = new List<PortConfig>();
 
         // Removed ports.
         foreach (var oldPort in from.Ports)
@@ -132,6 +137,10 @@ public static class ReconcilePlanner
             {
                 ax25Changed.Add(newPort);
             }
+            if (!Equals(oldPort.Compat, newPort.Compat))
+            {
+                compatChanged.Add(newPort);
+            }
         }
 
         return new ReconcilePlan
@@ -143,6 +152,7 @@ public static class ReconcilePlanner
             ToEnable = enable,
             KissParamsChanged = kissChanged,
             Ax25ParamsChanged = ax25Changed,
+            CompatChanged = compatChanged,
             TelnetChanged = telnetChanged,
             ServicesChanged = servicesChanged,
         };

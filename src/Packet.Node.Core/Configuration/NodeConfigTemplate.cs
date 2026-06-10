@@ -54,6 +54,19 @@ public static class NodeConfigTemplate
         #      t1Ms: 3000
         #      n2: 10
         #      windowSize: 4
+        #    compat:               # optional — AX.25 compatibility profile, applied live
+        #      preset: lenient     # which inbound wire frames the port accepts:
+        #                          #   strict   - exactly AX.25 v2.2, nothing else
+        #                          #   lenient  - accept every known real-world quirk (the default)
+        #                          #   bpq | xrouter | direwolf - match that neighbour's dialect
+        #      # Individual named flags override the preset (see
+        #      # docs/strict-vs-pragmatic-audit.md for what each accepts and why):
+        #      # allowEmptyCallsignBase: true        # all-space callsign slots (BPQ >IS ID beacons)
+        #      # allowInfoOnSupervisoryFrames: true  # trailing bytes on S frames
+        #      # allowCommandFrameAsResponse: true   # v1.x SABM/DISC without v2 command C-bits
+        #      # quirks: default     # SDL session quirks: default (spec-correct) |
+        #      #                     # strictly-faithful (figures as drawn, defects
+        #      #                     # included - conformance study only)
         #    kiss:                 # optional — applied live, no restart
         #      txDelay: 30         # units of 10 ms
         #      persistence: 63

@@ -57,11 +57,27 @@ public static class NodeConfigArbitraries
             from per in Gen.Choose(0, 255)
             select (KissParams?)new KissParams { TxDelay = (byte)txd, Persistence = (byte)per });
 
+    private static Gen<PortCompatConfig?> CompatGen() =>
+        Gen.OneOf(
+            Gen.Constant<PortCompatConfig?>(null),
+            from preset in Gen.Elements(null, "strict", "lenient", "bpq", "xrouter", "direwolf")
+            from quirks in Gen.Elements(null, "default", "strictly-faithful")
+            from cmdAsResp in Gen.Elements<bool?>(null, true, false)
+            from emptyBase in Gen.Elements<bool?>(null, true, false)
+            select (PortCompatConfig?)new PortCompatConfig
+            {
+                Preset = preset,
+                Quirks = quirks,
+                AllowCommandFrameAsResponse = cmdAsResp,
+                AllowEmptyCallsignBase = emptyBase,
+            });
+
     private static Gen<PortConfig> PortGen(int index) =>
         from enabled in Gen.Elements(false, true)
         from transport in TransportGen(index)
         from ax25 in Ax25Gen()
         from kiss in KissGen()
+        from compat in CompatGen()
         select new PortConfig
         {
             Id = $"port{index}",
@@ -69,6 +85,7 @@ public static class NodeConfigArbitraries
             Transport = transport,
             Ax25 = ax25,
             Kiss = kiss,
+            Compat = compat,
         };
 
     private static Gen<NetRomConfig> NetRomGen() =>

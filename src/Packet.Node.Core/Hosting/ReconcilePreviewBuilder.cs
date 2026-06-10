@@ -86,6 +86,11 @@ public static class ReconcilePreviewBuilder
         {
             live.Add(new ReconcileChange($"ports.{p.Id}.ax25", Live, $"Port '{p.Id}' AX.25 timers reseeded live (new sessions use them)."));
         }
+        foreach (var p in plan.CompatChanged)
+        {
+            live.Add(new ReconcileChange($"ports.{p.Id}.compat", Live,
+                $"Port '{p.Id}' AX.25 compatibility profile applied live (inbound parsing from the next frame; session quirks for new sessions)."));
+        }
 
         if (plan.TelnetChanged)
         {
