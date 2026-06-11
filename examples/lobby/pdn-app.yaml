@@ -1,0 +1,29 @@
+# pdn-app.yaml — the LOBBY app package manifest (docs/app-packages.md).
+#
+# Authored by the app, not the node owner: pdn discovers this file under
+# /usr/share/packetnet/apps/lobby and the package stays OFF until the owner
+# grants trust with an `apps: [{id: lobby, enabled: true}]` entry (or the
+# control panel toggle). Relative command/args paths resolve against this
+# package's directory.
+manifest: 1
+id: lobby                     # must equal the package directory name
+name: LOBBY
+version: "1.0.0"
+description: Live multi-user lobby — WHO presence + SAY broadcast across connected stations.
+icon: users
+capabilities: [session]
+
+# Packet plane: a connected station types LOBBY at the node prompt; pdn opens a
+# NEW connection to the daemon's Unix socket per user session (the pdn-app/1
+# wire over a socket), so every session shares the daemon's in-memory state.
+session:
+  match: LOBBY
+  kind: socket
+  socketPath: /run/packetnet/lobby.sock
+
+# The daemon pdn starts and supervises while the app is enabled — no hand-run
+# systemd unit. lobby.py takes its listen path as a bare argv[1]; it MUST agree
+# with session.socketPath above (pdn connects to where the daemon listens).
+service:
+  command: /usr/bin/python3
+  args: [lobby.py, /run/packetnet/lobby.sock]

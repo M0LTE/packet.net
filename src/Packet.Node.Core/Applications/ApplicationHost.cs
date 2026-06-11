@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Node.Core.Applications.Packages;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 
@@ -16,7 +17,10 @@ public interface IApplicationHost
 {
     /// <summary>Resolve an <b>enabled</b> application whose <see cref="ApplicationConfig.Match"/>
     /// equals <paramref name="verb"/> (case-insensitive, exact — no abbreviation), reading the
-    /// live config so a hot edit applies to the next launch. Null if none matches.</summary>
+    /// live config so a hot edit applies to the next launch. Resolution is the <b>union</b> of
+    /// the inline <c>applications:</c> list and the enabled, error-free app packages with a
+    /// <c>session:</c> block (<c>docs/app-packages.md</c>) — inline first on a verb tie. Null
+    /// if none matches.</summary>
     ApplicationConfig? Resolve(string verb);
 
     /// <summary>Run <paramref name="app"/> over <paramref name="session"/> until it finishes or
@@ -31,11 +35,15 @@ public sealed partial class ApplicationHost : IApplicationHost
     private readonly IConfigProvider config;
     private readonly ILoggerFactory loggerFactory;
     private readonly ILogger<ApplicationHost> logger;
+    // Optional app-package catalog (docs/app-packages.md). Null = inline applications only —
+    // exactly the pre-package behaviour, so every existing caller/test is untouched.
+    private readonly IAppPackageCatalog? catalog;
 
-    public ApplicationHost(IConfigProvider config, ILoggerFactory? loggerFactory = null)
+    public ApplicationHost(IConfigProvider config, ILoggerFactory? loggerFactory = null, IAppPackageCatalog? catalog = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        this.catalog = catalog;
         logger = this.loggerFactory.CreateLogger<ApplicationHost>();
     }
 
@@ -47,13 +55,68 @@ public sealed partial class ApplicationHost : IApplicationHost
             return null;
         }
         var wanted = verb.Trim();
-        foreach (var app in config.Current.Applications)
+        var current = config.Current;
+        foreach (var app in current.Applications)
         {
             if (app.Enabled && !string.IsNullOrWhiteSpace(app.Match)
                 && string.Equals(app.Match.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
             {
                 return app;
             }
+        }
+        return ResolvePackage(wanted, current);
+    }
+
+    /// <summary>The package half of the union: an enabled, error-free discovered package with a
+    /// <c>session:</c> block whose effective verb (owner override ?? manifest) matches. Mapped
+    /// to the <see cref="ApplicationConfig"/> shape the existing run path already understands —
+    /// command/args resolved against the package dir, working dir = the app's state dir.</summary>
+    private ApplicationConfig? ResolvePackage(string wanted, NodeConfig current)
+    {
+        if (catalog is null)
+        {
+            return null;
+        }
+        foreach (var pkg in catalog.Discover(current))
+        {
+            if (!pkg.Enabled || pkg.Error is not null || pkg.Manifest?.Session is not { } session)
+            {
+                continue;
+            }
+            var match = !string.IsNullOrWhiteSpace(pkg.Override?.Match) ? pkg.Override!.Match! : session.Match;
+            if (string.IsNullOrWhiteSpace(match)
+                || !string.Equals(match.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // First use of the app's state dir — make it exist (it is the session's working
+            // directory). A failure is logged and left for the spawn to surface as
+            // "unavailable" through the total RunAsync path.
+            try
+            {
+                Directory.CreateDirectory(pkg.StateDir);
+            }
+            catch (Exception ex)
+            {
+                LogStateDirFailed(ex, pkg.Id, pkg.StateDir);
+            }
+
+            return new ApplicationConfig
+            {
+                Id = pkg.Id,
+                Match = match.Trim(),
+                Enabled = true,
+                Kind = session.Kind,
+                Command = session.Command is null
+                    ? null
+                    : AppPackagePaths.ResolveFile(session.Command, pkg.PackageDir),
+                SocketPath = session.SocketPath,
+                Args = session.Args.Select(a => AppPackagePaths.ResolveFile(a, pkg.PackageDir)).ToArray(),
+                WorkingDirectory = pkg.StateDir,
+                Capabilities = pkg.Manifest.Capabilities,
+                Ui = null,   // tiles are the gateway's concern — out of the session union's scope
+            };
         }
         return null;
     }
@@ -137,4 +200,7 @@ public sealed partial class ApplicationHost : IApplicationHost
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "App '{Id}' ended on an error.")]
     private partial void LogRunFailed(Exception ex, string id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "App package '{Id}': could not create its state dir '{StateDir}'.")]
+    private partial void LogStateDirFailed(Exception ex, string id, string stateDir);
 }

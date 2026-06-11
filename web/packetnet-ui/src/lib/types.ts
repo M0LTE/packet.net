@@ -274,6 +274,33 @@ export interface TotpEnrollState { enrolled: boolean; callsign: string | null }
 // falls back to a generic app glyph. `url` is always "/apps/{id}/" — an absolute path
 // on the same origin that pdn reverse-proxies, NOT a client-side SPA route.
 export interface NodeApp { id: string; name: string; icon?: string | null; url: string }
+// ---- app packages (GET /api/v1/apps/packages) ---------------
+// One discovered app package — or inline config-authored app — with its manifest
+// summary + supervisor state (mirrors PdnAppPackagesApi.AppPackageEntry, camelCase
+// on the wire). `error` non-null = a broken package (unreadable/invalid manifest);
+// it can never be enabled. `state` is null exactly when service === "none" (there
+// is nothing to run); `pid` is set only while a managed process is alive; `detail`
+// carries supervisor context (e.g. the crash-loop detail behind a Faulted state).
+export type AppPackageSource = "package" | "inline";
+export type AppPackageService = "none" | "managed" | "external";
+export type AppPackageState = "Stopped" | "Starting" | "Running" | "Backoff" | "Faulted" | "External";
+export interface AppPackage {
+  id: string;
+  name: string;
+  version: string | null;
+  description: string | null;
+  /** Optional lucide icon name (kebab-case), like NodeApp.icon. */
+  icon: string | null;
+  /** Declared capabilities — shown to the owner at enable time (the trust prompt). */
+  capabilities: string[];
+  enabled: boolean;
+  source: AppPackageSource;
+  error: string | null;
+  service: AppPackageService;
+  state: AppPackageState | null;
+  pid: number | null;
+  detail: string | null;
+}
 export interface LogLine { t: string; lvl: "info" | "warn" | "error"; msg: string }
 export interface ToggleHelp { label: string; desc: string }
 export interface FieldHelp { label: string; unit: string; help: string }

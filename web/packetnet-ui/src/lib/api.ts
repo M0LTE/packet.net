@@ -14,7 +14,7 @@ import type {
   LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
   WebAuthnCredential, AssertBeginResponse, RegisterCompleteResponse,
-  TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp,
+  TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp, AppPackage,
 } from "./types";
 import * as mock from "./mock";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
@@ -202,6 +202,18 @@ export const api = {
   // Registered apps that expose a web UI (read-gated like the other read endpoints).
   // The array may be empty (no apps registered) → the launcher renders an empty state.
   apps: () => get<NodeApp[]>("/apps", () => mock.APPS),
+
+  // ---- app packages (app-platform package management) ----
+  // Every app package + inline app the node knows about, with manifest summary +
+  // supervisor state (read-gated like the other read endpoints).
+  appPackages: () => get<AppPackage[]>("/apps/packages", () => mock.APP_PACKAGES),
+  // Enable / disable a package (admin scope). The POST returns the updated entry;
+  // a broken package 409s with { error }, an inline app 404s (config-authored).
+  appPackageEnable: (id: string) => appPackageAction(id, "enable"),
+  appPackageDisable: (id: string) => appPackageAction(id, "disable"),
+  // Restart a managed package's service (admin scope). 503 { error } when there is
+  // no supervisor; 409 { error } when the package has no restartable service.
+  appPackageRestart: (id: string) => appPackageAction(id, "restart"),
 
   // ---- config write (Slice-3 step 2) ----
   // PUT the whole config; dryRun returns the reconcile preview without applying.
@@ -419,6 +431,41 @@ function mockPing(portId: string, count: number): PingResult {
         lossPct,
       }
     : { replies, minMs: 0, avgMs: 0, maxMs: 0, lossPct: 100 };
+}
+
+// Enable/disable/restart an app package. Live mode POSTs the action and returns the
+// server's updated AppPackage entry; any failure (404 unknown id / inline app, 409
+// broken package or no restartable service, 503 no supervisor, 422 validation)
+// surfaces the server's { error } message as an Error so the screen can banner it.
+// Mock mode mutates the in-memory fixture list in place — a refetch then shows the
+// new state, mirroring the live mutate-then-reload flow.
+async function appPackageAction(
+  id: string, action: "enable" | "disable" | "restart",
+): Promise<AppPackage> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 120));
+    const p = mock.APP_PACKAGES.find((x) => x.id === id);
+    // Inline apps are config-authored — the live API answers 404 for them too.
+    if (!p || p.source === "inline") throw new Error(`Unknown package '${id}'.`);
+    if (action === "enable") {
+      if (p.error) throw new Error(p.error); // broken → live 409 { error }
+      p.enabled = true;
+      if (p.service === "managed") { p.state = "Running"; p.pid = 20000 + Math.floor(Math.random() * 9999); p.detail = null; }
+    } else if (action === "disable") {
+      p.enabled = false;
+      if (p.service === "managed") { p.state = "Stopped"; p.pid = null; p.detail = null; }
+    } else {
+      if (p.service !== "managed") throw new Error(`'${id}' has no managed service to restart.`);
+      p.state = "Running"; p.pid = 20000 + Math.floor(Math.random() * 9999); p.detail = null;
+    }
+    return structuredClone(p);
+  }
+  const res = await authFetch(`/apps/packages/${encodeURIComponent(id)}/${action}`, {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Could not ${action} '${id}' (${res.status}).`));
+  return (await res.json()) as AppPackage;
 }
 
 // Shared PUT helper for the config write endpoints: returns the ReconcileResult,

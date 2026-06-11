@@ -24,6 +24,9 @@ public static class NodeConfigYaml
         // Same for management.auth.webAuthn.allowedOrigins (an IReadOnlyList<string>) and
         // each application's args / capabilities lists.
         .WithTypeMapping<IReadOnlyList<string>, List<string>>()
+        // The apps: package-override list (docs/app-packages.md) + its environment map.
+        .WithTypeMapping<IReadOnlyList<AppOverrideConfig>, List<AppOverrideConfig>>()
+        .WithTypeMapping<IReadOnlyDictionary<string, string>, Dictionary<string, string>>()
         // The nested netRom.inp3 block (a Packet.NetRom.Wire.NetRomInp3Options
         // record) needs NO custom converter: it is pure durations / ints / bools, so
         // the camel-case mapping + YamlDotNet's built-in TimeSpan converter bind it

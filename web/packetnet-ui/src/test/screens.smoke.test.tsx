@@ -53,9 +53,10 @@ describe("screens render without crashing", () => {
     const { container } = mount(<Apps />);
     expect(container.firstChild).toBeTruthy();
     // The mock apps list (lib/mock APPS) includes the WALL tile, linking to /apps/wall/.
-    // Match the display name exactly ("WALL") to avoid also matching the id subtext ("wall").
+    // "WALL" also appears as a row in the management section below the grid, so pick
+    // the occurrence that lives inside an anchor (the launcher tile).
     await waitFor(() => {
-      const link = screen.getByText("WALL").closest("a");
+      const link = screen.getAllByText("WALL").map((el) => el.closest("a")).find((a) => a !== null);
       expect(link).toHaveAttribute("href", "/apps/wall/");
     });
   });

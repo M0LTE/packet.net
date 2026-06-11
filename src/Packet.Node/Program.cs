@@ -222,6 +222,22 @@ builder.Services.AddHttpForwarder();
 
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
+// The app-package catalog (docs/app-packages.md): discovers pdn-app.yaml packages under the
+// package roots and merges the owner's apps: overrides. A pure, cheap, side-effect-free scan
+// per call — the gateway, the packages API, and the hosted service consume it directly.
+builder.Services.AddSingleton<Packet.Node.Core.Applications.Packages.IAppPackageCatalog,
+    Packet.Node.Core.Applications.Packages.AppPackageCatalog>();
+// The app-service supervisor (docs/app-packages.md § Lifecycle): owns the daemon of every
+// enabled package whose manifest declares a pdn-managed service: block — start/stop/backoff/
+// crash-loop breaker. NodeHostedService picks both of these up via its optional ctor params
+// and reconciles at startup + on every config apply; the packages API drives RestartAsync.
+// An explicit factory (the ctor's trailing TimeSpan? tuning knobs are test-only).
+builder.Services.AddSingleton<Packet.Node.Core.Applications.Packages.IAppServiceSupervisor>(sp =>
+    new Packet.Node.Core.Applications.Packages.AppServiceSupervisor(
+        sp.GetRequiredService<IConfigProvider>(),
+        sp.GetRequiredService<Packet.Node.Core.Applications.Packages.IAppPackageCatalog>(),
+        sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILoggerFactory>()));
 // Holds operator-initiated connect-out sessions as interactive consoles (the web
 // Sessions drawer reads their output over SSE + types into them). Disposed on host
 // shutdown (IAsyncDisposable) → each adopted connection gets a clean DISC.
@@ -363,6 +379,12 @@ app.MapPdnSessionsApi();
 // server, with the authenticated identity injected). Mapped before the SPA fallback so the
 // /apps/* proxy route wins over index.html. See PdnAppGateway + docs/app-gateway.md.
 app.MapPdnAppGateway();
+
+// App-packages management (app platform Slice 5): the admin inventory
+// (GET /api/v1/apps/packages), the enable/disable trust toggle (a config write of the apps:
+// override list), and the managed-service restart action. Mapped beside the gateway, before
+// the catch-all. See PdnAppPackagesApi + docs/app-packages.md.
+app.MapPdnAppPackagesApi();
 
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*

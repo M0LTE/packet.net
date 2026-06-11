@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Packet.Node.Core.Applications.Packages;
 using Packet.Node.Core.Auth;
 using Packet.Node.Core.Configuration;
 using Yarp.ReverseProxy.Forwarder;
@@ -53,13 +54,27 @@ public static class PdnAppGateway
     /// <summary>Map the launcher feed + the reverse-proxy route. Call before the SPA fallback.</summary>
     public static void MapPdnAppGateway(this WebApplication app)
     {
-        // Launcher feed: the registered apps that expose a UI (read-gated, like the other reads).
-        app.MapGet("/api/v1/apps", (IConfigProvider config) =>
+        // Launcher feed: the UNION of inline applications and enabled, error-free discovered
+        // packages that expose a UI (read-gated, like the other reads). Inline first — on an
+        // id collision inline wins (the catalog errors that case, so the package side is
+        // never enabled; the explicit skip below is belt-and-braces).
+        app.MapGet("/api/v1/apps", (IConfigProvider config, IAppPackageCatalog catalog) =>
         {
             var tiles = config.Current.Applications
                 .Where(a => a.Enabled && a.Ui is not null)
                 .Select(a => new AppTile(a.Id, a.Ui!.Name ?? a.Id, a.Ui.Icon, $"/apps/{a.Id}/"))
                 .ToList();
+
+            var inlineIds = new HashSet<string>(
+                config.Current.Applications.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
+            tiles.AddRange(catalog.Discover(config.Current)
+                .Where(p => p.Enabled && p.Error is null && p.Manifest?.Ui is not null
+                    && !inlineIds.Contains(p.Id))
+                .Select(p => new AppTile(
+                    p.Id,
+                    p.Manifest!.Ui!.Name ?? p.Manifest.Name ?? p.Id,
+                    p.Manifest.Ui.Icon,
+                    $"/apps/{p.Id}/")));
             return Results.Ok(tiles);
         }).RequireAuthorization(PdnAuthPolicies.Read);
 
@@ -70,20 +85,28 @@ public static class PdnAppGateway
         // `/apps/{id}/` and 302-loops. (A no-trailing-slash request falls through to the SPA.)
 
         // The reverse proxy. Read-gated; the token comes from the bearer header or the pdn_at
-        // cookie (Program.cs OnMessageReceived). Resolve the app by id, forward to its upstream.
+        // cookie (Program.cs OnMessageReceived). Resolve the app by id — inline entries first
+        // (inline wins on a collision), then enabled error-free packages with a ui: block —
+        // and forward to its upstream. The same transformer serves both sources, so the
+        // identity-injection/anti-spoof behaviour is identical for package-backed upstreams.
         // All methods (MapMethods, not the ambiguous all-methods app.Map overload).
-        app.MapMethods("/apps/{id}/{**rest}", ProxyMethods, async (HttpContext context, IConfigProvider config, IHttpForwarder forwarder) =>
+        app.MapMethods("/apps/{id}/{**rest}", ProxyMethods, async (HttpContext context, IConfigProvider config, IAppPackageCatalog catalog, IHttpForwarder forwarder) =>
         {
             var id = context.Request.RouteValues["id"] as string;
-            var appCfg = config.Current.Applications
-                .FirstOrDefault(a => a.Enabled && a.Ui is not null && string.Equals(a.Id, id, StringComparison.Ordinal));
-            if (appCfg is null)
+            var upstream = config.Current.Applications
+                .FirstOrDefault(a => a.Enabled && a.Ui is not null && string.Equals(a.Id, id, StringComparison.Ordinal))
+                ?.Ui!.Upstream;
+            upstream ??= catalog.Discover(config.Current)
+                .FirstOrDefault(p => p.Enabled && p.Error is null && p.Manifest?.Ui is not null
+                    && string.Equals(p.Id, id, StringComparison.Ordinal))
+                ?.Manifest!.Ui!.Upstream;
+            if (upstream is null)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
 
-            await forwarder.SendAsync(context, appCfg.Ui!.Upstream, ProxyClient, ForwardConfig, Transformer)
+            await forwarder.SendAsync(context, upstream, ProxyClient, ForwardConfig, Transformer)
                 .ConfigureAwait(false);
         }).RequireAuthorization(PdnAuthPolicies.Read);
     }

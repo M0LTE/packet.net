@@ -8,7 +8,7 @@ import type {
   NodeConfig, NetRomRoutingSnapshot, NodeStatus, PortStatus, SessionInfo,
   LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
-  User, LogLine, ToggleHelp, FieldHelp, NodeApp,
+  User, LogLine, ToggleHelp, FieldHelp, NodeApp, AppPackage,
 } from "./types";
 
 // 6.1 NodeConfig tree ----------------------------------------
@@ -177,6 +177,23 @@ export const USERS: User[] = [
 // with no icon falls back to a generic glyph in the UI.
 export const APPS: NodeApp[] = [
   { id: "wall", name: "WALL", icon: "message-square", url: "/apps/wall/" },
+];
+
+// Every app package the node knows about (GET /api/v1/apps/packages) — the
+// management section's list. One fixture per interesting state: a running managed
+// service, a stopped disabled package, a Faulted one with its crash-loop detail, an
+// externally-run service, a broken package (manifest error — never enableable), an
+// inline config-authored app (read-only here; 404 from the mutation endpoints), and
+// a service-less package with no declared capabilities (the confirm still shows).
+// The api.ts mock mutation path updates these in place so a refetch shows the result.
+export const APP_PACKAGES: AppPackage[] = [
+  { id: "wall", name: "WALL", version: "1.2.0", description: "Shared message wall — leave a note for the next station", icon: "message-square", capabilities: ["session", "web"], enabled: true, source: "package", error: null, service: "managed", state: "Running", pid: 4711, detail: null },
+  { id: "lobby", name: "LOBBY", version: "0.9.1", description: "Multi-user chat lobby", icon: "users", capabilities: ["session"], enabled: false, source: "package", error: null, service: "managed", state: "Stopped", pid: null, detail: null },
+  { id: "quiz", name: "QUIZ", version: "2.0.0", description: "Trivia over packet", icon: null, capabilities: ["session"], enabled: true, source: "package", error: null, service: "managed", state: "Faulted", pid: null, detail: "exited 5 times in 30s (exit code 1) — giving up until restarted" },
+  { id: "bbs-bridge", name: "BBS bridge", version: "0.3.0", description: "Bridges sessions to an externally-run BBS process", icon: null, capabilities: ["session"], enabled: true, source: "package", error: null, service: "external", state: "External", pid: null, detail: null },
+  { id: "wx", name: "wx", version: null, description: null, icon: null, capabilities: [], enabled: false, source: "package", error: "pdn-app.yaml: missing required field 'command'", service: "none", state: null, pid: null, detail: null },
+  { id: "motd", name: "MOTD", version: null, description: null, icon: null, capabilities: ["session"], enabled: true, source: "inline", error: null, service: "none", state: null, pid: null, detail: null },
+  { id: "notes", name: "Notes", version: "1.0.0", description: "Static node notice board — no service process", icon: "sticky-note", capabilities: [], enabled: false, source: "package", error: null, service: "none", state: null, pid: null, detail: null },
 ];
 
 // formatters -------------------------------------------------
