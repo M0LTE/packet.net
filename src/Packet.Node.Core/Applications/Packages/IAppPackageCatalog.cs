@@ -49,7 +49,8 @@ public sealed record DiscoveredAppPackage
     /// the manifest failed to parse). This is the value the catalog's verb-collision rules
     /// run on and the value the session-verb resolution uses. Computed, never stored — not
     /// part of record equality.</summary>
-    public string? EffectiveMatch => Override?.Match ?? Manifest?.Session?.Match;
+    public string? EffectiveMatch =>
+        string.IsNullOrWhiteSpace(Override?.Match) ? Manifest?.Session?.Match : Override!.Match;
 
     /// <summary>The effective service environment: the manifest's <c>environment</c> map with
     /// the owner's override merged over it key-by-key (owner wins) — the order the contract
