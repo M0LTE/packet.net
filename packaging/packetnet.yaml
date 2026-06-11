@@ -81,49 +81,19 @@ management:
   #   #   relyingPartyId: pdn.example
   #   #   allowedOrigins: [ "https://pdn.example:8443" ]
 
-# Applications — the app-extensibility platform. Each entry is an out-of-process program the
-# node launches when a connected user types its `match` verb at the prompt; the session is
-# bridged to the app over the pdn-app/1 stdio wire (docs/app-local-session-wire.md). The node
-# shares no code with the app — any language works. Default: none (a node with no entries has
-# no apps). The package ships the WALL example app (a Python message wall) under
-# /usr/share/packetnet/apps/wall; uncomment to enable it (needs python3, a Recommends):
-# applications:
-#   - id: wall
-#     match: WALL                 # users type WALL at the prompt to enter it
-#     enabled: true
-#     kind: process
-#     command: /usr/bin/python3
-#     args: [ /usr/share/packetnet/apps/wall/wall.py ]
-#     workingDirectory: /var/lib/packetnet/apps/wall    # where wall.txt is kept (owned by the service user)
-#     capabilities: [ session ]
-#     # Optional human-plane web UI: run the app's own loopback web server (e.g.
-#     #   python3 /usr/share/packetnet/apps/wall/wall_web.py 9090
-#     # as your own service), then pdn reverse-proxies /apps/wall/ to it and shows a
-#     # launcher tile. The app must bind loopback only. See docs/app-gateway.md.
-#     ui:
-#       upstream: http://127.0.0.1:9090
-#       name: WALL
-#       icon: message-square
-#   # LOBBY — the long-running-socket rung: a daemon (Unix socket) holding shared in-memory
-#   # state across users (live WHO + SAY broadcast), which the spawn-per-connect floor can't do.
-#   # Run the daemon yourself (e.g. a systemd unit):
-#   #   python3 /usr/share/packetnet/apps/lobby/lobby.py /run/packetnet/lobby.sock
-#   # then pdn connects per session. See docs/app-local-session-wire.md §6.
-#   - id: lobby
-#     match: LOBBY
-#     enabled: true
-#     kind: socket
-#     socketPath: /run/packetnet/lobby.sock
-#     capabilities: [ session ]
-
-# App packages (Slice 5a) — the user-facing packaging model (docs/app-packages.md).
-# pdn discovers pdn-app.yaml manifests under /usr/share/packetnet/apps and
-# /var/lib/packetnet/apps (later root wins on id collision). Discovered is NOT
-# enabled: a package stays off until you grant trust with an `apps:` entry here
-# (or the control panel toggle, which writes the same entry). Only the on/off
-# switch and small overrides live here — everything else comes from the package's
-# own manifest, authored by the app.
+# Apps — the app-extensibility platform: out-of-process programs in any language; the node
+# shares no code with them (docs/app-packages.md). pdn discovers pdn-app.yaml manifests
+# under /usr/share/packetnet/apps and /var/lib/packetnet/apps (later root wins on id
+# collision). This package ships WALL (a Python message wall; needs python3, a Recommends)
+# and LOBBY (a live multi-user lobby daemon) under /usr/share/packetnet/apps — they are
+# discovered automatically. Discovered is NOT enabled: a package stays off until you grant
+# trust with an `apps:` entry here (or the control panel toggle, which writes the same
+# entry). Only the on/off switch and small overrides live here — everything else (the
+# console verb, the supervised daemon, the web tile) comes from the package's own manifest,
+# authored by the app.
 # apps:
+#   - id: wall
+#     enabled: true
 #   - id: lobby
 #     enabled: true
 #   - id: dapps
@@ -131,6 +101,30 @@ management:
 #     environment:           # merged over the manifest's service environment (owner wins)
 #       DAPPS_CALLSIGN: M0LTE-7
 #     # match: DAPPS         # optional session-verb override
+
+# Inline applications — the other supported path: declare an app directly here instead of
+# via a package (handy for something of your own that has no pdn-app.yaml). Inline entries
+# are owner-authored, so they default to enabled. Don't reuse the id or match verb of a
+# discovered package (that's a validation error — enable the package via `apps:` instead).
+# The session is bridged over the pdn-app/1 wire (docs/app-local-session-wire.md):
+# applications:
+#   - id: myapp
+#     match: MYAPP                # users type MYAPP at the prompt to enter it
+#     enabled: true
+#     kind: process               # process = spawn per connect (stdio wire);
+#                                 # socket = connect per session to a daemon you run
+#     command: /usr/bin/python3
+#     args: [ /opt/myapp/myapp.py ]
+#     workingDirectory: /var/lib/packetnet/apps/myapp   # where its state lives
+#     capabilities: [ session ]
+#     # kind: socket instead: drop command/args and set
+#     #   socketPath: /run/packetnet/myapp.sock
+#     # Optional human-plane web UI: run your own loopback web server and pdn
+#     # reverse-proxies /apps/myapp/ to it + shows a launcher tile (docs/app-gateway.md):
+#     # ui:
+#     #   upstream: http://127.0.0.1:9091
+#     #   name: MYAPP
+#     #   icon: message-square
 
 # RHPv2 server — the app platform's NETWORK plane (PWP-0222/0245, XRouter-compatible).
 # Lets an external application (e.g. DAPPS) open packet connections through this node over

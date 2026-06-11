@@ -17,6 +17,12 @@ RestartSec=5
 
 # systemd creates + chowns /var/lib/packetnet (0750, packetnet:packetnet).
 StateDirectory=packetnet
+# /run/packetnet — where the bundled LOBBY package's daemon binds its Unix socket
+# (session.socketPath in its pdn-app.yaml) and the conventional home for other app
+# sockets. systemd creates it at start (packetnet:packetnet) and keeps it writable
+# under ProtectSystem=strict; pdn-supervised app daemons inherit the sandbox, so
+# without this the socket path could never be bound.
+RuntimeDirectory=packetnet
 
 # The single-file self-contained binary extracts native libs at startup, and
 # .NET puts HOME-based state (data-protection keys etc.) under HOME. Both must

@@ -60,20 +60,25 @@ install -d "$stage/opt/packetnet/app/wwwroot"
 cp -a "$ui/dist/." "$stage/opt/packetnet/app/wwwroot/"
 cp "$root/packaging/packetnet.service" "$stage/lib/systemd/system/packetnet.service"
 cp "$root/packaging/packetnet.yaml"    "$stage/etc/packetnet/packetnet.yaml"
-# The WALL reference application — the shipped, language-agnostic example of the app
-# platform (a Python program speaking the pdn-app/1 stdio wire; see examples/wall/). The
-# node shares no code with it; it's an out-of-process program the owner opts into by adding
-# an `applications:` entry. Recommends: python3 pulls in the interpreter on a default install.
+# The bundled app PACKAGES (docs/app-packages.md): each directory under
+# /usr/share/packetnet/apps carries a pdn-app.yaml manifest authored by the app; pdn
+# discovers them at startup/reload and the owner enables them with an `apps:` entry (or
+# the control panel toggle). The bundled apps use the same mechanism as everyone else —
+# zero special-casing. Recommends: python3 pulls in the interpreter on a default install.
+#
+# WALL — the reference spawn-per-connect app (pdn-app/1 stdio wire; see examples/wall/):
+# wall.py is the packet plane, wall_web.py the supervised loopback web view pdn
+# reverse-proxies under /apps/wall/ (docs/app-gateway.md).
 install -d "$stage/usr/share/packetnet/apps/wall"
+install -m 0644 "$root/examples/wall/pdn-app.yaml" "$stage/usr/share/packetnet/apps/wall/pdn-app.yaml"
 install -m 0755 "$root/examples/wall/wall.py" "$stage/usr/share/packetnet/apps/wall/wall.py"
-# wall_web.py = the human-plane web view (app platform Slice 3): a loopback web server the
-# owner runs and pdn reverse-proxies under /apps/wall/. See docs/app-gateway.md.
 install -m 0755 "$root/examples/wall/wall_web.py" "$stage/usr/share/packetnet/apps/wall/wall_web.py"
 install -m 0644 "$root/examples/wall/README.md" "$stage/usr/share/packetnet/apps/wall/README.md"
-# The LOBBY example app — the long-running-socket rung (app platform Slice 2): a Python
-# daemon (Unix socket) demonstrating shared in-memory state + broadcast across users. The
-# owner runs it as their own service; pdn connects per session. See docs/app-local-session-wire.md §6.
+# LOBBY — the long-running-socket rung (app platform Slice 2): a Python daemon (Unix
+# socket) with shared in-memory state + broadcast across users. pdn supervises the daemon
+# while the app is enabled and connects per session. See docs/app-local-session-wire.md §6.
 install -d "$stage/usr/share/packetnet/apps/lobby"
+install -m 0644 "$root/examples/lobby/pdn-app.yaml" "$stage/usr/share/packetnet/apps/lobby/pdn-app.yaml"
 install -m 0755 "$root/examples/lobby/lobby.py" "$stage/usr/share/packetnet/apps/lobby/lobby.py"
 install -m 0644 "$root/examples/lobby/README.md" "$stage/usr/share/packetnet/apps/lobby/README.md"
 sed -e "s/@ARCH@/$arch/" -e "s/@VERSION@/$version/" \
@@ -93,6 +98,8 @@ echo "--- contents (top) ---"
 dpkg-deb --contents "$out" | awk '{print $1, $6}' | head -30
 echo "--- wwwroot (the served SPA) ---"
 dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/opt/packetnet/app/wwwroot/' | head -10
+echo "--- bundled app packages ---"
+dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/usr/share/packetnet/apps/'
 if command -v lintian >/dev/null 2>&1; then
   lintian "$out" || true
 else

@@ -15,12 +15,14 @@ case "$1" in
     # by the service user so it can write the .pfx on first start (HTTPS is opt-in;
     # this just makes the dir ready). 0750 keeps the private key non-world-readable.
     install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet/certs
-    # Writable per-app state under /var/lib/packetnet/apps (the app platform). The shipped
-    # WALL example keeps its wall.txt in apps/wall; the dir is owned by the service user so a
-    # spawned app (which runs as packetnet) can write its state. Apps are opt-in + default-off,
-    # so this just makes the dir ready — a node with no `applications:` entries never uses it.
+    # Writable per-app state under /var/lib/packetnet/apps (the app platform). pdn creates
+    # per-app state dirs at runtime now (docs/app-packages.md — packetnet-owned, 0750); the
+    # root is made ready here, and the bundled apps' dirs are kept for upgrade compatibility
+    # (older installs were told to point workingDirectory at apps/wall). Apps are opt-in +
+    # default-off, so an empty dir costs nothing.
     install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet/apps
     install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet/apps/wall
+    install -d -o packetnet -g packetnet -m 0750 /var/lib/packetnet/apps/lobby
     # The management API rewrites the YAML conffile in place (config-write, port
     # management, first-run /setup) via an atomic write — a .tmp in this dir, then
     # a rename — so the service user must own the config dir (to create/rename)

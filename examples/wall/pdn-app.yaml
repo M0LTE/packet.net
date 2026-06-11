@@ -1,0 +1,37 @@
+# pdn-app.yaml — the WALL app package manifest (docs/app-packages.md).
+#
+# Authored by the app, not the node owner: pdn discovers this file under
+# /usr/share/packetnet/apps/wall and the package stays OFF until the owner
+# grants trust with an `apps: [{id: wall, enabled: true}]` entry (or the
+# control panel toggle). Relative command/args paths resolve against this
+# package's directory.
+manifest: 1
+id: wall                      # must equal the package directory name
+name: WALL
+version: "1.0.0"
+description: Shared message wall — read recent posts, add your own. The node guestbook.
+icon: message-square
+capabilities: [session, web]
+
+# Packet plane: a connected station types WALL at the node prompt; pdn spawns
+# one wall.py per connect and bridges the session over the pdn-app/1 stdio wire.
+session:
+  match: WALL
+  kind: process
+  command: /usr/bin/python3
+  args: [wall.py]             # relative — resolves to this package's wall.py
+
+# Human plane: the read-only web view of the same wall, started and supervised
+# by pdn while the app is enabled. Both halves run with the app's state dir
+# (/var/lib/packetnet/apps/wall) as their default working directory, so they
+# share the one wall.txt without any explicit path plumbing (each also honours
+# a WALL_FILE env override, should an owner ever need to point them elsewhere).
+service:
+  command: /usr/bin/python3
+  args: [wall_web.py, "9090"] # argv[1] = the loopback port; must match ui.upstream
+
+# pdn reverse-proxies /apps/wall/ to the loopback upstream and shows a launcher tile.
+ui:
+  upstream: http://127.0.0.1:9090
+  name: WALL
+  icon: message-square
