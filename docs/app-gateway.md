@@ -41,6 +41,10 @@ For `GET|POST|… /apps/{id}/<path>?<query>`:
   - `X-Pdn-User` — the viewer's callsign / username (empty when anonymous / auth-off).
   - `X-Pdn-Scope` — `read` | `operate` | `admin` (empty when anonymous).
   - `X-Pdn-Gateway` — `1` (marks the request as gateway-originated).
+  - `X-Forwarded-Prefix` — the public mount point (`/apps/{id}`). A server-rendered app MUST
+    prefix its absolute URLs (links, form actions, redirect `Location`s) with this value (treat
+    absent as empty — direct loopback access then renders root-relative URLs unchanged);
+    otherwise a form posted from the proxied page escapes to pdn's root and breaks.
 
   Read these to know who is viewing. (v1 does not cryptographically sign them — see Trust.)
 - **Forward.** Method, headers (minus hop-by-hop), query, and the request/response bodies are streamed through unchanged (so SSE / chunked responses work).

@@ -4,7 +4,9 @@
 // admin) and the implication admin⊃operate⊃read is resolved here by `has()`,
 // mirroring the server's AuthScopes.Satisfies rank model.
 //
-// Persistence: sessionStorage (per-tab, cleared when the tab closes) — a control
+// Persistence: localStorage — the session survives browser restarts; the refresh-token
+// rotation (+ family revocation on reuse) bounds the blast radius of a stolen pair, and
+// the panel is a control
 // panel for a node you actively manage, not a "remember me" consumer app, so a
 // short-lived per-tab token is the safer default. Swap KEY's backing to
 // localStorage if cross-tab persistence is ever wanted.
@@ -76,7 +78,7 @@ export function setLogoutRevoker(fn: () => void): void {
 
 function load(): Session {
   try {
-    const raw = sessionStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return EMPTY_SESSION;
     const s = JSON.parse(raw) as Session;
     return {
@@ -92,8 +94,8 @@ function load(): Session {
 
 function save(s: Session): void {
   try {
-    if (s.token) sessionStorage.setItem(KEY, JSON.stringify(s));
-    else sessionStorage.removeItem(KEY);
+    if (s.token) localStorage.setItem(KEY, JSON.stringify(s));
+    else localStorage.removeItem(KEY);
   } catch {
     /* private-mode / quota — non-fatal, the in-memory state still drives the app */
   }
@@ -108,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     // Best-effort server-side revoke of the refresh-token family (POST /auth/logout
     // via the registered revoker), then clear local state. The revoke reads the token
-    // straight from sessionStorage, so it must run BEFORE we clear it.
+    // straight from localStorage, so it must run BEFORE we clear it.
     try { revokeOnLogout?.(); } catch { /* logout must always clear locally */ }
     save(EMPTY_SESSION);
     setSession(EMPTY_SESSION);

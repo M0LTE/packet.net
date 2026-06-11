@@ -13,11 +13,11 @@ import { api } from "@/lib/api";
 import { APP_PACKAGES } from "@/lib/mock";
 import type { AppPackage } from "@/lib/types";
 
-// Seed the persisted session AuthProvider rehydrates from (sessionStorage
+// Seed the persisted session AuthProvider rehydrates from (localStorage
 // "pdn.session"), so the screen sees the given scope: admin unlocks the mutating
 // controls; read renders them read-only (the users.tsx gating idiom).
 function seedScope(scope: "read" | "admin") {
-  sessionStorage.setItem(
+  localStorage.setItem(
     "pdn.session",
     JSON.stringify({ token: "test.jwt", refreshToken: null, username: "tom", scope }),
   );
@@ -50,7 +50,7 @@ function fixture(id: string): AppPackage {
 }
 
 afterEach(() => {
-  sessionStorage.clear();
+  localStorage.clear();
   vi.restoreAllMocks();
 });
 

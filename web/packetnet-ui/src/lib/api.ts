@@ -31,7 +31,7 @@ export const apiMode = MODE;
 
 // ---- auth glue ---------------------------------------------
 // api.ts is plain TS (no React). It reads the persisted token straight from the
-// same sessionStorage slot AuthProvider writes, and signals a 401 by dispatching
+// same localStorage slot AuthProvider writes, and signals a 401 by dispatching
 // a window event the provider listens for (→ logout → relogin). This keeps the
 // fetch path free of a context dependency while staying in lock-step with auth.tsx.
 const SESSION_KEY = "pdn.session";
@@ -45,7 +45,7 @@ interface PersistedSession {
 
 function readSession(): PersistedSession {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     return raw ? (JSON.parse(raw) as PersistedSession) : {};
   } catch {
     return {};
@@ -64,7 +64,7 @@ function refreshToken(): string | null {
 
 /** Update ONLY the access + refresh tokens in the persisted session (preserving the
  *  username/scope AuthProvider also wrote), after a successful silent renew. The React
- *  auth context keeps its own copy; this write keeps sessionStorage — the source the
+ *  auth context keeps its own copy; this write keeps localStorage — the source the
  *  fetch path reads — in lock-step so the next request and a page reload both see the
  *  rotated pair. */
 function setTokens(accessToken: string, newRefreshToken: string | null): void {
@@ -72,7 +72,7 @@ function setTokens(accessToken: string, newRefreshToken: string | null): void {
     const s = readSession();
     s.token = accessToken;
     s.refreshToken = newRefreshToken;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
   } catch {
     /* private-mode / quota — non-fatal; the in-flight retry still uses the new token */
   }
@@ -639,7 +639,7 @@ async function logoutServerSide(): Promise<void> {
 }
 
 // Wire the AuthProvider's logout() to the best-effort server revoke (read the refresh
-// token from sessionStorage + POST /auth/logout). A registration hook avoids an
+// token from localStorage + POST /auth/logout). A registration hook avoids an
 // auth.tsx → api.ts import cycle. Fired-and-forgotten so logout never blocks on it.
 setLogoutRevoker(() => { void logoutServerSide(); });
 
