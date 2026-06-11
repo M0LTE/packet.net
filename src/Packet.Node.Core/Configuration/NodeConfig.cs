@@ -63,6 +63,42 @@ public sealed record NodeConfig
     /// time — because each connect spawns a fresh process, a config edit is picked up by the
     /// next launch with no reconcile/restart machinery. See <c>docs/app-extensibility.md</c>.</summary>
     public IReadOnlyList<ApplicationConfig> Applications { get; init; } = [];
+
+    /// <summary>The owner's app-package state: which <b>discovered</b> packages
+    /// (<c>pdn-app.yaml</c> under the package roots — see <c>docs/app-packages.md</c>) are
+    /// enabled, plus small overrides. Discovered packages default to DISABLED — an entry here
+    /// is the owner's explicit trust grant. Distinct from <see cref="Applications"/>, which
+    /// remains the owner-authored inline registry.</summary>
+    public IReadOnlyList<AppOverrideConfig> Apps { get; init; } = [];
+
+    /// <summary>Override of the package discovery roots (dev/test). Null = the standard
+    /// roots (<c>/usr/share/packetnet/apps</c>, then <c>/var/lib/packetnet/apps</c> — later
+    /// wins on id collision). When set, replaces the defaults entirely.</summary>
+    public IReadOnlyList<string>? AppPackageRoots { get; init; }
+}
+
+/// <summary>
+/// The owner's per-package state for a discovered app package: the enable switch (the trust
+/// grant) and small overrides merged over the package's own manifest. See
+/// <c>docs/app-packages.md</c> § Owner state.
+/// </summary>
+public sealed record AppOverrideConfig
+{
+    /// <summary>The package id this entry applies to (matches the manifest / directory name).
+    /// An entry whose id matches no discovered package is a warning, not an error.</summary>
+    public required string Id { get; init; }
+
+    /// <summary>The trust switch. Default <c>false</c> — a discovered package never runs,
+    /// resolves a verb, or shows a tile until the owner flips this.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Optional override of the manifest's session verb.</summary>
+    public string? Match { get; init; }
+
+    /// <summary>Owner environment for the package's service, merged OVER the manifest's
+    /// <c>environment</c> map (owner wins).</summary>
+    public IReadOnlyDictionary<string, string> Environment { get; init; } =
+        new Dictionary<string, string>();
 }
 
 /// <summary>
