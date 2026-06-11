@@ -71,7 +71,8 @@ public sealed class AppGatewayApiTests : IDisposable
                 $"path={ctx.Request.Url!.PathAndQuery}\n" +
                 $"user=[{ctx.Request.Headers["X-Pdn-User"]}]\n" +
                 $"scope=[{ctx.Request.Headers["X-Pdn-Scope"]}]\n" +
-                $"gateway=[{ctx.Request.Headers["X-Pdn-Gateway"]}]\n";
+                $"gateway=[{ctx.Request.Headers["X-Pdn-Gateway"]}]\n" +
+                $"prefix=[{ctx.Request.Headers["X-Forwarded-Prefix"]}]\n";
             var bytes = Encoding.UTF8.GetBytes(body);
             ctx.Response.StatusCode = 200;
             ctx.Response.ContentType = "text/plain";
@@ -110,6 +111,7 @@ public sealed class AppGatewayApiTests : IDisposable
 
         Assert.Contains("path=/hello?x=1", body, StringComparison.Ordinal);   // /apps/wall prefix stripped
         Assert.Contains("gateway=[1]", body, StringComparison.Ordinal);       // gateway marker injected
+        Assert.Contains("prefix=[/apps/wall]", body, StringComparison.Ordinal); // the public mount point — apps prefix absolute URLs with it
         Assert.Contains("user=[]", body, StringComparison.Ordinal);           // anonymous (auth off)
     }
 

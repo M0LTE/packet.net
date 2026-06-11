@@ -35,6 +35,11 @@ public static class PdnAppGateway
     private const string ScopeHeader = "X-Pdn-Scope";
     private const string GatewayHeader = "X-Pdn-Gateway";
 
+    /// <summary>The standard reverse-proxy mount-point header (<c>/apps/{id}</c>): a
+    /// server-rendered app prefixes its absolute URLs with this so links, form actions and
+    /// redirect Locations stay inside the proxied prefix. Anti-spoofed like the X-Pdn-* set.</summary>
+    private const string ForwardedPrefixHeader = "X-Forwarded-Prefix";
+
     // A proxy-tuned client: no auto-redirect (the app's redirects are its own), no cookie
     // container (we manage identity via headers), no decompression (pass bytes through).
     private static readonly HttpMessageInvoker ProxyClient = new(new SocketsHttpHandler
@@ -180,10 +185,12 @@ public static class PdnAppGateway
             // HttpClient set Host from RequestUri.)
             proxyRequest.Headers.Host = null;
 
-            // Anti-spoof: never let a client-supplied X-Pdn-* through — we set them ourselves.
+            // Anti-spoof: never let a client-supplied X-Pdn-* (or forwarded-prefix) through —
+            // we set them ourselves.
             proxyRequest.Headers.Remove(UserHeader);
             proxyRequest.Headers.Remove(ScopeHeader);
             proxyRequest.Headers.Remove(GatewayHeader);
+            proxyRequest.Headers.Remove(ForwardedPrefixHeader);
 
             var user = AuthenticatedUsername(context.User);
             var scope = context.User?.FindFirst(AuthScopes.ScopeClaim)?.Value ?? string.Empty;
@@ -191,6 +198,13 @@ public static class PdnAppGateway
             proxyRequest.Headers.TryAddWithoutValidation(UserHeader, user);
             proxyRequest.Headers.TryAddWithoutValidation(ScopeHeader, scope);
             proxyRequest.Headers.TryAddWithoutValidation(GatewayHeader, "1");
+            // The public mount point (the standard reverse-proxy convention): a server-rendered
+            // app prefixes its absolute links/form actions/redirect Locations with this, so they
+            // stay inside /apps/{id}/ instead of escaping to pdn's root (the BBS-claim 405).
+            if (context.Request.RouteValues["id"] is string appId && appId.Length > 0)
+            {
+                proxyRequest.Headers.TryAddWithoutValidation(ForwardedPrefixHeader, $"/apps/{appId}");
+            }
         }
     }
 }
