@@ -120,7 +120,7 @@ public class ShippedManifestsTests
         m.Manifest.Should().Be(1);
         m.Id.Should().Be("dapps");
         m.Name.Should().Be("DAPPS");
-        m.Version.Should().Be("0.34.0");
+        m.Version.Should().Be("0.34.1");
         m.Description.Should().Contain("Distributed Asynchronous Packet Pub/Sub");
         m.Icon.Should().Be("inbox");
         m.Capabilities.Should().Equal("network", "web");
