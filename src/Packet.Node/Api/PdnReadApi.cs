@@ -2,11 +2,13 @@ using System.Diagnostics;
 using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Packet.NetRom.Routing;
 using Packet.Node.Core.Api;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
+using Packet.Node.Core.Traffic;
 
 namespace Packet.Node.Api;
 
@@ -63,8 +65,13 @@ public static class PdnReadApi
         // through), so the unauthenticated behaviour is unchanged by default.
         var v1 = app.MapGroup("/api/v1").RequireAuthorization(PdnAuthPolicies.Read);
 
-        v1.MapGet("/status", (NodeHostedService host, IConfigProvider config, TimeProvider clock)
-            => Results.Ok(BuildStatus(host, config, clock)));
+        // The traffic-log pieces resolve [FromServices] + nullable because they are
+        // only registered when traffic.enabled (same pattern as JwtTokenService —
+        // without [FromServices] an unregistered complex type fails endpoint
+        // inference at startup instead of degrading).
+        v1.MapGet("/status", (NodeHostedService host, IConfigProvider config, TimeProvider clock,
+                [FromServices] TrafficLogService? traffic)
+            => Results.Ok(BuildStatus(host, config, clock, traffic)));
 
         v1.MapGet("/ports", (NodeHostedService host, IConfigProvider config)
             => Results.Ok(BuildPorts(host, config)));
@@ -87,11 +94,22 @@ public static class PdnReadApi
         v1.MapGet("/monitor/recent", (NodeHostedService host, int? limit)
             => Results.Ok(host.Telemetry.RecentFrames(Math.Clamp(limit ?? 250, 1, 250))));
 
+        // The persisted traffic log (the separate traffic.db): recent frames
+        // newest-first, filterable by port + UTC time range. Returns empty when
+        // traffic logging is disabled (the store is then unregistered); /status's
+        // traffic.enabled flag says which. Bad since/until values 400 via binding.
+        v1.MapGet("/traffic", (string? port, DateTimeOffset? since, DateTimeOffset? until, int? limit,
+                [FromServices] SqliteTrafficStore? store)
+            => Results.Ok(store is null
+                ? Array.Empty<TrafficFrame>()
+                : store.Query(port, since, until, Math.Clamp(limit ?? 250, 1, 1000))));
+
         // TODO step 1b: log tail comes with the SSE feed (GET /events) — empty for now.
         v1.MapGet("/log", () => Results.Ok(Array.Empty<LogLine>()));
     }
 
-    private static NodeStatus BuildStatus(NodeHostedService host, IConfigProvider config, TimeProvider clock)
+    private static NodeStatus BuildStatus(
+        NodeHostedService host, IConfigProvider config, TimeProvider clock, TrafficLogService? traffic)
     {
         var current = config.Current;
         var supervisor = host.Supervisor;
@@ -115,7 +133,10 @@ public static class PdnReadApi
             PortsUp: portsUp,
             PortsTotal: current.Ports.Count,
             SessionCount: sessionCount,
-            Netrom: netrom);
+            Netrom: netrom,
+            Traffic: new TrafficLogStatus(
+                Enabled: traffic is not null,
+                Dropped: traffic?.DroppedFrames ?? 0));
     }
 
     private static PortStatus[] BuildPorts(NodeHostedService host, IConfigProvider config)

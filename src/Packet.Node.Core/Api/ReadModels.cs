@@ -16,9 +16,15 @@ public sealed record NodeStatus(
     int PortsUp,
     int PortsTotal,
     int SessionCount,
-    NetRomSummary Netrom);
+    NetRomSummary Netrom,
+    TrafficLogStatus Traffic);
 
 public sealed record NetRomSummary(int Neighbours, int Destinations, bool Inp3Enabled);
+
+/// <summary>The persistent traffic log's health: whether it is running this boot,
+/// and how many frames it has dropped (writer behind — the log's loss counter,
+/// never the radio path's).</summary>
+public sealed record TrafficLogStatus(bool Enabled, long Dropped);
 
 /// <summary>Live state of one configured port.</summary>
 public sealed record PortStatus(
