@@ -1,0 +1,179 @@
+// Management-section tests for the Apps screen (the /apps/packages UI): list
+// rendering across the interesting fixture states, the capability confirm that
+// gates the enable POST, restart visibility, and admin gating. Mounts against the
+// mock API backend like screens.smoke.test.tsx; mutating calls are spied + stubbed
+// (vi.spyOn(api, …).mockResolvedValue) so the shared mock fixtures stay pristine
+// across tests.
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "@/app/auth";
+import { Apps } from "@/screens/apps";
+import { api } from "@/lib/api";
+import { APP_PACKAGES } from "@/lib/mock";
+import type { AppPackage } from "@/lib/types";
+
+// Seed the persisted session AuthProvider rehydrates from (sessionStorage
+// "pdn.session"), so the screen sees the given scope: admin unlocks the mutating
+// controls; read renders them read-only (the users.tsx gating idiom).
+function seedScope(scope: "read" | "admin") {
+  sessionStorage.setItem(
+    "pdn.session",
+    JSON.stringify({ token: "test.jwt", refreshToken: null, username: "tom", scope }),
+  );
+}
+
+async function mountApps(scope: "read" | "admin" = "admin") {
+  seedScope(scope);
+  const result = render(
+    <MemoryRouter>
+      <AuthProvider>
+        <Apps />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+  // wait for the package list to land (each row carries data-pkg="<id>")
+  await waitFor(() => expect(document.querySelector('[data-pkg="lobby"]')).not.toBeNull());
+  return result;
+}
+
+function row(id: string): HTMLElement {
+  const el = document.querySelector(`[data-pkg="${id}"]`);
+  expect(el).not.toBeNull();
+  return el as HTMLElement;
+}
+
+function fixture(id: string): AppPackage {
+  const p = APP_PACKAGES.find((x) => x.id === id);
+  if (!p) throw new Error(`no fixture '${id}'`);
+  return structuredClone(p);
+}
+
+afterEach(() => {
+  sessionStorage.clear();
+  vi.restoreAllMocks();
+});
+
+describe("Apps — package management section", () => {
+  it("lists every package with its state pill and source badge", async () => {
+    await mountApps();
+    // status pills
+    expect(within(row("wall")).getByText("running")).toBeInTheDocument();
+    expect(within(row("lobby")).getByText("stopped")).toBeInTheDocument();
+    expect(within(row("bbs-bridge")).getByText("external")).toBeInTheDocument();
+    // source badges
+    expect(within(row("wall")).getByText("package")).toBeInTheDocument();
+    expect(within(row("motd")).getByText("inline")).toBeInTheDocument();
+    // a running managed service shows its pid
+    expect(within(row("wall")).getByText(/pid 4711/)).toBeInTheDocument();
+    // service "none" rows get a neutral dash, not a pill
+    expect(within(row("notes")).getByText("—")).toBeInTheDocument();
+  });
+
+  it("shows a Faulted service as an error with its crash detail", async () => {
+    await mountApps();
+    const r = row("quiz");
+    expect(within(r).getByText("faulted")).toBeInTheDocument();
+    const detail = within(r).getByText(/exited 5 times in 30s/);
+    expect(detail.closest("div")).toHaveClass("text-danger");
+  });
+
+  it("shows a broken package's manifest error and keeps its toggle disabled", async () => {
+    await mountApps();
+    const r = row("wx");
+    const error = within(r).getByText(/missing required field 'command'/);
+    expect(error.closest("div")).toHaveClass("text-danger");
+    expect(within(r).getByRole("switch")).toBeDisabled();
+  });
+
+  it("renders inline entries read-only — the toggle explains they are managed in config", async () => {
+    await mountApps();
+    const sw = within(row("motd")).getByRole("switch");
+    expect(sw).toBeDisabled();
+    expect(sw).toHaveAttribute("title", expect.stringMatching(/config/i));
+  });
+
+  it("enable opens the capability confirm and only POSTs once it is accepted", async () => {
+    const enable = vi
+      .spyOn(api, "appPackageEnable")
+      .mockResolvedValue({ ...fixture("lobby"), enabled: true, state: "Running", pid: 20001 });
+    await mountApps();
+
+    fireEvent.click(within(row("lobby")).getByRole("switch"));
+    // the confirm lists the manifest's declared capabilities before anything fires
+    expect(screen.getByText(/Enable LOBBY\?/)).toBeInTheDocument();
+    expect(screen.getByText("session")).toBeInTheDocument();
+    expect(enable).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+    await waitFor(() => expect(enable).toHaveBeenCalledWith("lobby"));
+    expect(enable).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not POST when the capability confirm is cancelled", async () => {
+    const enable = vi.spyOn(api, "appPackageEnable");
+    await mountApps();
+
+    fireEvent.click(within(row("lobby")).getByRole("switch"));
+    expect(screen.getByText(/Enable LOBBY\?/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(enable).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Enable LOBBY\?/)).not.toBeInTheDocument();
+  });
+
+  it("still confirms — saying so — when the manifest declares no capabilities", async () => {
+    await mountApps();
+    fireEvent.click(within(row("notes")).getByRole("switch"));
+    expect(screen.getByText(/Enable Notes\?/)).toBeInTheDocument();
+    expect(screen.getByText(/No declared capabilities/)).toBeInTheDocument();
+  });
+
+  it("disable POSTs immediately — no confirm step", async () => {
+    const disable = vi
+      .spyOn(api, "appPackageDisable")
+      .mockResolvedValue({ ...fixture("wall"), enabled: false, state: "Stopped", pid: null });
+    await mountApps();
+
+    fireEvent.click(within(row("wall")).getByRole("switch"));
+    await waitFor(() => expect(disable).toHaveBeenCalledWith("wall"));
+    expect(screen.queryByText(/Enable WALL\?/)).not.toBeInTheDocument();
+  });
+
+  it("offers Restart only on enabled managed services", async () => {
+    await mountApps();
+    expect(within(row("wall")).getByRole("button", { name: "Restart" })).toBeEnabled();
+    // a Faulted managed service is restartable — that is how you recover it
+    expect(within(row("quiz")).getByRole("button", { name: "Restart" })).toBeEnabled();
+    // disabled / external / inline / service-less / broken rows get no restart at all
+    expect(within(row("lobby")).queryByRole("button", { name: "Restart" })).toBeNull();
+    expect(within(row("bbs-bridge")).queryByRole("button", { name: "Restart" })).toBeNull();
+    expect(within(row("motd")).queryByRole("button", { name: "Restart" })).toBeNull();
+    expect(within(row("notes")).queryByRole("button", { name: "Restart" })).toBeNull();
+    expect(within(row("wx")).queryByRole("button", { name: "Restart" })).toBeNull();
+  });
+
+  it("Restart calls the restart endpoint for the row's package", async () => {
+    const restart = vi
+      .spyOn(api, "appPackageRestart")
+      .mockResolvedValue({ ...fixture("quiz"), state: "Running", pid: 20002, detail: null });
+    await mountApps();
+
+    fireEvent.click(within(row("quiz")).getByRole("button", { name: "Restart" }));
+    await waitFor(() => expect(restart).toHaveBeenCalledWith("quiz"));
+  });
+
+  it("read scope sees state but every mutating control is disabled", async () => {
+    await mountApps("read");
+    // the list itself still renders (read-gated endpoint)
+    expect(within(row("wall")).getByText("running")).toBeInTheDocument();
+    // every toggle is read-only, titled with the admin requirement
+    for (const sw of screen.getAllByRole("switch")) {
+      expect(sw).toBeDisabled();
+      expect(sw).toHaveAttribute("title", "Requires admin");
+    }
+    const restart = within(row("wall")).getByRole("button", { name: "Restart" });
+    expect(restart).toBeDisabled();
+    expect(restart).toHaveAttribute("title", "Requires admin");
+  });
+});
