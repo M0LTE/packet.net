@@ -29,14 +29,14 @@ esac
 # release ONCE (dapps-linux-{x64,arm64,arm} + pdn-app.yaml), sha256sum them,
 # and update dapps_version + the four pins together (ShippedManifestsTests
 # asserts the cached release manifest tracks dapps_version).
-dapps_version="v0.34.0"
+dapps_version="v0.34.1"
 case "$rid" in
-  linux-x64)   dapps_sha256="74677abcaa29aa6300416b7741236a12a061d915629653ce3bef3001e78f3e3c" ;;
-  linux-arm64) dapps_sha256="89f18f9e2344ade06bae07957c4de00a97bcd03bd8d95a06e1a0353b7b390b6e" ;;
-  linux-arm)   dapps_sha256="49ff594ec7b54250f836178571b19fed86252b65474c03f2e1e23690815c9ef6" ;;
+  linux-x64)   dapps_sha256="a509c31d0be87e2cf7f10b2fde0614234381b6fbc623580da9c9757a969ddb4b" ;;
+  linux-arm64) dapps_sha256="2205fed8ee4bf09cf5cfb24edbeb00017bbc6e68ca4611b9e4f055c570d4a76f" ;;
+  linux-arm)   dapps_sha256="54d0d0a9aa6be56e5703ec85343083fdfd3e28d35716833ae42e835622a57341" ;;
 esac
 # The manifest is RID-independent: one asset, one pin, version-stamped to the tag.
-dapps_manifest_sha256="fabbd5675386bf2e3532413089f61a4268d5798acf1aba7d4a8ae71ef27fc85e"
+dapps_manifest_sha256="ae0b2f50b7a7f7f38ba1ce6eb182cee21073cbd1646eca9a5189a9aa386d8125"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 proj="$root/src/Packet.Node/Packet.Node.csproj"
