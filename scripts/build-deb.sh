@@ -23,17 +23,20 @@ esac
 
 # DAPPS — the bundled store-and-forward messaging app (docs/app-packages.md
 # § Distribution). Public interfaces only: we FETCH the published self-contained
-# release binary from m0lte/dapps (never build from or vendor its source) and
-# pin it by version + per-RID sha256. To bump: download each dapps-linux-* asset
-# from the new release ONCE, sha256sum it, and update all four pins together
-# (plus packaging/dapps/pdn-app.yaml's version — ShippedManifestsTests asserts
-# the manifest tracks dapps_version).
-dapps_version="v0.33.12"
+# release binary AND its app-authored pdn-app.yaml manifest from the SAME
+# m0lte/dapps release (never build from or vendor its source) and pin every
+# asset by version + sha256. To bump: download all FOUR assets from the new
+# release ONCE (dapps-linux-{x64,arm64,arm} + pdn-app.yaml), sha256sum them,
+# and update dapps_version + the four pins together (ShippedManifestsTests
+# asserts the cached release manifest tracks dapps_version).
+dapps_version="v0.34.0"
 case "$rid" in
-  linux-x64)   dapps_sha256="5040b79d2bd11cebead93445bc4a12a89a597e403a0c2ec2a7401600b9e5a95d" ;;
-  linux-arm64) dapps_sha256="835c0691a450730b52b915d7610c10ba5203f85eb0fa67f7303f631c7d82d609" ;;
-  linux-arm)   dapps_sha256="02812ff9afcaf89b46a3b8739dc5ba556a4f817a5aa3dfa9bb372b710c4a035e" ;;
+  linux-x64)   dapps_sha256="74677abcaa29aa6300416b7741236a12a061d915629653ce3bef3001e78f3e3c" ;;
+  linux-arm64) dapps_sha256="89f18f9e2344ade06bae07957c4de00a97bcd03bd8d95a06e1a0353b7b390b6e" ;;
+  linux-arm)   dapps_sha256="49ff594ec7b54250f836178571b19fed86252b65474c03f2e1e23690815c9ef6" ;;
 esac
+# The manifest is RID-independent: one asset, one pin, version-stamped to the tag.
+dapps_manifest_sha256="fabbd5675386bf2e3532413089f61a4268d5798acf1aba7d4a8ae71ef27fc85e"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 proj="$root/src/Packet.Node/Packet.Node.csproj"
@@ -95,40 +98,52 @@ install -d "$stage/usr/share/packetnet/apps/lobby"
 install -m 0644 "$root/examples/lobby/pdn-app.yaml" "$stage/usr/share/packetnet/apps/lobby/pdn-app.yaml"
 install -m 0755 "$root/examples/lobby/lobby.py" "$stage/usr/share/packetnet/apps/lobby/lobby.py"
 install -m 0644 "$root/examples/lobby/README.md" "$stage/usr/share/packetnet/apps/lobby/README.md"
-# DAPPS — staged from the m0lte/dapps PUBLISHED release artifact (pins above; the
-# "only public interfaces" rule — docs/app-packages.md § Distribution). The asset is
-# cached in artifacts/cache and re-downloaded only when the cached file's hash no
-# longer matches the pin. A downloaded file that fails the pin is a hard build error
-# (wrong artifact / tampering — never package it). If the download fails AND no valid
-# cache exists (network-less build), the dapps package is SKIPPED with a warning and
-# the deb still builds: DAPPS is bundled, not load-bearing.
+# DAPPS — staged from the m0lte/dapps PUBLISHED release: the per-RID binary AND the
+# app-authored pdn-app.yaml manifest, both assets of the SAME pinned release (pins
+# above; the "only public interfaces" rule — docs/app-packages.md § Distribution).
+# Each asset is cached in artifacts/cache (key includes the version) and re-downloaded
+# only when the cached file's hash no longer matches its pin. A downloaded file that
+# fails its pin is a hard build error (wrong artifact / tampering — never package it).
+# If a download fails AND no valid cache exists (network-less build), the dapps
+# package is SKIPPED with a warning and the deb still builds — all-or-nothing: a
+# binary is never staged without its manifest, nor a manifest without its binary.
+# DAPPS is bundled, not load-bearing.
 dapps_cache="$root/artifacts/cache/dapps-${dapps_version}-${rid}"
-dapps_url="https://github.com/m0lte/dapps/releases/download/${dapps_version}/dapps-${rid}"
-dapps_cache_ok() {
-  [ -f "$dapps_cache" ] && echo "${dapps_sha256}  ${dapps_cache}" | sha256sum --check --status -
+dapps_manifest_cache="$root/artifacts/cache/dapps-${dapps_version}-pdn-app.yaml"
+# dapps_pin_ok <file> <sha256> — the file exists and matches its pin.
+dapps_pin_ok() {
+  [ -f "$1" ] && echo "$2  $1" | sha256sum --check --status -
 }
-if ! dapps_cache_ok; then
-  echo "==> fetch DAPPS ${dapps_version} (${rid}) from the published release"
-  mkdir -p "$(dirname "$dapps_cache")"
-  if curl -fSL --retry 3 -o "${dapps_cache}.tmp" "$dapps_url"; then
-    mv "${dapps_cache}.tmp" "$dapps_cache"
-    if ! dapps_cache_ok; then
-      echo "ERROR: $dapps_url does not match the pinned sha256 (${dapps_sha256})." >&2
-      echo "       Refusing to package an unverified binary. If the dapps release was" >&2
-      echo "       re-cut, re-pin dapps_version + all three hashes together." >&2
+# dapps_fetch <asset> <cache> <sha256> — cached, pin-verified fetch of one release
+# asset. Returns 0 with a verified file at <cache>; returns 1 only when the release
+# is unreachable and no valid cache exists; a FRESH download failing its pin exits.
+dapps_fetch() {
+  local asset="$1" cache="$2" sha="$3"
+  local url="https://github.com/m0lte/dapps/releases/download/${dapps_version}/${asset}"
+  if dapps_pin_ok "$cache" "$sha"; then return 0; fi
+  echo "==> fetch DAPPS ${dapps_version} asset ${asset} from the published release"
+  mkdir -p "$(dirname "$cache")"
+  if curl -fSL --retry 3 -o "${cache}.tmp" "$url"; then
+    mv "${cache}.tmp" "$cache"
+    if ! dapps_pin_ok "$cache" "$sha"; then
+      echo "ERROR: $url does not match the pinned sha256 (${sha})." >&2
+      echo "       Refusing to package an unverified artifact. If the dapps release was" >&2
+      echo "       re-cut, re-pin dapps_version + all four hashes together." >&2
       exit 1
     fi
-  else
-    rm -f "${dapps_cache}.tmp"
+    return 0
   fi
-fi
-if dapps_cache_ok; then
+  rm -f "${cache}.tmp"
+  return 1
+}
+if dapps_fetch "dapps-${rid}" "$dapps_cache" "$dapps_sha256" &&
+   dapps_fetch "pdn-app.yaml" "$dapps_manifest_cache" "$dapps_manifest_sha256"; then
   install -d "$stage/usr/share/packetnet/apps/dapps"
-  install -m 0644 "$root/packaging/dapps/pdn-app.yaml" "$stage/usr/share/packetnet/apps/dapps/pdn-app.yaml"
+  install -m 0644 "$dapps_manifest_cache" "$stage/usr/share/packetnet/apps/dapps/pdn-app.yaml"
   install -m 0755 "$dapps_cache" "$stage/usr/share/packetnet/apps/dapps/dapps"
 else
-  echo "WARNING: could not fetch DAPPS ${dapps_version} (${rid}) and no valid cached" >&2
-  echo "         copy exists — building the deb WITHOUT the bundled dapps package." >&2
+  echo "WARNING: could not fetch DAPPS ${dapps_version} (${rid} binary + manifest) and no" >&2
+  echo "         valid cached copy exists — building the deb WITHOUT the bundled dapps package." >&2
 fi
 sed -e "s/@ARCH@/$arch/" -e "s/@VERSION@/$version/" \
     "$root/packaging/control.in" > "$stage/DEBIAN/control"
