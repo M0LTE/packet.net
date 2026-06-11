@@ -166,5 +166,20 @@ public static class NodeConfigTemplate
         #      intervalMinutes: 15         # omit to inherit the system default above
         #      text: "{node} on VHF"       # omit to inherit the system default text
 
+        # Traffic log. Persists EVERY AX.25 frame the node sends or receives, on
+        # every port, to a SEPARATE SQLite database (default: traffic.db beside
+        # pdn.db) so there is durable off-air frame history when something needs
+        # diagnosing — query it with GET /api/v1/traffic. Kept apart from pdn.db
+        # so a huge or corrupt frame log can never threaten node state. Bounded:
+        # rows older than retentionDays are pruned, and the file is hard-capped
+        # at maxMb (oldest rows pruned beyond either bound). `enabled`/`path`
+        # apply at startup (restart to change); retentionDays/maxMb are re-read
+        # live at each prune pass.
+        traffic:
+          enabled: true                   # log every sent/received frame (ON by default)
+          # path: traffic.db              # SQLite file; omit for traffic.db beside pdn.db
+          # retentionDays: 14             # prune rows older than this many days (>= 1)
+          # maxMb: 512                    # hard cap on the database file size (>= 1)
+
         """;
 }
