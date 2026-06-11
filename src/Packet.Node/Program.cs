@@ -8,6 +8,7 @@ using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
+using Packet.Node.Core.Traffic;
 using Packet.Node.Core.Transports;
 
 // The composition root for the Packet.NET node. This IS a Generic Host (the
@@ -252,6 +253,30 @@ builder.Services.AddSingleton<BeaconService>();
 builder.Services.AddSingleton<NodeHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeHostedService>());
 
+// The persistent traffic log (default-ON behind traffic.enabled): every traced AX.25
+// frame, on every port, written to a SEPARATE SQLite db (default traffic.db beside
+// pdn.db — never pdn.db itself, so a huge/corrupt frame log can never threaten node
+// state). The writer subscribes to the same NodeTelemetry stream the SSE monitor
+// rides (no second decode path) through a bounded queue, so a slow disk drops log
+// rows (counted, surfaced in /status) rather than ever back-pressuring the radio
+// path. enabled/path apply at startup (restart-applies — see the config template);
+// retentionDays/maxMb are re-read live at each prune. The store degrades internally
+// on fault, like every other store: the node always boots.
+if (configProvider.Current.Traffic.Enabled)
+{
+    var trafficStore = new SqliteTrafficStore(
+        ResolveTrafficDbPath(configProvider.Current.Traffic, dbPath),
+        bootstrapLoggers.CreateLogger<SqliteTrafficStore>());
+    builder.Services.AddSingleton(trafficStore);
+    builder.Services.AddSingleton(sp => new TrafficLogService(
+        sp.GetRequiredService<NodeHostedService>().Telemetry,
+        trafficStore,
+        sp.GetRequiredService<IConfigProvider>(),
+        sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILoggerFactory>().CreateLogger<TrafficLogService>()));
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<TrafficLogService>());
+}
+
 // RHPv2 server (the app platform's network plane, default-off behind rhp.enabled): the
 // JSON-over-TCP host API bridged onto the running supervisor. See docs/rhp2-server.md.
 builder.Services.AddSingleton<Packet.Rhp2.Server.IRhpGateway, Packet.Node.Rhp.SupervisorRhpGateway>();
@@ -428,6 +453,20 @@ static string ResolveDbPath(string[] args)
     }
     var env = Environment.GetEnvironmentVariable("PACKETNET_DB");
     return !string.IsNullOrWhiteSpace(env) ? env : Path.Combine(Directory.GetCurrentDirectory(), "pdn.db");
+}
+
+static string ResolveTrafficDbPath(Packet.Node.Core.Configuration.TrafficConfig traffic, string dbPath)
+{
+    // traffic.path wins when set (resolved against the CWD like every other path);
+    // default = traffic.db beside pdn.db — the same writable StateDirectory
+    // (/var/lib/packetnet) on the packaged node, which packaging/postinst already
+    // creates. Never pdn.db itself: the log is a separate database by design.
+    if (!string.IsNullOrWhiteSpace(traffic.Path))
+    {
+        return traffic.Path;
+    }
+    var dir = Path.GetDirectoryName(Path.GetFullPath(dbPath));
+    return string.IsNullOrEmpty(dir) ? "traffic.db" : Path.Combine(dir, "traffic.db");
 }
 
 /// <summary>Exposed so the WebApplicationFactory-based host test can boot this

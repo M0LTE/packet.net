@@ -19,7 +19,7 @@ servers:
   - url: /api/v1
 
 x-slices:
-  read-and-stream: [GET /status, GET /ports, GET /sessions, GET /netrom/routes, GET /config, GET /links, GET /log, GET /monitor/recent, GET /events]
+  read-and-stream: [GET /status, GET /ports, GET /sessions, GET /netrom/routes, GET /config, GET /links, GET /log, GET /monitor/recent, GET /events, GET /traffic]
   auth: [POST /auth/login, WebAuthn register/authenticate, GET /setup/state, POST /setup, /users, TOTP]
   write-and-actions: [port lifecycle, PUT/PATCH /config, /sessions connect/disconnect/send, /ports/{id}/tune, /ping, /beacons]
 
@@ -191,6 +191,25 @@ paths:
       responses:
         "200": { description: ok, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/MonitorEvent" } } } } }
 
+  /traffic:
+    get:
+      tags: [monitor]
+      summary: The persisted traffic log — recent frames newest-first (troubleshooting)
+      description: >
+        Reads the node's durable frame history from the separate traffic database
+        (`traffic.db` — every AX.25 frame sent or received on every port, bounded by
+        `traffic.retentionDays` + `traffic.maxMb`). Newest-first; filterable by port
+        and an inclusive UTC time range. Returns an empty array when `traffic.enabled`
+        is off (see `/status`'s `traffic` block for the flag + the dropped counter).
+      security: [{ bearerAuth: [read] }]
+      parameters:
+        - { name: port, in: query, required: false, schema: { type: string } }
+        - { name: since, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: until, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 1000, default: 250 } }
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TrafficFrame" } } } } }
+
   /events:
     get:
       tags: [monitor]
@@ -351,7 +370,7 @@ components:
   schemas:
     NodeStatus:
       type: object
-      required: [callsign, version, uptimeSeconds, portsUp, portsTotal, sessionCount, netrom]
+      required: [callsign, version, uptimeSeconds, portsUp, portsTotal, sessionCount, netrom, traffic]
       properties:
         callsign: { type: string }
         alias: { type: string }
@@ -367,6 +386,12 @@ components:
             neighbours: { type: integer }
             destinations: { type: integer }
             inp3Enabled: { type: boolean }
+        traffic:
+          type: object
+          description: The persisted traffic log's health (enabled this boot; frames dropped by the bounded writer — never the radio path's loss).
+          properties:
+            enabled: { type: boolean }
+            dropped: { type: integer }
 
     PortStatus:
       type: object
@@ -569,6 +594,28 @@ components:
         summary: { type: string }
         raw: { type: array, items: { type: integer }, description: "octets for the hex dump" }
         path: { type: array, items: { type: string }, description: "digipeater path" }
+        control: { type: integer, description: "first control octet (additive; persisted by the traffic log)" }
+        infoLength: { type: integer, description: "info-field length in bytes (additive)" }
+
+    TrafficFrame:
+      type: object
+      description: One persisted frame from the traffic log (`traffic.db`). `raw` is capped at 2048 octets per frame; `infoLength` is always the true decoded length.
+      required: [id, timestamp, portId, direction, source, dest, kind, pf, control, infoLength, raw]
+      properties:
+        id: { type: integer, description: "monotonic row id (insertion order)" }
+        timestamp: { type: string, format: date-time }
+        portId: { type: string }
+        direction: { type: string, enum: [rx, tx] }
+        source: { type: string }
+        dest: { type: string }
+        kind: { type: string, enum: [UI, SABM, SABME, I, RR, RNR, REJ, SREJ, FRMR, UA, DISC, DM, XID, TEST] }
+        ns: { type: [integer, "null"] }
+        nr: { type: [integer, "null"] }
+        pf: { type: integer }
+        control: { type: integer, description: "first control octet" }
+        pid: { type: [integer, "null"], description: "protocol id byte (I/UI frames)" }
+        infoLength: { type: integer }
+        raw: { type: array, items: { type: integer }, description: "raw frame octets, capped at 2048" }
 
     LogLine:
       type: object

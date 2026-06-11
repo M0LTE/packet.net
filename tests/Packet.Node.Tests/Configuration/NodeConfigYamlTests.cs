@@ -430,4 +430,62 @@ public class NodeConfigYamlTests
             "the default disabled overlay should round-trip\nYAML:\n{0}", yaml);
         reparsed.NetRom.Inp3.Enabled.Should().BeFalse();
     }
+
+    [Fact]
+    public void Parses_a_traffic_block()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports: []
+            traffic:
+              enabled: false
+              path: /tmp/frames.db
+              retentionDays: 7
+              maxMb: 64
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+
+        config.Traffic.Should().Be(new TrafficConfig
+        {
+            Enabled = false,
+            Path = "/tmp/frames.db",
+            RetentionDays = 7,
+            MaxMb = 64,
+        });
+    }
+
+    [Fact]
+    public void An_absent_traffic_block_means_the_on_by_default_record()
+    {
+        // Existing configs have no traffic: key — they must come up logging with
+        // the default bounds (enabled is the whole point of the feature).
+        var config = NodeConfigYaml.Parse("""
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports: []
+            """);
+
+        config.Traffic.Should().Be(new TrafficConfig());
+        config.Traffic.Enabled.Should().BeTrue();
+        config.Traffic.RetentionDays.Should().Be(14);
+        config.Traffic.MaxMb.Should().Be(512);
+        config.Traffic.Path.Should().BeNull("null = traffic.db beside pdn.db");
+    }
+
+    [Fact]
+    public void Template_ships_the_default_traffic_block_and_round_trips()
+    {
+        // The first-start template documents the block with its defaults spelled
+        // out; parsing it must yield exactly the record defaults, and the parsed
+        // config must serialise→parse back to the same traffic block.
+        var fromTemplate = NodeConfigYaml.Parse(NodeConfigTemplate.Yaml);
+        fromTemplate.Traffic.Should().Be(new TrafficConfig(), "the template's traffic block must match the record defaults");
+
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(fromTemplate));
+        reparsed.Traffic.Should().Be(fromTemplate.Traffic);
+    }
 }

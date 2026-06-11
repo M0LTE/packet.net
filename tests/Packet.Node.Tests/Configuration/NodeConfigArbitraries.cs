@@ -105,17 +105,28 @@ public static class NodeConfigArbitraries
                 SweepIntervalSeconds = sweep,
             });
 
+    private static Gen<TrafficConfig> TrafficGen() =>
+        Gen.OneOf(
+            Gen.Constant(new TrafficConfig()),
+            from enabled in Gen.Elements(false, true)
+            from path in Gen.Elements<string?>(null, "traffic.db", "/var/lib/packetnet/traffic.db")
+            from days in Gen.Choose(1, 60)
+            from maxMb in Gen.Choose(1, 4096)
+            select new TrafficConfig { Enabled = enabled, Path = path, RetentionDays = days, MaxMb = maxMb });
+
     private static Gen<NodeConfig> NodeConfigGen() =>
         from call in CallsignGen()
         from nPorts in Gen.Choose(0, 4)
         from ports in Gen.CollectToList(Enumerable.Range(0, nPorts).Select(PortGen))
         from netrom in NetRomGen()
+        from traffic in TrafficGen()
         select new NodeConfig
         {
             SchemaVersion = 1,
             Identity = new Identity { Callsign = call },
             Ports = ports.ToList(),
             NetRom = netrom,
+            Traffic = traffic,
         };
 
     public static Arbitrary<NodeConfig> NodeConfig() => Arb.From(NodeConfigGen());

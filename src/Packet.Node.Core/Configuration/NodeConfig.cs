@@ -75,6 +75,44 @@ public sealed record NodeConfig
     /// roots (<c>/usr/share/packetnet/apps</c>, then <c>/var/lib/packetnet/apps</c> — later
     /// wins on id collision). When set, replaces the defaults entirely.</summary>
     public IReadOnlyList<string>? AppPackageRoots { get; init; }
+
+    /// <summary>The persistent traffic log: every AX.25 frame the node sends or
+    /// receives, on every port, written to a <b>separate</b> SQLite database for
+    /// off-air troubleshooting. Default-ON. See <see cref="TrafficConfig"/>.</summary>
+    public TrafficConfig Traffic { get; init; } = new();
+}
+
+/// <summary>
+/// The persistent traffic-log configuration. The log rides the node's existing
+/// frame-trace telemetry (the same tap the web monitor's SSE feed consumes — no
+/// second decode path) and persists one row per traced frame to its own SQLite
+/// file, deliberately SEPARATE from <c>pdn.db</c> so a huge or corrupt frame log
+/// can never threaten node state. Default-<b>ON</b>: the whole point is having
+/// durable frame history already on disk when a fault needs diagnosing.
+/// </summary>
+/// <remarks>
+/// <see cref="Enabled"/> and <see cref="Path"/> are applied at startup
+/// (restart-applies — the store + writer are constructed in the composition
+/// root); <see cref="RetentionDays"/> and <see cref="MaxMb"/> are re-read from
+/// the live config at every prune pass, so tightening the bounds is a hot edit.
+/// </remarks>
+public sealed record TrafficConfig
+{
+    /// <summary>Whether frames are persisted at all. Default <c>true</c> — the
+    /// log exists for troubleshooting and is bounded, so it is on by default.</summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>The SQLite file the log is written to. Null (the default) =
+    /// <c>traffic.db</c> in the same directory as <c>pdn.db</c> (the writable
+    /// StateDirectory on the packaged node). Never the node-state db.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>Rows older than this many days are pruned. Default 14.</summary>
+    public int RetentionDays { get; init; } = 14;
+
+    /// <summary>Hard cap on the database file size in megabytes — the oldest
+    /// rows are pruned until the file fits. Default 512.</summary>
+    public int MaxMb { get; init; } = 512;
 }
 
 /// <summary>

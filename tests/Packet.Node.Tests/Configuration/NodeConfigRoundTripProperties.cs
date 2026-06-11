@@ -23,6 +23,7 @@ public class NodeConfigRoundTripProperties
         reparsed.Ports.Should().Equal(config.Ports, "round-trip should preserve every port (incl. its transport kind)\nYAML:\n{0}", yaml);
         reparsed.Services.Should().Be(config.Services);
         reparsed.Management.Should().Be(config.Management);
+        reparsed.Traffic.Should().Be(config.Traffic, "round-trip should preserve the traffic-log block\nYAML:\n{0}", yaml);
     }
 
     [Property(Arbitrary = [typeof(NodeConfigArbitraries)], MaxTest = 300)]
