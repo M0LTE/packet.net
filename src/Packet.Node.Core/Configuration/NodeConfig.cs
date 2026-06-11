@@ -312,7 +312,10 @@ public sealed record Ax25PortParams
     /// <summary>T1 acknowledgement timer seed, milliseconds. Null = engine default.</summary>
     public int? T1Ms { get; init; }
 
-    /// <summary>T2 response-delay timer, milliseconds. Null = engine default.</summary>
+    /// <summary>T2 acknowledge-delay timer (§6.7.1.2), milliseconds. Received
+    /// in-sequence I-frames coalesce into one cumulative RR sent T2 after the
+    /// first unacknowledged frame. 0 = no delay (ack per frame). Null = engine
+    /// default (3000).</summary>
     public int? T2Ms { get; init; }
 
     /// <summary>T3 inactive-link timer, milliseconds. Null = engine default.</summary>

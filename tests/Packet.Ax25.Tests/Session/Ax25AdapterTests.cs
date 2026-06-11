@@ -200,11 +200,11 @@ public class Ax25AdapterTests
     /// m0lte/packet.net#327, adapter construction site: an I-frame received
     /// while the session has no reply data must still elicit the figc4.x
     /// delayed-ack RR. The adapter's <c>sendLinkMux</c> grants the SDL's
-    /// <c>LM-SEIZE Request</c> by posting <c>LM-SEIZE Confirm</c> back
-    /// (deferred by PostEvent's run-to-completion queue, so it dispatches
-    /// after t26 has set Ack-Pending); t22 then flushes the RR via
-    /// <c>Enquiry Response (F=0)</c>. The listener-site equivalent lives in
-    /// <c>Ax25ListenerDelayedAckTests</c>.
+    /// <c>LM-SEIZE Request</c> by posting <c>LM-SEIZE Confirm</c> back —
+    /// deferred by the §6.7.1.2 T2 acknowledge delay (m0lte/packet.net#385),
+    /// so nothing flushes until T2 expires; t22 then sends the RR via
+    /// <c>Enquiry Response (F=0)</c> with the then-current V(R). The
+    /// listener-site equivalent lives in <c>Ax25ListenerDelayedAckTests</c>.
     /// </summary>
     [Fact]
     public void Idle_Received_I_Frame_Is_Acknowledged_With_RR()
@@ -229,9 +229,15 @@ public class Ax25AdapterTests
             nr: 0, ns: 0, info: "QSL?"u8.ToArray(), pollBit: false);
         adapter.OnReceivedAx25Bytes(inbound.ToBytes()).Should().BeTrue();
 
-        // The delayed ack must have flushed synchronously (the deferred
-        // LM-SEIZE Confirm dispatches in the same PostEvent drain): exactly
-        // one RR response, N(R)=1, F=0 — and no runaway re-seize loop.
+        // The ack is held behind the T2 acknowledge delay: nothing on the
+        // wire yet, ack pending, the delayed grant armed.
+        emittedBytes.Should().BeEmpty("the ack coalesces behind T2 — no per-frame RR (#385)");
+        ctx.AcknowledgePending.Should().BeTrue("t26 set Ack-Pending for the delayed ack");
+        scheduler.IsRunning("T2").Should().BeTrue("the seize grant is deferred on the T2 timer");
+
+        // T2 expires → exactly one RR response, N(R)=1, F=0 — and no
+        // runaway re-seize loop.
+        time.Advance(ctx.T2 + TimeSpan.FromMilliseconds(1));
         emittedBytes.Should().ContainSingle("the only emission is the delayed-ack RR");
         Ax25Frame.TryParse(emittedBytes[0], out var ack).Should().BeTrue();
         (ack!.Control & 0x0F).Should().Be(0x01, "the ack is an RR S-frame");
