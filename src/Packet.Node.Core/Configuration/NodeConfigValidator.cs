@@ -47,6 +47,8 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
 
         RuleFor(c => c.Rhp).NotNull().SetValidator(new RhpConfigValidator());
 
+        RuleFor(c => c.Traffic).NotNull().SetValidator(new TrafficConfigValidator());
+
         // Empty applications is the default (a node with no apps). Each entry is validated,
         // and ids / match-verbs must be unique across the list (the launch + log keys).
         RuleForEach(c => c.Applications).SetValidator(new ApplicationConfigValidator());
@@ -222,6 +224,28 @@ public sealed class PortBeaconValidator : AbstractValidator<PortBeaconConfig>
         RuleFor(b => b.Text!).NotEmpty()
             .When(b => b.Enabled && b.Text is not null)
             .WithMessage("port beacon.text must be non-empty when set on an enabled beacon.");
+    }
+}
+
+/// <summary>
+/// Validates the traffic-log block (<see cref="TrafficConfig"/>). The retention +
+/// size bounds must be sane <em>always</em> (not just when enabled) so a
+/// disabled-but-edited block can't hold junk that detonates on re-enable; a
+/// <c>path:</c> that is set must be a non-blank path (null = the default beside
+/// <c>pdn.db</c>).
+/// </summary>
+public sealed class TrafficConfigValidator : AbstractValidator<TrafficConfig>
+{
+    public TrafficConfigValidator()
+    {
+        RuleFor(t => t.RetentionDays).GreaterThanOrEqualTo(1)
+            .WithMessage("traffic.retentionDays must be at least 1.");
+        RuleFor(t => t.MaxMb).GreaterThanOrEqualTo(1)
+            .WithMessage("traffic.maxMb must be at least 1.");
+        RuleFor(t => t.Path!)
+            .Must(p => !string.IsNullOrWhiteSpace(p))
+            .When(t => t.Path is not null)
+            .WithMessage("traffic.path must be a non-empty path when set (omit it for the default beside pdn.db).");
     }
 }
 

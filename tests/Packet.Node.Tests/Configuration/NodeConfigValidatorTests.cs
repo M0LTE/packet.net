@@ -496,4 +496,33 @@ public class NodeConfigValidatorTests
             NetRom = new NetRomConfig { Enabled = true, Connect = true, Inp3 = new NetRomInp3Options { Enabled = true } },
         }).IsValid.Should().BeTrue("inp3.enabled with netrom.connect is fine");
     }
+
+    [Fact]
+    public void Accepts_the_default_traffic_block_and_an_explicit_path()
+    {
+        Validator.Validate(Valid()).IsValid.Should().BeTrue("the default traffic block (enabled, 14 days, 512 MB) is valid");
+
+        Validator.Validate(Valid() with
+        {
+            Traffic = new TrafficConfig { Path = "/var/lib/packetnet/traffic.db", RetentionDays = 7, MaxMb = 64 },
+        }).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0, 512, null)]      // retention below 1 day
+    [InlineData(-1, 512, null)]
+    [InlineData(14, 0, null)]       // size cap below 1 MB
+    [InlineData(14, -5, null)]
+    [InlineData(14, 512, "   ")]    // a set-but-blank path would silently log nowhere
+    public void Rejects_out_of_range_traffic_bounds_even_when_disabled(int retentionDays, int maxMb, string? path)
+    {
+        // Bounds are validated regardless of `enabled` — a disabled-but-edited block
+        // can't hold junk that detonates on re-enable.
+        var result = Validator.Validate(Valid() with
+        {
+            Traffic = new TrafficConfig { Enabled = false, Path = path, RetentionDays = retentionDays, MaxMb = maxMb },
+        });
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.ErrorMessage.StartsWith("traffic.", StringComparison.Ordinal));
+    }
 }

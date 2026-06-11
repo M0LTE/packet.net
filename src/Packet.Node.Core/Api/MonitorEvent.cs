@@ -40,7 +40,20 @@ public sealed record MonitorEvent(
     int Length,              // total frame length on the wire (no FCS)
     string Summary,
     IReadOnlyList<int> Raw,
-    IReadOnlyList<string> Path);
+    IReadOnlyList<string> Path)
+{
+    /// <summary>The first control octet as decoded (modulo-independent — under
+    /// mod-128 the extension octet's sequence bits are already reflected in
+    /// <see cref="Ns"/>/<see cref="Nr"/>). Additive (init-only) so the SSE wire
+    /// shape gains a <c>control</c> field the web client is free to ignore; the
+    /// traffic log persists it per frame.</summary>
+    public int Control { get; init; }
+
+    /// <summary>Length of the information field in bytes (0 for frames without
+    /// one). Additive, like <see cref="Control"/> — previously only embedded in
+    /// <see cref="Summary"/> text.</summary>
+    public int InfoLength { get; init; }
+}
 
 /// <summary>
 /// Decodes a parsed <see cref="Ax25Frame"/> (already off the listener's
@@ -100,7 +113,11 @@ public static class MonitorEventFactory
             Length: bytes.Length,
             Summary: summary,
             Raw: raw,
-            Path: path);
+            Path: path)
+        {
+            Control = frame.Control,
+            InfoLength = infoLen,
+        };
     }
 
     /// <summary>
