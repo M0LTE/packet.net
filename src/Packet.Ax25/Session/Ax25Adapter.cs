@@ -93,18 +93,42 @@ public sealed class Ax25Adapter
             sendUiFrame:   SendUi,
             sendIFrame:    SendI,
             sendUpward:    _ => { /* DL-layer signals stay in-memory for the caller to subscribe to via Context */ },
-            // Grant LM-SEIZE immediately: the media this adapter fronts
-            // (AXUDP / KISS-TCP / KISS-serial) are contention-free from the
-            // session's point of view — any real channel access (CSMA
-            // persist/slottime) is the TNC's job, and it buffers. Without the
-            // grant the figc4.x delayed ack (Set Ack Pending + LM-SEIZE
-            // Request → RR on LM-SEIZE Confirm) never flushes, so a session
-            // with no reply data never acknowledges received I-frames and the
-            // peer retries into link failure (#327). The post is deferred by
-            // PostEvent's run-to-completion queue, so the confirm dispatches
-            // after the in-flight transition (with Ack-Pending set). Bounded:
-            // the confirm path only emits LM-RELEASE, never a re-seize.
-            sendLinkMux:   signal => { if (signal is LinkMultiplexerSeizeRequest) Session!.PostEvent(new LmSeizeConfirm()); },
+            // Grant LM-SEIZE after the §6.7.1.2 acknowledge delay (T2). The
+            // media this adapter fronts (AXUDP / KISS-TCP / KISS-serial) are
+            // contention-free from the session's point of view — any real
+            // channel access (CSMA persist/slottime) is the TNC's job, and it
+            // buffers. The grant itself is mandatory (#327: a stubbed
+            // sendLinkMux swallowed the seize, so an idle receiver never
+            // acked), but granting immediately acks once per received I-frame
+            // — one RR keyup per frame, which on a half-duplex channel
+            // deafens the port to the peer's next window and leads to stale
+            // F=1 checkpoint answers and a retransmit rollback loop (#385).
+            // Deferring the grant by ctx.T2 coalesces a burst into ONE
+            // cumulative RR: t26 requests the seize only on the first
+            // unacknowledged frame, and Enquiry_Response reads N(R):=V(R) at
+            // confirm-dispatch time. An N(R)-bearing emission in the
+            // meantime runs Clear Acknowledge Pending, which cancels the
+            // armed T2 (see ActionDispatcher); a confirm that fires anyway
+            // lands on the no-ack-pending branch (LM-RELEASE only). T2 ≤ 0
+            // restores the legacy immediate grant (ack-per-frame). Posts are
+            // deferred by PostEvent's run-to-completion queue; bounded: the
+            // confirm path only emits LM-RELEASE, never a re-seize. Mirrors
+            // the Ax25Listener construction site.
+            sendLinkMux:   signal =>
+            {
+                if (signal is not LinkMultiplexerSeizeRequest) return;
+                if (context.T2 > TimeSpan.Zero)
+                {
+                    if (!scheduler.IsRunning("T2"))
+                    {
+                        scheduler.Arm("T2", context.T2, () => Session!.PostEvent(new LmSeizeConfirm()));
+                    }
+                }
+                else
+                {
+                    Session!.PostEvent(new LmSeizeConfirm());
+                }
+            },
             sendInternal:  _ => { /* internal signals: queue-management already mutates Context directly */ },
             subroutines:   subroutines);
 

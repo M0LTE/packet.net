@@ -389,7 +389,10 @@ public sealed class Ax25ParamsValidator : AbstractValidator<Ax25PortParams>
     public Ax25ParamsValidator()
     {
         RuleFor(p => p.T1Ms!.Value).GreaterThan(0).When(p => p.T1Ms.HasValue).WithMessage("T1Ms must be positive.");
-        RuleFor(p => p.T2Ms!.Value).GreaterThan(0).When(p => p.T2Ms.HasValue).WithMessage("T2Ms must be positive.");
+        // T2Ms = 0 is meaningful: it disables the §6.7.1.2 acknowledge delay,
+        // restoring ack-per-frame (one RR per received I-frame).
+        RuleFor(p => p.T2Ms!.Value).GreaterThanOrEqualTo(0).When(p => p.T2Ms.HasValue)
+            .WithMessage("T2Ms must be >= 0 (0 disables the T2 acknowledge delay - ack per frame).");
         RuleFor(p => p.T3Ms!.Value).GreaterThan(0).When(p => p.T3Ms.HasValue).WithMessage("T3Ms must be positive.");
         RuleFor(p => p.N2!.Value).GreaterThan(0).When(p => p.N2.HasValue).WithMessage("N2 must be positive.");
         RuleFor(p => p.WindowSize!.Value).InclusiveBetween(1, 127).When(p => p.WindowSize.HasValue)

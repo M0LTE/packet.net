@@ -489,7 +489,26 @@ public sealed class ActionDispatcher : IActionDispatcher
             Ax25ActionVerb.SetPeerReceiverBusy    => Do(() => ctx.PeerReceiverBusy   = true),
             Ax25ActionVerb.ClearPeerReceiverBusy  => Do(() => ctx.PeerReceiverBusy   = false),
             Ax25ActionVerb.SetAcknowledgePending  => Do(() => ctx.AcknowledgePending = true),
-            Ax25ActionVerb.ClearAcknowledgePending => Do(() => ctx.AcknowledgePending = false),
+            // Clear Acknowledge Pending also cancels the §6.7.1.2 acknowledge-delay
+            // timer the construction sites arm on LM-SEIZE Request (the deferred
+            // grant that coalesces per-frame RRs into one cumulative ack — #385).
+            // Every transmission whose N(R) supersedes the pending ack runs this
+            // verb in its action chain (the I-command t03 paths, the RR/RNR/REJ
+            // and enquiry/poll-response paths, Transmit_Enquiry, the t23 confirm
+            // flush itself, and Clear_Exception_Conditions on link reset) — so the
+            // verb is exactly the "delayed ack satisfied or superseded" chokepoint.
+            // The SREJ chains deliberately do NOT run it (figc4.x bookkeeping: an
+            // SREJ's N(R) is not a cumulative acknowledgement), so a pending
+            // delayed ack still flushes after an SREJ — correct, and it keeps this
+            // change entirely out of the SREJ recovery paths. No timer named "T2"
+            // is ever armed by an SDL verb (no Start T2 exists in the figures), so
+            // the cancel can never race a figure-armed timer; rigs that grant the
+            // seize immediately never arm it and the cancel is a no-op.
+            Ax25ActionVerb.ClearAcknowledgePending => Do(() =>
+            {
+                ctx.AcknowledgePending = false;
+                scheduler.Cancel("T2");
+            }),
             Ax25ActionVerb.SetLayer3Initiated     => Do(() => ctx.Layer3Initiated    = true),
             Ax25ActionVerb.ClearLayer3Initiated   => Do(() => ctx.Layer3Initiated    = false),
 

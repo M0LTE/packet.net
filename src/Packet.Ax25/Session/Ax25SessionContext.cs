@@ -157,8 +157,14 @@ public sealed class Ax25SessionContext
     public bool ImplicitReject { get; set; } = true;
 
     /// <summary>
-    /// Acknowledgement-timer T2 duration. Default 3 s per AX.25 v2.2.
-    /// Set by figc4.7's <c>Set_Version_2_0</c> / <c>Set_Version_2_2</c>.
+    /// Acknowledgement-delay timer T2 duration (§6.7.1.2). Default 3 s per
+    /// AX.25 v2.2. Set by figc4.7's <c>Set_Version_2_0</c> /
+    /// <c>Set_Version_2_2</c> and seeded per port at session build. The
+    /// production construction sites (<see cref="Ax25Listener"/>,
+    /// <see cref="Ax25Adapter"/>) read this to defer the LM-SEIZE grant so
+    /// received in-sequence I-frames coalesce into one cumulative RR
+    /// (#385); <see cref="TimeSpan.Zero"/> disables the delay
+    /// (ack-per-frame, as the SDL figures draw).
     /// </summary>
     public TimeSpan T2 { get; set; } = TimeSpan.FromMilliseconds(3000);
 

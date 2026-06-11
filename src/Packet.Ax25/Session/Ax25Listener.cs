@@ -972,18 +972,54 @@ public sealed class Ax25Listener : IAsyncDisposable
             sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendUpward:    SendUpward,
-            // Grant LM-SEIZE immediately: the listener fronts a KISS modem
-            // (TCP / serial / loopback), so the medium is contention-free from
-            // the session's point of view — real channel access (CSMA
-            // persist/slottime) is the TNC's job, and it buffers. Without the
-            // grant the figc4.x delayed ack (Set Ack Pending + LM-SEIZE
-            // Request → RR on LM-SEIZE Confirm) never flushes, so a session
-            // with no reply data never acknowledges received I-frames and the
-            // peer retries into link failure (#327). The post is deferred by
-            // PostEvent's run-to-completion queue, so the confirm dispatches
-            // after the in-flight transition (with Ack-Pending set). Bounded:
-            // the confirm path only emits LM-RELEASE, never a re-seize.
-            sendLinkMux:   signal => { if (signal is LinkMultiplexerSeizeRequest) sessionRef!.PostEvent(new LmSeizeConfirm()); },
+            // Grant LM-SEIZE after the §6.7.1.2 acknowledge delay (T2). The
+            // listener fronts a KISS modem (TCP / serial / loopback), so the
+            // medium is contention-free from the session's point of view —
+            // real channel access (CSMA persist/slottime) is the TNC's job,
+            // and it buffers. The grant itself is mandatory: without it the
+            // figc4.x delayed ack (Set Ack Pending + LM-SEIZE Request → RR on
+            // LM-SEIZE Confirm) never flushes, so a session with no reply
+            // data never acknowledges received I-frames and the peer retries
+            // into link failure (#327). But granting IMMEDIATELY acks once
+            // per received I-frame: t23 clears Ack-Pending when the RR
+            // flushes, so the next in-sequence frame re-seizes — five
+            // back-to-back I-frames cost five RR keyups, and on a half-duplex
+            // channel that TX occupancy deafens the port to the peer's next
+            // window, leaving the F=1 checkpoint answer to a later poll
+            // carrying a stale V(R) the peer rolls back to (#385). So the
+            // grant is deferred by the context's T2 (the v2.2 §6.7.1.2
+            // acknowledge timer — the SDL figures themselves ack immediately
+            // and never arm T2): the first in-sequence I-frame of a burst
+            // arms T2 (t26 requests the seize only while no ack is pending),
+            // follow-on frames just advance V(R), and the single confirm at
+            // expiry emits ONE cumulative RR — Enquiry_Response reads
+            // N(R):=V(R) at dispatch time. Any other N(R)-bearing emission in
+            // the meantime (a piggybacking I-frame, an REJ, an enquiry/poll
+            // response) supersedes the pending ack: its action chain runs
+            // Clear Acknowledge Pending, which also cancels the armed T2 (see
+            // ActionDispatcher), and a confirm that fires anyway lands on the
+            // no-ack-pending branch (LM-RELEASE only — no stale RR can ever
+            // reach the wire). T2 ≤ 0 restores the legacy immediate grant
+            // (ack-per-frame). Posts are deferred by PostEvent's
+            // run-to-completion queue; bounded: the confirm path only emits
+            // LM-RELEASE, never a re-seize.
+            sendLinkMux:   signal =>
+            {
+                if (signal is not LinkMultiplexerSeizeRequest) return;
+                if (ctx.T2 > TimeSpan.Zero)
+                {
+                    // Never re-arm a running delay: the ack must fire T2 after
+                    // the FIRST unacknowledged frame, not slip later.
+                    if (!scheduler.IsRunning("T2"))
+                    {
+                        scheduler.Arm("T2", ctx.T2, () => sessionRef!.PostEvent(new LmSeizeConfirm()));
+                    }
+                }
+                else
+                {
+                    sessionRef!.PostEvent(new LmSeizeConfirm());
+                }
+            },
             // The data-link figc4.6 UA-received path raises MDL-NEGOTIATE Request
             // after a successful v2.2 connect; hand it to the MDL driver to open
             // the XID exchange. (Other internal signals — push_I_frame_queue — are
@@ -995,10 +1031,9 @@ public sealed class Ax25Listener : IAsyncDisposable
             // `SRT := Initial Default; T1V := 2 * SRT` so a configured T1V actually
             // reaches the session's T1 timer (m0lte/packet.net#292) — without it,
             // the SDL resets T1V to 2×3000 ms on every connect. T3 arms the
-            // inactive-link timer; T2 rides the dispatcher for the day an SDL with a
-            // response-delay timer lands (today's figures arm no T2 — ack flush is
-            // LM-SEIZE-driven), but threading it keeps the option meaningful and the
-            // construction site uniform.
+            // inactive-link timer. The live T2 (the §6.7.1.2 acknowledge delay) is
+            // read from ctx.T2 by the sendLinkMux grant above; the dispatcher copies
+            // below only guard against an establishment-verb clobber (#292 class).
             InitialSrt  = sp.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
             // Seed the establishment path's `N2 := 10` so a configured N2 survives the
             // SABM/SABME connect that would otherwise reset it to the spec default —
@@ -1155,8 +1190,15 @@ public sealed class Ax25ListenerOptions
     public TimeSpan? T1V { get; init; }
 
     /// <summary>
-    /// Override the session-context default T2 (response-delay timer).
-    /// If <c>null</c>, sessions use the spec default (3 s).
+    /// Override the session-context default T2 — the AX.25 v2.2 §6.7.1.2
+    /// acknowledge (response-delay) timer. Received in-sequence I-frames
+    /// coalesce into one cumulative RR sent T2 after the first
+    /// unacknowledged frame, unless an N(R)-bearing transmission (a
+    /// piggybacking I-frame, an REJ, a poll/enquiry response) supersedes
+    /// it first. If <c>null</c>, sessions use the spec default (3 s).
+    /// <see cref="TimeSpan.Zero"/> disables the delay entirely — every
+    /// received I-frame is acknowledged immediately (ack-per-frame, the
+    /// pre-#385 behaviour and what the SDL figures draw).
     /// </summary>
     public TimeSpan? T2 { get; init; }
 
@@ -1235,7 +1277,8 @@ public sealed record Ax25SessionParameters
     /// <summary>Initial T1V (acknowledgement timer). <c>null</c> ⇒ spec default (2 × initial SRT = 6 s).</summary>
     public TimeSpan? T1V { get; init; }
 
-    /// <summary>T2 (response-delay timer) override. <c>null</c> ⇒ spec default.</summary>
+    /// <summary>T2 (§6.7.1.2 acknowledge-delay timer) override. <c>null</c> ⇒ spec
+    /// default (3 s); <see cref="TimeSpan.Zero"/> ⇒ ack-per-frame (no delay).</summary>
     public TimeSpan? T2 { get; init; }
 
     /// <summary>T3 (inactive-link timer) override. <c>null</c> ⇒ dispatcher default (30 s).</summary>
