@@ -96,6 +96,8 @@ internal static class Cli
           --ackmode LIST       on | off — pace TX on the 0x0C echo (default on)
           --t1-tx-complete LIST  on | off — re-arm T1 from the frame's TX-complete
                                echo instead of enqueue (default off)
+          --srej LIST          on | off — force SREJ (selective reject) on both
+                               ends; only bites under loss (default off)
 
         inproc channel model (rung 1b; ignored on axudp/netsim)
           --baud N             modeled bit/s; 0 = no airtime      (default 0 — rung 1)
@@ -185,6 +187,13 @@ internal static class Cli
                 "off" => false,
                 var other => throw new ArgumentException($"--t1-tx-complete values are on|off, got '{other}'"),
             }).Distinct().ToList();
+        var srejs = (flags.GetValueOrDefault("--srej") ?? "off").Split(',')
+            .Select(s => s.Trim().ToLowerInvariant() switch
+            {
+                "on" => true,
+                "off" => false,
+                var other => throw new ArgumentException($"--srej values are on|off, got '{other}'"),
+            }).Distinct().ToList();
         var ackmodes = (flags.GetValueOrDefault("--ackmode") ?? "on").Split(',')
             .Select(s => s.Trim().ToLowerInvariant() switch
             {
@@ -249,8 +258,9 @@ internal static class Cli
             from paclen in paclens
             from ack in ackmodes
             from t1tx in t1txs
+            from srej in srejs
             from loss in losses
-            select baseCfg with { K = k, T1 = t1, T2 = t2, Paclen = paclen, AckMode = ack, T1FromTxComplete = t1tx, Loss = loss }
+            select baseCfg with { K = k, T1 = t1, T2 = t2, Paclen = paclen, AckMode = ack, T1FromTxComplete = t1tx, Srej = srej, Loss = loss }
         ).ToList();
 
         return (runs, flags.GetValueOrDefault("--json"), flags.GetValueOrDefault("--trace"), switches.Contains("--detail"));
@@ -291,7 +301,7 @@ internal static class ResultTable
     {
         string[] headers =
         [
-            "ch", "k", "T1ms", "T2ms", "pac", "ack", "loss", "wall_s", "B/s",
+            "ch", "k", "T1ms", "T2ms", "pac", "ack", "rej", "loss", "wall_s", "B/s",
             "I_tx", "retx", "RR", "REJ", "SREJ", "dupS", "burst", "stall_s", "ackRTT_ms", "ok",
         ];
         var rows = results.Select(r =>
@@ -307,6 +317,7 @@ internal static class ResultTable
                 c.T2?.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture) ?? "def",
                 c.Paclen.ToString(CultureInfo.InvariantCulture),
                 c.AckMode ? (c.T1FromTxComplete ? "on+t1" : "on") : (c.T1FromTxComplete ? "t1" : "off"),
+                c.Srej ? "srej" : "gbn",
                 c.Loss.ToString("0.###", CultureInfo.InvariantCulture),
                 r.Completed ? r.TransferTime.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture) : "—",
                 r.Completed ? r.ThroughputBytesPerSec.ToString("F0", CultureInfo.InvariantCulture) : "—",
@@ -331,7 +342,7 @@ internal static class ResultTable
         {
             sb.AppendLine(string.Join("  ", row.Select((v, i) => v.PadLeft(widths[i]))));
         }
-        sb.Append("ok: ✓ = intact payload + clean DISC, ✓* = intact but DISC unconfirmed; dupS/burst = #79 duplicate-supervisory count / longest identical run.");
+        sb.Append("ok: ✓ = intact payload + clean DISC, ✓* = intact but DISC unconfirmed; rej = loss-recovery mode (srej selective / gbn go-back-N); SREJ column = SREJ frames actually emitted; dupS/burst = #79 duplicate-supervisory count / longest identical run.");
         return sb.ToString();
     }
 
@@ -367,6 +378,7 @@ internal static class ResultTable
         paclen = r.Config.Paclen,
         ackmode = r.Config.AckMode,
         t1FromTxComplete = r.Config.T1FromTxComplete,
+        srej = r.Config.Srej,
         bidi = r.Config.Bidirectional,
         baud = r.Config.Baud,
         halfDuplex = r.Config.HalfDuplex,
