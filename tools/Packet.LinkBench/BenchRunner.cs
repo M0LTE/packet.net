@@ -15,6 +15,7 @@ internal sealed record BenchResult
     public bool Completed { get; init; }
     public string? Failure { get; init; }
     public bool IntegrityOk { get; init; }
+    public string? IntegrityDetail { get; init; }
     public TimeSpan ConnectTime { get; init; }
     public TimeSpan TransferTime { get; init; }
     public double ThroughputBytesPerSec { get; init; }
@@ -223,6 +224,9 @@ internal static class BenchRunner
 
             var transferTime = lastByteAt - transferStarted;
             var integrity = sinkOnB.Matches(payloadAtoB) && (!cfg.Bidirectional || sinkOnA.Matches(payloadBtoA));
+            string? integrityDetail = integrity ? null
+                : "B: " + sinkOnB.Diagnose(payloadAtoB)
+                  + (cfg.Bidirectional ? " | A: " + sinkOnA.Diagnose(payloadBtoA) : "");
 
             // ── Clean DISC from A ──
             session.PostEvent(new DlDisconnectRequest());
@@ -244,6 +248,7 @@ internal static class BenchRunner
                 Config = cfg,
                 Completed = true,
                 IntegrityOk = integrity,
+                IntegrityDetail = integrityDetail,
                 ConnectTime = connected - connectStarted,
                 TransferTime = transferTime,
                 ThroughputBytesPerSec = transferTime > TimeSpan.Zero ? totalPayload / transferTime.TotalSeconds : 0,
@@ -387,6 +392,31 @@ internal static class BenchRunner
             {
                 return buffer.Length == expected.Length &&
                        buffer.GetBuffer().AsSpan(0, (int)buffer.Length).SequenceEqual(expected);
+            }
+        }
+
+        /// <summary>On an integrity failure, classify HOW the delivered byte stream
+        /// diverged from the payload — the channel is drop-only and order-preserving,
+        /// so any divergence is the engine delivering to L3 wrongly: extra bytes ⇒
+        /// duplicate delivery; equal length but mismatched ⇒ out-of-order delivery;
+        /// short ⇒ a gap never filled.</summary>
+        public string Diagnose(byte[] expected)
+        {
+            lock (gate)
+            {
+                var got = (int)buffer.Length;
+                var b = buffer.GetBuffer();
+                var firstDiff = -1;
+                var n = Math.Min(got, expected.Length);
+                for (var i = 0; i < n; i++)
+                {
+                    if (b[i] != expected[i]) { firstDiff = i; break; }
+                }
+                var lenNote = got > expected.Length ? $"+{got - expected.Length} EXTRA bytes (duplicate delivery)"
+                            : got < expected.Length ? $"-{expected.Length - got} SHORT (gap never filled)"
+                            : "exact length";
+                var diffNote = firstDiff < 0 ? "no content diff in overlap" : $"first content diff at byte {firstDiff}/{expected.Length}";
+                return $"got {got}/{expected.Length} — {lenNote}; {diffNote}";
             }
         }
     }
