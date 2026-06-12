@@ -353,6 +353,7 @@ internal static class ResultTable
         if (!r.Completed) sb.AppendLine($"   FAILED: {r.Failure}");
         sb.AppendLine($"   connect {r.ConnectTime.TotalMilliseconds:F0} ms · transfer {r.TransferTime.TotalSeconds:F2} s · " +
                       $"{r.ThroughputBytesPerSec:F0} B/s · integrity {(r.IntegrityOk ? "OK" : "FAILED")} · " +
+                      (r.IntegrityDetail is { } d ? $"[{d}] " : "") +
                       $"DISC {(r.CleanDisconnect ? "clean" : "unconfirmed")}");
         foreach (var (name, s) in new[] { ("A", r.StatsA), ("B", r.StatsB) })
         {
@@ -388,6 +389,7 @@ internal static class ResultTable
         completed = r.Completed,
         failure = r.Failure,
         integrityOk = r.IntegrityOk,
+        integrityDetail = r.IntegrityDetail,
         cleanDisconnect = r.CleanDisconnect,
         connectMs = r.ConnectTime.TotalMilliseconds,
         transferS = r.TransferTime.TotalSeconds,
