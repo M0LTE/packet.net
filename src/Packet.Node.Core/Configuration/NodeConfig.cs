@@ -402,6 +402,23 @@ public sealed record KissParams
     /// transports that don't speak ACKMODE.
     /// </summary>
     public bool AckMode { get; init; }
+
+    /// <summary>
+    /// TX-complete→T1: when <c>true</c>, the port's AX.25 engine transmits every
+    /// T1-arming frame (I-frame, P=1 enquiry, SABM/SABME/DISC) in ACKMODE and
+    /// re-arms a still-running T1 to (now + T1V) when the TNC's TX-completion
+    /// echo reports the frame has actually cleared the air — so T1 bounds the
+    /// peer's response time instead of also absorbing this port's own TX-queue
+    /// and airtime (which at 1200 baud makes the default T1 expire mid-window;
+    /// see <c>Ax25ListenerOptions.RestartT1OnTxComplete</c> for the full
+    /// rationale and the LinkBench measurements). Default <c>false</c>.
+    /// Requires an ACKMODE-capable transport (kiss-tcp to net-sim / a real
+    /// NinoTNC); on anything else the engine quietly latches back to plain
+    /// sends. Composes with (but does not require) <see cref="AckMode"/> pacing.
+    /// Like <see cref="AckMode"/> this is a construction-time choice, so a
+    /// toggle restarts the port (see <c>ReconcilePlanner</c>).
+    /// </summary>
+    public bool T1FromTxComplete { get; init; }
 }
 
 /// <summary>Operator-facing service strings, hot-swappable by reference.</summary>

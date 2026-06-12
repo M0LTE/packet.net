@@ -529,6 +529,33 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     // ─── Internals ────────────────────────────────────────────────────
 
+    // TX-complete→T1: latched true on the first NotSupportedException from
+    // SendFrameWithAckAsync so a non-ACKMODE modem costs one failed attempt,
+    // not one per frame. (RestartT1OnTxComplete is documented to require an
+    // ACKMODE-capable port; this is the graceful-degradation backstop.)
+    private volatile bool ackmodeUnsupported;
+
+    /// <summary>
+    /// Frames whose transmission (re)arms T1 in the figures — an I-frame, an
+    /// enquiry (S-frame command with P=1), or a mode-setting command
+    /// (SABM/SABME/DISC, whose AwaitingConnection/Release retries T1 drives).
+    /// Only these get the ACKMODE TX-complete→T1 treatment; responses and
+    /// plain acks never extend our own response timer.
+    /// </summary>
+    private static bool FrameArmsT1(Ax25Frame frame)
+    {
+        if ((frame.Control & 0x01) == 0)
+        {
+            return true; // I-frame
+        }
+        if ((frame.Control & 0x03) == 0x01)
+        {
+            return frame.IsCommand && frame.PollFinal; // RR/RNR/REJ command P=1 — an enquiry
+        }
+        var uBase = frame.Control & 0xEF;
+        return uBase is 0x2F or 0x6F or 0x43; // SABM / SABME / DISC
+    }
+
     private void EnsureNotDisposed()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
@@ -915,19 +942,64 @@ public sealed class Ax25Listener : IAsyncDisposable
         Ax25Session? sessionRef = null;
         void SendBytes(ReadOnlyMemory<byte> bytes)
         {
-            // Fire-and-forget — the dispatcher's frame sinks are sync,
-            // so a sync write on the modem is fine here. The send
-            // happens before TraceFrame so subscribers see TX in the
-            // order frames hit the wire.
-            _ = modem.SendFrameAsync(bytes);
-            // Trace at this session's modulo so an extended (mod-128) I/S frame's
-            // N(S)/N(R) render correctly in the monitor. Deliberately Lenient even
-            // when the port's inbound ParseOptions are stricter: these bytes came
-            // from our own strict frame factories, and the only thing strictness
-            // could achieve here is hiding our own transmission from the monitor.
-            if (Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsedTx))
+            // Parse first (needed both for the monitor trace and the T1-arming
+            // classification below). Trace at this session's modulo so an extended
+            // (mod-128) I/S frame's N(S)/N(R) render correctly in the monitor.
+            // Deliberately Lenient even when the port's inbound ParseOptions are
+            // stricter: these bytes came from our own strict frame factories, and
+            // the only thing strictness could achieve here is hiding our own
+            // transmission from the monitor.
+            Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsedTx);
+
+            // Fire-and-forget — the dispatcher's frame sinks are sync, so a sync
+            // write on the modem is fine here. The send happens before TraceFrame
+            // so subscribers see TX in the order frames hit the wire.
+            //
+            // TX-complete→T1 (RestartT1OnTxComplete): the SDL arms T1 the moment a
+            // frame is handed to the modem — but behind a buffering TNC on a slow
+            // channel, enqueue and cleared-the-air differ by up to (queue depth ×
+            // airtime), so T1 has to be sized for worst-case queue + airtime +
+            // the peer's T2 + the ack's airtime, and Select_T1's SRT smoothing
+            // measures queue noise instead of round trips. When the option is on,
+            // a T1-arming frame is sent in ACKMODE instead, and the TNC's
+            // TX-completion echo pushes a still-running T1's deadline out to
+            // (TX-complete + T1V) — the timer the figures intended, measured from
+            // when the frame actually finished transmitting. If the SDL already
+            // stopped T1 (the ack won the race), RearmIfRunning touches nothing.
+            // Echo loss / no ACKMODE support degrades to enqueue-time semantics.
+            if (options.RestartT1OnTxComplete && !ackmodeUnsupported && parsedTx is not null && FrameArmsT1(parsedTx))
+            {
+                _ = SendAndRearmT1Async(bytes.ToArray());
+            }
+            else
+            {
+                _ = modem.SendFrameAsync(bytes);
+            }
+
+            if (parsedTx is not null)
             {
                 TraceFrame(parsedTx, FrameDirection.Transmitted);
+            }
+
+            async Task SendAndRearmT1Async(byte[] frame)
+            {
+                try
+                {
+                    await modem.SendFrameWithAckAsync(frame).ConfigureAwait(false);
+                    scheduler.RearmIfRunning("T1", ctx.T1V);
+                }
+                catch (NotSupportedException)
+                {
+                    // The modem has no ACKMODE — latch and stop trying (the frame
+                    // was NOT sent by the failed call, so send it plainly now).
+                    ackmodeUnsupported = true;
+                    _ = modem.SendFrameAsync(frame);
+                }
+                catch
+                {
+                    // Echo timeout / link bounce: the frame is on the wire (ACKMODE
+                    // wraps a real send); T1 stays as the SDL armed it.
+                }
             }
         }
 
@@ -1253,6 +1325,37 @@ public sealed class Ax25ListenerOptions
     /// session creation.
     /// </summary>
     public Action<Ax25Session>? ConfigureSession { get; init; }
+
+    /// <summary>
+    /// TX-complete→T1: when <c>true</c>, every T1-arming frame (I-frame,
+    /// P=1 enquiry, SABM/SABME/DISC) is transmitted in KISS ACKMODE and a
+    /// still-running T1 is re-armed to (now + T1V) when the TNC's
+    /// TX-completion echo reports the frame has actually cleared the air.
+    /// Default <c>false</c> — T1 runs from enqueue, the historical behaviour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The SDL figures start T1 the instant a frame is "sent", which behind a
+    /// buffering TNC means <em>enqueued</em> — on a 1200-baud channel a k-deep
+    /// window is many seconds of airtime that all counts against T1, so the
+    /// timer must be sized for worst-case queue depth rather than for the
+    /// response time it is meant to bound (a k=4 window of 256-byte frames is
+    /// ~8.5 s of air against the 6 s default T1V — measured self-destructing in
+    /// <c>tools/Packet.LinkBench</c> rung 1b/2). With this option on, T1
+    /// effectively runs from the moment the frame finished transmitting:
+    /// near-default T1V works at any window size, and <c>Select_T1</c>'s SRT
+    /// smoothing samples genuine round trips instead of queue noise.
+    /// </para>
+    /// <para>
+    /// Requires an ACKMODE-capable modem (<see cref="IKissModem.SendFrameWithAckAsync"/>);
+    /// on a modem without it the listener latches back to plain sends after one
+    /// failed attempt. Construction-time only (not part of the
+    /// <see cref="Ax25SessionParameters"/> live-reseed). The re-arm is atomic
+    /// against the SDL stopping T1 (<see cref="ITimerScheduler.RearmIfRunning"/>),
+    /// so an ack racing the echo can never resurrect a stopped watchdog.
+    /// </para>
+    /// </remarks>
+    public bool RestartT1OnTxComplete { get; init; }
 }
 
 /// <summary>

@@ -147,6 +147,9 @@ public static class ChannelProfiles
             // No profile sets ackMode (no profile knows your link is half-duplex +
             // ACKMODE-capable); carry the explicit per-port choice straight through.
             AckMode = e?.AckMode ?? profile.AckMode,
+            // Same story for t1FromTxComplete: ACKMODE capability is a per-link
+            // fact no profile can know; the explicit per-port choice carries.
+            T1FromTxComplete = e?.T1FromTxComplete ?? profile.T1FromTxComplete,
         };
     }
 

@@ -79,6 +79,10 @@ public static class NodeConfigTemplate
         #                          # (0) for a NinoTNC into a fully analogue audio
         #                          # path. It is NOT a channel/profile property —
         #                          # only you know your modem + radio.
+        #      t1FromTxComplete: false  # default false. With an ACKMODE-capable TNC,
+        #                          # run T1 from the frame's actual TX-completion echo
+        #                          # instead of from enqueue — T1 then bounds the peer's
+        #                          # response time, not your own TX queue + airtime.
         #      ackMode: false      # default false. Set true on a kiss-tcp port to a
         #                          # TNC / net-sim that honours the G8BPQ ACKMODE
         #                          # extension: the node then PACES its outbound

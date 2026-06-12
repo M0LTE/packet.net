@@ -42,7 +42,18 @@ internal sealed partial class PacingKissModem : IKissModem, IAsyncDisposable
     private readonly IKissModem inner;
     private readonly TimeSpan pacingTimeout;
     private readonly ILogger logger;
-    private readonly Channel<byte[]> queue;
+    private readonly Channel<TxJob> queue;
+
+    /// <summary>One queued transmission. <see cref="Receipt"/> is null for the
+    /// fire-and-forget path; for an explicit <see cref="SendFrameWithAckAsync"/>
+    /// the pump resolves it with the frame's TX-completion receipt (or faults it)
+    /// once this frame's turn comes — so explicit ack-sends share the same
+    /// serialised order as everything else on the port.</summary>
+    private readonly record struct TxJob(
+        byte[] Frame,
+        ushort? SequenceTag,
+        TimeSpan? Timeout,
+        TaskCompletionSource<AckModeReceipt>? Receipt);
     private readonly CancellationTokenSource lifecycle = new();
     private readonly Task pump;
     private int disposed;
@@ -69,7 +80,7 @@ internal sealed partial class PacingKissModem : IKissModem, IAsyncDisposable
         // Unbounded: the listener's send sink is fire-and-forget and must never block,
         // and the node's own offered load is naturally bounded by the AX.25 send windows
         // across its sessions. Single reader (the pump), many writers (the sink).
-        queue = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+        queue = Channel.CreateUnbounded<TxJob>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false,
@@ -93,7 +104,7 @@ internal sealed partial class PacingKissModem : IKissModem, IAsyncDisposable
         // TryWrite always succeeds on an unbounded channel until it is completed; once
         // disposal completes the writer, a late send is silently dropped (the port is
         // going away — AX.25 retransmit covers a genuinely-needed frame).
-        queue.Writer.TryWrite(frame);
+        queue.Writer.TryWrite(new TxJob(frame, SequenceTag: null, Timeout: null, Receipt: null));
         return Task.CompletedTask;
     }
 
@@ -103,30 +114,36 @@ internal sealed partial class PacingKissModem : IKissModem, IAsyncDisposable
     {
         try
         {
-            await foreach (var frame in queue.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await foreach (var job in queue.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
                 try
                 {
-                    await inner.SendFrameWithAckAsync(frame, pacingTimeout, sequenceTag: null, ct)
+                    var receipt = await inner
+                        .SendFrameWithAckAsync(job.Frame, job.Timeout ?? pacingTimeout, job.SequenceTag, ct)
                         .ConfigureAwait(false);
+                    job.Receipt?.TrySetResult(receipt);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
                     // Shutting down — stop pumping.
+                    job.Receipt?.TrySetCanceled(ct);
                     break;
                 }
-                catch (TimeoutException)
+                catch (TimeoutException tex)
                 {
                     // The echo never came within the pacing window. Don't wedge the pump:
                     // the frame is already on the wire (ACKMODE wraps a real send), and
                     // AX.25 T1 retransmits anything genuinely lost. Release the next frame.
-                    LogPaceTimeout((int)pacingTimeout.TotalMilliseconds);
+                    // An explicit receipt-awaiting caller gets the timeout to handle itself.
+                    LogPaceTimeout((int)(job.Timeout ?? pacingTimeout).TotalMilliseconds);
+                    job.Receipt?.TrySetException(tex);
                 }
                 catch (Exception ex)
                 {
                     // Any other send fault (link bounce mid-send, modem disposed): log and
                     // keep pumping so one bad frame can never stall the whole port.
                     LogPaceFaulted(ex);
+                    job.Receipt?.TrySetException(ex);
                 }
             }
         }
@@ -134,14 +151,39 @@ internal sealed partial class PacingKissModem : IKissModem, IAsyncDisposable
         {
             // Disposal cancelled the pump while it waited on the reader — normal shutdown.
         }
+        finally
+        {
+            // Disposal can complete the writer with jobs still queued — fail their
+            // waiters rather than leaving them hanging forever.
+            while (queue.Reader.TryRead(out var leftover))
+            {
+                leftover.Receipt?.TrySetCanceled(CancellationToken.None);
+            }
+        }
     }
 
     /// <inheritdoc/>
-    /// <remarks>Delegates straight to the inner modem — a caller that explicitly wants an
-    /// ACKMODE receipt bypasses the pacing queue and awaits its own echo.</remarks>
-    public Task<AckModeReceipt> SendFrameWithAckAsync(
+    /// <remarks>
+    /// Routed THROUGH the pacing queue (not past it): the frame transmits in
+    /// strict arrival order with every fire-and-forget send on this port, and
+    /// the returned task resolves with this frame's TX-completion receipt when
+    /// its turn completes. This is what the TX-complete→T1 seam rides on — the
+    /// listener sends a T1-arming frame here and re-arms T1 when the receipt
+    /// lands, knowing the frame has actually cleared the air. The timeout
+    /// (default: the pacing timeout) covers the inner ACKMODE send, not the
+    /// queue wait; queue wait is bounded by the pacing of the frames ahead.
+    /// </remarks>
+    public async Task<AckModeReceipt> SendFrameWithAckAsync(
         ReadOnlyMemory<byte> ax25Bytes, TimeSpan? timeout = null, ushort? sequenceTag = null, CancellationToken cancellationToken = default)
-        => inner.SendFrameWithAckAsync(ax25Bytes, timeout, sequenceTag, cancellationToken);
+    {
+        var tcs = new TaskCompletionSource<AckModeReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accepted = queue.Writer.TryWrite(new TxJob(ax25Bytes.ToArray(), sequenceTag, timeout, tcs));
+        ObjectDisposedException.ThrowIf(!accepted, this);
+        await using var reg = cancellationToken
+            .Register(static (state, token) => ((TaskCompletionSource<AckModeReceipt>)state!).TrySetCanceled(token), tcs)
+            .ConfigureAwait(false);
+        return await tcs.Task.ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     public IAsyncEnumerable<KissFrame> ReadFramesAsync(CancellationToken cancellationToken = default)
