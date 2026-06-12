@@ -110,25 +110,47 @@ function on401(): never {
 
 // --- silent access-token renewal -----------------------------------------------
 // On a 401 we attempt ONE refresh-token rotation and retry the original request once.
-// A single shared in-flight promise dedupes concurrent 401s (a burst of parallel
-// requests all expiring at once triggers exactly one /auth/refresh, and they all await
-// it) — no stampede. The refresh call itself uses a BARE fetch (never authFetch), so a
-// 401 from /auth/refresh can never recurse into another refresh → no infinite loop.
+// A single shared in-flight promise dedupes concurrent 401s WITHIN this tab (a burst of
+// parallel requests all expiring at once triggers exactly one /auth/refresh, and they
+// all await it) — no stampede. The refresh call itself uses a BARE fetch (never
+// authFetch), so a 401 from /auth/refresh can never recurse into another refresh → no
+// infinite loop.
+//
+// ACROSS tabs we serialise with the Web Locks API. The refresh token is one-time-use:
+// if two tabs present the same one concurrently the server treats the second as token
+// theft and burns the whole token family → every tab is logged out (this was the cause
+// of the "logged out every ~hour" bug — the node's auth audit logged a REUSE-DETECTED
+// for every silent refresh). The lock lets exactly one tab rotate at a time; a tab that
+// loses the race finds, on acquiring the lock, that the token has already been rotated
+// in shared localStorage and adopts it rather than replaying the consumed one.
 let refreshInFlight: Promise<boolean> | null = null;
 
 /** Rotate the stored refresh token once; on success persist the new pair and resolve
  *  true. Resolves false (does NOT throw) on any failure — the caller then logs out. */
 function refreshAccessToken(): Promise<boolean> {
-  // Coalesce concurrent callers onto one in-flight rotation.
-  refreshInFlight ??= (async (): Promise<boolean> => {
-    const rt = refreshToken();
-    if (!rt) return false;                       // nothing to renew with (auth off / pre-login)
+  // Coalesce concurrent callers in THIS tab onto one in-flight rotation, then clear the
+  // slot once it settles so a later 401 can refresh again.
+  refreshInFlight ??= rotateRefreshTokenAcrossTabs().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+function rotateRefreshTokenAcrossTabs(): Promise<boolean> {
+  const tokenAtStart = refreshToken();
+  if (!tokenAtStart) return Promise.resolve(false);   // nothing to renew with (auth off / pre-login)
+
+  const rotate = async (): Promise<boolean> => {
+    // Another tab may have rotated while we waited for the lock: if the stored refresh
+    // token changed, it's already fresh in localStorage — adopt it (the retry reads the
+    // new JWT) instead of replaying the now-consumed token (→ server theft response).
+    const current = refreshToken();
+    if (current && current !== tokenAtStart) return true;
+    if (!current) return false;
     try {
       // BARE fetch — must not go through authFetch (that would recurse on a 401).
       const res = await fetch(`${BASE}/auth/refresh`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ refreshToken: rt }),
+        body: JSON.stringify({ refreshToken: current }),
       });
       if (!res.ok) return false;                 // 401/expired/reused → caller logs out
       const next = (await res.json()) as LoginResult;
@@ -138,9 +160,19 @@ function refreshAccessToken(): Promise<boolean> {
     } catch {
       return false;                              // network error → treat as not-renewed
     }
-  })();
-  // Clear the shared slot once it settles so a later 401 can refresh again.
-  return refreshInFlight.finally(() => { refreshInFlight = null; });
+  };
+
+  // Serialise across same-origin tabs when the Web Locks API is available; otherwise
+  // fall back to a direct rotation (this tab's in-flight dedup still applies).
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (locks && typeof locks.request === "function") {
+    // The DOM typings model the granted-callback as returning its value synchronously
+    // (`(lock) => T`), so an async callback infers `T = Promise<boolean>` and request()
+    // types as `Promise<Promise<boolean>>`. At runtime the lock manager AWAITS the
+    // callback and resolves with its boolean — so the result really is `Promise<boolean>`.
+    return locks.request("pdn-auth-refresh", rotate) as unknown as Promise<boolean>;
+  }
+  return rotate();
 }
 
 /** Auth-aware fetch — attaches the bearer token; on a 401 it tries ONE silent refresh

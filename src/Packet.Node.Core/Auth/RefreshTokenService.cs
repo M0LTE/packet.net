@@ -26,12 +26,19 @@ namespace Packet.Node.Core.Auth;
 /// one login.
 /// </para>
 /// <para>
-/// <b>Reuse detection (theft response).</b> A token that is found but
+/// <b>Reuse detection (theft response) + leeway.</b> A token that is found but
 /// <em>already revoked</em> means someone replayed a consumed token — either the
-/// legitimate client racing itself, or an attacker who stole a token that the
-/// client has since rotated past. We cannot tell which, so we take the safe action:
-/// <see cref="RevokeFamily"/> the entire family (logging out every descendant) and
-/// reject. This bounds a stolen-token window to a single rotation.
+/// legitimate client racing itself (two browser tabs, a retried silent refresh, a
+/// backgrounded tab waking — all present the same just-rotated token within a
+/// moment), or an attacker who stole a token the client has since rotated past.
+/// Burning the family unconditionally turns the routine self-race into a logout on
+/// every access-token expiry. So a replay <em>within the reuse-leeway window</em> of
+/// the token's rotation, <em>while its family is still alive</em>, is taken as the
+/// benign self-race: a fresh successor is minted, no burn. Outside that window — or
+/// against a logged-out / already-burned family (<see cref="IRefreshTokenStore.HasLiveToken"/>
+/// is false) — a replay is the theft response: <see cref="RevokeFamily"/> the entire
+/// family and reject. This keeps the stolen-token window bounded (leeway + a single
+/// rotation) without logging the real user out for racing themselves.
 /// </para>
 /// <para>
 /// <b>No wall-clock (repo rule §2.7):</b> issue/expiry stamps and the
@@ -42,9 +49,16 @@ public sealed class RefreshTokenService
 {
     private const int TokenBytes = 32;   // 256-bit opaque token
 
+    /// <summary>Default reuse-leeway window (see the <paramref name="reuseLeeway"/>
+    /// constructor parameter). Long enough to absorb a browser's concurrent
+    /// tab/refresh burst, short enough that a genuinely stolen token can't be replayed
+    /// much later under its cover.</summary>
+    public static readonly TimeSpan DefaultReuseLeeway = TimeSpan.FromSeconds(10);
+
     private readonly IRefreshTokenStore store;
     private readonly TimeProvider clock;
     private readonly TimeSpan lifetime;
+    private readonly TimeSpan reuseLeeway;
 
     /// <summary>
     /// Construct over the backing store, the refresh-token lifetime, and the clock.
@@ -54,7 +68,13 @@ public sealed class RefreshTokenService
     /// this). Must be positive.</param>
     /// <param name="clock">The injected clock (issue/expiry + the expiry check ride
     /// this — no wall-clock).</param>
-    public RefreshTokenService(IRefreshTokenStore store, TimeSpan lifetime, TimeProvider clock)
+    /// <param name="reuseLeeway">The window after a token is rotation-consumed within
+    /// which replaying it is treated as the legitimate client racing itself (two tabs,
+    /// a retried refresh) rather than theft: the family is NOT burned and a fresh
+    /// successor is minted. Outside the window a replay is still the theft response.
+    /// Null uses <see cref="DefaultReuseLeeway"/>; <see cref="TimeSpan.Zero"/> restores
+    /// the strict zero-tolerance behaviour. Must not be negative.</param>
+    public RefreshTokenService(IRefreshTokenStore store, TimeSpan lifetime, TimeProvider clock, TimeSpan? reuseLeeway = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(clock);
@@ -62,9 +82,15 @@ public sealed class RefreshTokenService
         {
             throw new ArgumentOutOfRangeException(nameof(lifetime), "Refresh-token lifetime must be positive.");
         }
+        var leeway = reuseLeeway ?? DefaultReuseLeeway;
+        if (leeway < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(reuseLeeway), "Reuse leeway must not be negative.");
+        }
         this.store = store;
         this.lifetime = lifetime;
         this.clock = clock;
+        this.reuseLeeway = leeway;
     }
 
     /// <summary>
@@ -109,23 +135,46 @@ public sealed class RefreshTokenService
             return RefreshResult.Failure(RefreshOutcome.Invalid);
         }
 
+        var now = clock.GetUtcNow();
+
         if (record.Revoked)
         {
-            // A consumed/revoked token was replayed → assume theft and burn the family.
+            // A consumed/revoked token was replayed. With strict one-time use this is
+            // always the theft response — but the legitimate client races itself
+            // routinely (two tabs, a retried silent refresh, a backgrounded tab waking)
+            // and presents the SAME just-rotated token twice within a moment. Burning
+            // the family for that logs the real user out every time the access token
+            // expires. So: if this token was rotation-consumed within the leeway window
+            // AND its family is still alive (not logged out / not already burned), treat
+            // the replay as benign and mint a fresh successor instead of burning.
+            bool withinLeeway = reuseLeeway > TimeSpan.Zero
+                && record.RevokedUtc is { } revokedAt
+                && now - revokedAt <= reuseLeeway;
+            if (withinLeeway && store.HasLiveToken(record.Family))
+            {
+                var graceNext = MintInFamily(record.Username, record.Family);
+                return graceNext is null
+                    ? RefreshResult.Failure(RefreshOutcome.Invalid, record.Username, record.Family)
+                    : RefreshResult.Success(graceNext, record.Username, record.Family);
+            }
+
+            // Old replay, or a dead/logged-out family → genuine reuse: burn the family.
             store.RevokeFamily(record.Family);
             return RefreshResult.Failure(RefreshOutcome.ReuseDetected, record.Username, record.Family);
         }
 
-        if (clock.GetUtcNow() >= record.ExpiresUtc)
+        if (now >= record.ExpiresUtc)
         {
-            // Expired but still valid-looking: revoke it so it can't later be replayed
-            // as a "reuse" false-positive, and reject. (Pruning eventually removes it.)
-            store.Revoke(hash);
+            // Expired but still valid-looking: hard-revoke it (null = not leeway-eligible)
+            // so it can't later be replayed as a "reuse" false-positive, and reject.
+            // (Pruning eventually removes it.)
+            store.Revoke(hash, consumedAtUtc: null);
             return RefreshResult.Failure(RefreshOutcome.Expired, record.Username, record.Family);
         }
 
-        // Valid: consume it (one-time use) and mint a successor in the SAME family.
-        store.Revoke(hash);
+        // Valid: consume it (one-time use, stamping the leeway window) and mint a
+        // successor in the SAME family.
+        store.Revoke(hash, consumedAtUtc: now);
         var next = MintInFamily(record.Username, record.Family);
         if (next is null)
         {

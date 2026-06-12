@@ -188,7 +188,7 @@ public sealed class AuthApiTests : IDisposable
     // --- Refresh-token rotation + reuse detection ----------------------------
 
     [Fact]
-    public async Task Login_returns_a_refresh_token_that_rotates_once_then_the_old_one_401s()
+    public async Task Login_returns_a_refresh_token_that_rotates_and_tolerates_a_concurrent_replay()
     {
         WriteConfig(authEnabled: false);
         await using var factory = Factory();
@@ -216,15 +216,21 @@ public sealed class AuthApiTests : IDisposable
         refreshBody.GetProperty("scopes").GetString().Should().Be("admin");
         refreshBody.GetProperty("username").GetString().Should().Be("sysop");
 
-        // The ORIGINAL (now-consumed) token is rejected (one-time use → 401).
+        // A near-immediate replay of the just-consumed token is the legitimate client
+        // racing itself (two tabs / a retried silent refresh). Within the reuse-leeway
+        // window it is TOLERATED — it rotates again rather than burning the family and
+        // logging the user out. (This was the "logged out every ~hour" REUSE-DETECTED
+        // bug; the strict-after-leeway theft response is unit-tested in
+        // RefreshTokenServiceTests on a controllable clock.)
         var replay = await client.PostAsJsonAsync("/api/v1/auth/refresh",
             new { refreshToken }, Web);
-        replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        replay.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // The reuse burned the family, so the rotated successor is now dead too.
-        var afterReuse = await client.PostAsJsonAsync("/api/v1/auth/refresh",
+        // The earlier successor was NOT burned by that replay — the session survives and
+        // it still rotates.
+        var successorStillWorks = await client.PostAsJsonAsync("/api/v1/auth/refresh",
             new { refreshToken = rotated }, Web);
-        afterReuse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        successorStillWorks.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
