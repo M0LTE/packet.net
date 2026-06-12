@@ -44,6 +44,9 @@
          deterministic reconcile seam) so the host component test isn't racing the
          debounce/semaphore. -->
     <InternalsVisibleTo Include="Packet.Node.Tests" />
+    <!-- The link bench (tools/Packet.LinkBench, docs/link-bench-plan.md) reuses
+         PacingKissModem to pace its bench modems in ACKMODE. -->
+    <InternalsVisibleTo Include="Packet.LinkBench" />
   </ItemGroup>
 
 </Project>
