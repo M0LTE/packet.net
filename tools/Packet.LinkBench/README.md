@@ -1,0 +1,42 @@
+# Packet.LinkBench
+
+The AX.25 connected-mode link bench from [`docs/link-bench-plan.md`](../../docs/link-bench-plan.md): two `Ax25Listener` engines in one process, joined by a pluggable channel, pushing a bulk connected-mode payload A→B and printing a metrics table. It exists to answer engine/transport-timing questions in seconds instead of multi-minute live windows — throughput vs `k`/T1/T2, the #79 duplicate-supervisory question, and what ackmode pacing actually buys.
+
+## Channels (plan §3)
+
+- `inproc` (default) — in-memory channel model: per-frame airtime (`frameBits/baud` + txdelay/txtail), optional half-duplex with turnaround, optional seeded frame loss, and an ackmode TX-complete echo emitted **after the modeled airtime**. `--baud 0` (the default) disables airtime modelling entirely: rung 1, pure lossless engine↔engine. `--baud 1200 --half-duplex` is rung 1b.
+- `axudp` — two `AxudpKissModem`s over UDP loopback. Real sockets, lossless, full-duplex, and **no ackmode by nature** (no TNC, no echo) — the cross-check that an in-proc result isn't an artifact of the in-proc model.
+- `netsim` — two KISS-TCP clients into net-sim ports (rung 2). Needs the ackmode-capable image pinned in plan §7. `--netsim host:8101,host:8102`.
+
+## ackmode (plan §2)
+
+`--ackmode on` (the default, per the standing assumption) wraps each engine's modem in `PacingKissModem`: the engine's fire-and-forget frame blast is serialised one-at-a-time, each frame released only when the prior frame's 0x0C TX-complete echo arrives. `--ackmode off` is the control for the isolation experiment, not a supported operating mode. The bench records every echo's round-trip — on netsim, compare the RTTs against modeled airtime to settle whether its echo is immediate-on-receive (pacing is a no-op) or post-transmission (plan §7's open question).
+
+ackmode ≠ carrier sense: the DCD-over-KISS seam (plan §8) is designed but deliberately unwired — see `ITxGatePolicy` (the CSMA-by-DCD plug point, no-op today) and `InProcChannel.ChannelStateChanged` (the modeled busy/clear signal).
+
+## Sweeps
+
+Comma-separated values on `--k`, `--t1`, `--t2`, `--paclen`, `--ackmode`, `--loss` expand to a cartesian product of runs, one table row each. `--json out.jsonl` writes machine-readable results.
+
+```sh
+# rung 1: lossless, no channel — is #79 engine-intrinsic? (dupS column)
+dotnet run --project tools/Packet.LinkBench -- --payload 64k
+
+# same, ack-per-frame (T2=0) — milliseconds instead of T2-paced minutes
+dotnet run --project tools/Packet.LinkBench -- --payload 64k --t2 0
+
+# AXUDP cross-check
+dotnet run --project tools/Packet.LinkBench -- --channel axudp --payload 64k --t2 0
+
+# rung 1b: k × ackmode at modeled 1200 baud half-duplex, 50× real time
+dotnet run --project tools/Packet.LinkBench -- --payload 16k --baud 1200 --half-duplex \
+    --time-scale 50 --k 1,2,4,7 --ackmode on,off
+```
+
+`--time-scale F` runs the modeled channel F× faster than real time **and scales the engines' T1/T2/T3 defaults by the same factor**, so timer-vs-airtime ratios stay honest. Explicit `--t1`/`--t2` values are taken as already-scaled.
+
+## Metrics (plan §5)
+
+Per run: wall-time and throughput (payload bytes over the transfer window), I-frame / supervisory TX counts per endpoint (RR/RNR/REJ/SREJ split), retransmissions (an I-frame keyed with an N(S) already outstanding), **duplicate-supervisory count** (`dupS` — extra copies in runs of consecutive identical supervisory frames within `--dup-window-ms`; this is #79 quantified, with `burst` the longest identical run), window-stall time (cumulative time the sender sat on a full window of k unacked I-frames), payload integrity (byte-exact compare), and clean-DISC confirmation. Frame data comes from tapping both listeners' `FrameTraced` streams; ackmode echo RTTs from a tap under the pacing decorator.
+
+Exit code 0 only if every run completed with an intact payload.
