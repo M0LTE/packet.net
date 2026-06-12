@@ -36,7 +36,13 @@ public sealed class Ax25Session
     // posting LM-SEIZE-confirm back) are queued here and dispatched after the
     // in-flight transition commits. See PostEvent's remarks. (#327)
     private readonly Queue<Ax25Event> deferredEvents = new();
+    private readonly object dispatchGate = new();
     private bool dispatching;
+
+    // ax25spec#9 (Ax25Spec9AckProgressResetsRc): set when a committed transition
+    // advances V(A); consumed at the next T1 expiry to clamp RC. See
+    // PreClampRetryCountOnT1Expiry.
+    private bool vaAdvancedSinceT1Expiry;
 
     /// <summary>The session's mutable per-connection state.</summary>
     public Ax25SessionContext Context { get; }
@@ -202,27 +208,43 @@ public sealed class Ax25Session
     {
         ArgumentNullException.ThrowIfNull(evt);
 
-        if (dispatching)
+        // Cross-thread serialisation. Real posters genuinely race: the
+        // listener's inbound pump (frame events), timer-expiry callbacks
+        // (SystemTimerScheduler fires them on TimeProvider timer threads), and
+        // upper-layer callers (ConnectAsync / SendData on whatever thread the
+        // app uses). Without the gate, two threads can both observe
+        // `dispatching == false` and dispatch concurrently — corrupting the
+        // deferred Queue and the run-to-completion invariant — or one thread's
+        // enqueue can be wiped by the other's `deferredEvents.Clear()` (a
+        // silently lost event; found by tools/Packet.LinkBench bulk transfers).
+        // Monitor is reentrant, so a re-entrant post from inside a dispatch on
+        // the SAME thread (an action's signal handler posting back — the #327
+        // case) passes straight through to the deferred queue exactly as
+        // before; only genuinely concurrent posters now wait their turn.
+        lock (dispatchGate)
         {
-            deferredEvents.Enqueue(evt);
-            return;
-        }
-
-        dispatching = true;
-        try
-        {
-            DispatchEvent(evt);
-            DrainIFrameQueue();
-            while (deferredEvents.TryDequeue(out var deferred))
+            if (dispatching)
             {
-                DispatchEvent(deferred);
-                DrainIFrameQueue();
+                deferredEvents.Enqueue(evt);
+                return;
             }
-        }
-        finally
-        {
-            dispatching = false;
-            deferredEvents.Clear();
+
+            dispatching = true;
+            try
+            {
+                DispatchEvent(evt);
+                DrainIFrameQueue();
+                while (deferredEvents.TryDequeue(out var deferred))
+                {
+                    DispatchEvent(deferred);
+                    DrainIFrameQueue();
+                }
+            }
+            finally
+            {
+                dispatching = false;
+                deferredEvents.Clear();
+            }
         }
     }
 
@@ -231,6 +253,27 @@ public sealed class Ax25Session
         if (!transitionsByState.TryGetValue(CurrentState, out var stateTransitions))
         {
             throw new InvalidOperationException($"no transitions defined for current state '{CurrentState}'");
+        }
+
+        // ax25spec#9 (Ax25Spec9AckProgressResetsRc), step 2 of 2: the figures
+        // only reset RC on the fully-acked Timer-Recovery checkpoint
+        // (t18/t21/t23 …_yes_yes_yes → Connected, RCAssign0), so a sustained
+        // transfer that lives in Timer Recovery with frames always in flight
+        // ratchets RC across a WORKING link and dies (t21_t1_expiry_yes_no:
+        // DL-ERROR I → DM) at the N2'th lifetime T1 hiccup — reproduced by
+        // tools/Packet.LinkBench over net-sim. If V(A) advanced since the last
+        // T1 expiry, the link is demonstrably alive, so this expiry is the
+        // FIRST of a new consecutive-failure run: clamp RC to 1 before the
+        // RCEqN2 guard is evaluated. Clamping (not zeroing) keeps Select_T1's
+        // RC==0 Karn branch meaning what the figures intend — "no
+        // retransmission in progress, round-trip sample is clean".
+        if (evt is T1Expiry && Context.Quirks.Ax25Spec9AckProgressResetsRc)
+        {
+            if (vaAdvancedSinceT1Expiry && Context.RC > 1)
+            {
+                Context.RC = 1;
+            }
+            vaAdvancedSinceT1Expiry = false;
         }
 
         // Expose the trigger to frame-aware guard bindings + the
@@ -263,6 +306,7 @@ public sealed class Ax25Session
             // it stays live so T1 / N2 drive recovery or a clean disconnect.
             // CurrentState is only advanced on success. (m0lte/packet.net#225)
             var timerState = scheduler.CaptureState();
+            var vaBefore = Context.VA;
             try
             {
                 var tx = new TransitionContext(Context, scheduler, evt);
@@ -274,6 +318,19 @@ public sealed class Ax25Session
             {
                 scheduler.RestoreState(timerState);
                 throw;
+            }
+
+            // ax25spec#9 (Ax25Spec9AckProgressResetsRc), step 1 of 2: note that
+            // this transition advanced V(A) — the peer acknowledged NEW data.
+            // The RC clamp itself happens at the next T1 expiry (see
+            // PreClampRetryCountOnT1Expiry); RC is deliberately NOT zeroed here
+            // because RC==0 is also the figures' Karn signal to Select_T1 ("no
+            // retransmission in progress — safe to sample the round trip"), and
+            // a mid-recovery zero would feed retransmit-polluted samples into
+            // the SRT estimator.
+            if (Context.VA != vaBefore)
+            {
+                vaAdvancedSinceT1Expiry = true;
             }
 
             // Transition committed (state advanced, timers kept) — notify
