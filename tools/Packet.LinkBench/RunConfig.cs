@@ -29,6 +29,12 @@ internal sealed record RunConfig
     /// as already-scaled), so timer-vs-airtime ratios stay honest.</summary>
     public double TimeScale { get; init; } = 1.0;
 
+    /// <summary>Set when <see cref="T1"/>/<see cref="T2"/> were auto-scaled down from
+    /// the spec defaults because this is a zero-airtime (<c>--baud 0</c>) inproc run —
+    /// see <c>Cli.ApplyZeroAirtimeTimerDefaults</c>. Purely informational; drives the
+    /// one-time startup notice.</summary>
+    public bool ZeroAirtimeTimersAutoScaled { get; init; }
+
     public TimeSpan DupWindow { get; init; } = TimeSpan.FromSeconds(1);
     public TimeSpan RunTimeout { get; init; } = TimeSpan.FromMinutes(10);
 

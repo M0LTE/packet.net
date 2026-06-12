@@ -46,6 +46,10 @@ dotnet run --project tools/Packet.LinkBench -- --payload 16k --baud 1200 --half-
 
 `--time-scale F` runs the modeled channel F× faster than real time **and scales the engines' T1/T2/T3 defaults by the same factor**, so timer-vs-airtime ratios stay honest. Explicit `--t1`/`--t2` values are taken as already-scaled.
 
+### Zero-airtime timer auto-scaling
+
+At `--baud 0` (the default rung-1 channel) frames and acks deliver instantly, so the 6 s spec-default T1V — sized for real ~1200-baud airtime + turnaround — is wildly mismatched. It doesn't matter for lossless runs (T1 never fires), but under loss recovery latency is `losses × T1V`: a loss-heavy stop-and-wait or even pipelined run burns a full 6 s per dropped frame/ack and times out. That's a timer:airtime mismatch, **not** an engine defect — recovery, pipelining and go-back-N/SREJ all work; the bench was just measuring the ratio. So when `--baud 0` and no explicit `--t1` is given, the bench auto-scales the default T1V to 500 ms (T2 to 250 ms) and prints a one-line notice. An explicit `--t1`/`--t2` is always respected (it means you're tuning deliberately); modelled channels (`--baud N`, `--time-scale`) keep the real spec defaults.
+
 ## Metrics (plan §5)
 
 Per run: wall-time and throughput (payload bytes over the transfer window), I-frame / supervisory TX counts per endpoint (RR/RNR/REJ/SREJ split), retransmissions (an I-frame keyed with an N(S) already outstanding), **duplicate-supervisory count** (`dupS` — extra copies in runs of consecutive identical supervisory frames within `--dup-window-ms`; this is #79 quantified, with `burst` the longest identical run), window-stall time (cumulative time the sender sat on a full window of k unacked I-frames), payload integrity (byte-exact compare), and clean-DISC confirmation. Frame data comes from tapping both listeners' `FrameTraced` streams; ackmode echo RTTs from a tap under the pacing decorator.

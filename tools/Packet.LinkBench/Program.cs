@@ -30,6 +30,9 @@ catch (Exception ex) when (ex is FormatException or ArgumentException)
 }
 
 Console.WriteLine($"Packet.LinkBench — {runs.Count} run(s)");
+if (runs.Any(r => r.ZeroAirtimeTimersAutoScaled))
+    Console.WriteLine(
+        $"note: baud=0 (no airtime) — default T1V auto-scaled to {Cli.ZeroAirtimeDefaultT1Ms:F0}ms / T2 {Cli.ZeroAirtimeDefaultT2Ms:F0}ms so loss recovery isn't dominated by the 6 s spec default (which is sized for real airtime). Pass --t1/--t2 to override, or --baud N / --time-scale for a modelled channel.");
 Console.WriteLine();
 
 var results = new List<BenchResult>();
@@ -90,7 +93,8 @@ internal static class Cli
 
         engine knobs (swept)
           --k LIST             send-window size 1..7              (default engine: 4)
-          --t1 LIST            T1V in ms                          (default engine: 6000)
+          --t1 LIST            T1V in ms          (default engine: 6000; auto-
+                               scaled to 500 at --baud 0 — see --baud)
           --t2 LIST            T2 ack-delay in ms; 0=ack-per-frame (default engine: 3000)
           --paclen LIST        bytes per I-frame, ≤ N1=256        (default 256)
           --ackmode LIST       on | off — pace TX on the 0x0C echo (default on)
@@ -101,6 +105,10 @@ internal static class Cli
 
         inproc channel model (rung 1b; ignored on axudp/netsim)
           --baud N             modeled bit/s; 0 = no airtime      (default 0 — rung 1)
+                               at 0, the default T1V/T2 auto-scale down (the 6 s
+                               spec default assumes airtime; under loss, recovery
+                               latency = losses × T1V and dwarfs the zero RTT).
+                               An explicit --t1 is always respected.
           --half-duplex        one transmitter at a time
           --txdelay-ms N       keyup delay                        (default 250)
           --txtail-ms N        tail hang                          (default 20)
@@ -261,9 +269,34 @@ internal static class Cli
             from srej in srejs
             from loss in losses
             select baseCfg with { K = k, T1 = t1, T2 = t2, Paclen = paclen, AckMode = ack, T1FromTxComplete = t1tx, Srej = srej, Loss = loss }
-        ).ToList();
+        ).Select(ApplyZeroAirtimeTimerDefaults).ToList();
 
         return (runs, flags.GetValueOrDefault("--json"), flags.GetValueOrDefault("--trace"), switches.Contains("--detail"));
+    }
+
+    // A zero-airtime (--baud 0) inproc channel delivers instantly, so the 6 s
+    // spec-default T1V — sized for real ~1200-baud airtime + turnaround — dwarfs
+    // the (zero) round-trip. Under loss, recovery latency is losses × T1V, so a
+    // loss-heavy run burns a full 6 s per dropped frame/ack and times out (the
+    // engine is fine: pipelining and recovery work; the timer is just mismatched
+    // to the channel). Scale the *default* T1/T2 down to match the zero airtime so
+    // the bench measures the engine, not the T1:airtime ratio. An explicit --t1
+    // means the user is tuning deliberately and is always respected (no scaling,
+    // no warning); modelled channels (--baud N / --time-scale) keep the real
+    // defaults. See docs/link-bench-plan.md.
+    internal const double ZeroAirtimeDefaultT1Ms = 500;
+    internal const double ZeroAirtimeDefaultT2Ms = 250;
+
+    private static RunConfig ApplyZeroAirtimeTimerDefaults(RunConfig cfg)
+    {
+        if (cfg.Channel != "inproc" || cfg.Baud != 0 || cfg.TimeScale != 1.0 || cfg.T1 is not null)
+            return cfg;
+        return cfg with
+        {
+            T1 = TimeSpan.FromMilliseconds(ZeroAirtimeDefaultT1Ms),
+            T2 = cfg.T2 ?? TimeSpan.FromMilliseconds(ZeroAirtimeDefaultT2Ms),
+            ZeroAirtimeTimersAutoScaled = true,
+        };
     }
 
     private static int ParseSize(string text)
