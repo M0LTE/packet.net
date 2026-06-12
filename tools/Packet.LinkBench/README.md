@@ -14,9 +14,17 @@ The AX.25 connected-mode link bench from [`docs/link-bench-plan.md`](../../docs/
 
 ackmode ≠ carrier sense: the DCD-over-KISS seam (plan §8) is designed but deliberately unwired — see `ITxGatePolicy` (the CSMA-by-DCD plug point, no-op today) and `InProcChannel.ChannelStateChanged` (the modeled busy/clear signal).
 
+## SREJ (selective reject)
+
+`--srej on` forces SREJ on **both** engines (mirroring the figc4.7 v2.2 `Set_Selective_Reject` default), set after the handshake completes — a mod-8 connect runs `Set_Version_2_0`, which clears the flag, so it has to be (re)applied post-connect. Default `off` = the engine's mod-8 default of implicit-reject / go-back-N recovery. The bench bypasses XID negotiation here on purpose: it forces the runtime flag directly to exercise the **recovery mechanics**, not the negotiation, exactly as `DataLinkSrejUnderLossTests` do.
+
+SREJ only changes behaviour **under loss** — a clean run never produces an out-of-sequence frame, so the selective-vs-go-back-N choice never arises. Pair it with `--loss` (the `inproc` channel) or run it on `netsim` (collisions drop frames): with `--srej on` a single dropped frame is recovered by one selective retransmit; with `--srej off` the same gap triggers REJ go-back-N (the whole window replays). The table's `rej` column shows the configured mode (`srej` / `gbn`); the separate `SREJ` column counts SREJ frames actually emitted (0 unless a gap occurred under `--srej on`).
+
+> mod-128 is **not** covered — the bench connects mod-8 (SABM) only. That's deliberate: the lab's LinBPQ peer rejects SABME, so extended sequencing is academic for the live path. v2.2 mod-128 + SREJ-128 *correctness* lives in `DirewolfMod128Interop` and the conformance harness; this bench is the mod-8 throughput/timing/recovery rig.
+
 ## Sweeps
 
-Comma-separated values on `--k`, `--t1`, `--t2`, `--paclen`, `--ackmode`, `--loss` expand to a cartesian product of runs, one table row each. `--json out.jsonl` writes machine-readable results.
+Comma-separated values on `--k`, `--t1`, `--t2`, `--paclen`, `--ackmode`, `--t1-tx-complete`, `--srej`, `--loss` expand to a cartesian product of runs, one table row each. `--json out.jsonl` writes machine-readable results.
 
 ```sh
 # rung 1: lossless, no channel — is #79 engine-intrinsic? (dupS column)
@@ -27,6 +35,9 @@ dotnet run --project tools/Packet.LinkBench -- --payload 64k --t2 0
 
 # AXUDP cross-check
 dotnet run --project tools/Packet.LinkBench -- --channel axudp --payload 64k --t2 0
+
+# SREJ vs go-back-N under 5% loss — selective recovery should retransmit less
+dotnet run --project tools/Packet.LinkBench -- --payload 16k --loss 0.05 --k 4 --srej off,on
 
 # rung 1b: k × ackmode at modeled 1200 baud half-duplex, 50× real time
 dotnet run --project tools/Packet.LinkBench -- --payload 16k --baud 1200 --half-duplex \

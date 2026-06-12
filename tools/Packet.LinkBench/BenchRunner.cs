@@ -161,21 +161,44 @@ internal static class BenchRunner
             }
             var connected = DateTimeOffset.UtcNow;
 
+            // B's accepted session — always captured (needed for SREJ enablement
+            // and for the bidirectional send). By the time A's ConnectAsync has
+            // returned, B has sent its UA, so B is Connected and its establish
+            // (which sets the v2.0 reject mode) has already run.
+            Ax25Session bSession;
+            try
+            {
+                bSession = await sessionOnB.Task.WaitAsync(runCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return Fail(cfg, "B never saw the inbound session", tapA, tapB, receipts, receiptsGate, SnapshotEvents());
+            }
+
+            // SREJ (selective reject): force it on BOTH ends, mirroring the engine's
+            // own Set_Selective_Reject verb (the figc4.7 v2.2 default). Must be set
+            // AFTER establish — a mod-8 connect runs Set_Version_2_0, which clears
+            // SrejEnabled — so ConfigureSession (pre-connect) would be clobbered;
+            // this is exactly how DataLinkSrejUnderLossTests stage it. SREJ only
+            // changes behaviour under frame loss (the --loss knob, or net-sim
+            // collisions): a clean run never produces an out-of-sequence frame, so
+            // the selective/go-back-N choice never arises. Done before any I-frame
+            // is queued (the SendChunked calls below), so no frame escapes pre-SREJ.
+            if (cfg.Srej)
+            {
+                foreach (var ctx in new[] { session.Context, bSession.Context })
+                {
+                    ctx.ImplicitReject = false;
+                    ctx.SrejEnabled = true;
+                }
+            }
+
             // ── Stream the payload(s) as connected-mode I-frames ──
             var transferStarted = DateTimeOffset.UtcNow;
             SendChunked(listenerA, session, payloadAtoB, cfg.Paclen);
 
             if (cfg.Bidirectional)
             {
-                Ax25Session bSession;
-                try
-                {
-                    bSession = await sessionOnB.Task.WaitAsync(runCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return Fail(cfg, "B never saw the inbound session", tapA, tapB, receipts, receiptsGate, SnapshotEvents());
-                }
                 SendChunked(listenerB, bSession, payloadBtoA, cfg.Paclen);
             }
 

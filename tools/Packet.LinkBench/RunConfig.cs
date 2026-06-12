@@ -12,6 +12,7 @@ internal sealed record RunConfig
     public int Paclen { get; init; } = 256;                   // bytes per I-frame (≤ N1)
     public bool AckMode { get; init; } = true;                // §2: ackmode is the assumed default
     public bool T1FromTxComplete { get; init; }               // re-arm T1 on the frame's TX-complete echo
+    public bool Srej { get; init; }                           // force SREJ (selective reject) on both ends — only bites under loss
     public bool Bidirectional { get; init; }
 
     // InProcChannel model knobs (ignored on axudp/netsim).
@@ -41,6 +42,7 @@ internal sealed record RunConfig
         $"T2={(T2 is { } t2 ? $"{t2.TotalMilliseconds:F0}ms" : "def")} paclen={Paclen} " +
         $"ack={(AckMode ? "on" : "off")}{(T1FromTxComplete ? " t1tx" : "")} baud={(Baud > 0 ? Baud.ToString(System.Globalization.CultureInfo.InvariantCulture) : "∞")} " +
         $"{(HalfDuplex ? "half" : "full")}-duplex loss={Loss:0.###}" +
+        (Srej ? " srej" : "") +
         (Bidirectional ? " bidi" : "") +
         (TimeScale != 1.0 ? $" ×{TimeScale:G3}" : "");
 }
