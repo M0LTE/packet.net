@@ -28,14 +28,26 @@ public interface IRefreshTokenStore
     /// <summary>Look up a token by its SHA-256 hash, or null if absent / on fault.</summary>
     RefreshTokenRecord? FindByHash(string tokenHash);
 
-    /// <summary>Mark a single token revoked (consumed on rotation, or logged out).
-    /// Returns <c>true</c> if a row changed, <c>false</c> if absent or on fault.</summary>
-    bool Revoke(string tokenHash);
+    /// <summary>Mark a single token revoked. <paramref name="consumedAtUtc"/> stamps
+    /// the revoke time when this is an ordinary one-time-use rotation consume (which
+    /// makes the token leeway-eligible — a brief replay by the racing legitimate
+    /// client is benign, not theft); pass <c>null</c> for a hard revoke (expiry) that
+    /// must never be leeway-eligible. Returns <c>true</c> if a row changed,
+    /// <c>false</c> if absent or on fault.</summary>
+    bool Revoke(string tokenHash, DateTimeOffset? consumedAtUtc);
 
     /// <summary>Revoke every token in a family — the theft response (a replayed,
-    /// already-revoked token) and the logout path. Returns the number of rows
-    /// revoked (0 on fault / empty family).</summary>
+    /// already-revoked token) and the logout path. A family burn is a hard kill: it
+    /// does not stamp the leeway window, so a burned/logged-out family can't be
+    /// resurrected through the reuse leeway. Returns the number of rows revoked (0 on
+    /// fault / empty family).</summary>
     int RevokeFamily(string family);
+
+    /// <summary>Whether <paramref name="family"/> still has at least one non-revoked
+    /// token — i.e. the session is alive. Guards the reuse-leeway grace path so it can
+    /// only extend a live session, never resurrect a logged-out / theft-burned family.
+    /// Returns <c>false</c> on fault (fail safe — deny grace).</summary>
+    bool HasLiveToken(string family);
 
     /// <summary>Best-effort prune of tokens that expired before
     /// <paramref name="olderThanUtc"/>, so the table doesn't grow without bound. A

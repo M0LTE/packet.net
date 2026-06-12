@@ -14,10 +14,17 @@ namespace Packet.Node.Core.Auth;
 /// <param name="Revoked">Whether this token has been consumed (rotated) or revoked
 /// (logout / family revocation). A revoked token is rejected; a <em>presented</em>
 /// revoked token is the theft signal.</param>
+/// <param name="RevokedUtc">When this token was consumed by an ordinary rotation, or
+/// null. Only the one-time-use rotation consume stamps it — a hard revoke (logout /
+/// family burn / expiry) leaves it null. It exists for the reuse-leeway window: a
+/// just-rotated token replayed within the leeway by the legitimate client racing
+/// itself (two tabs, a retried refresh) is benign, not theft. A null here means "not
+/// leeway-eligible" — replaying it is always reuse.</param>
 public sealed record RefreshTokenRecord(
     string TokenHash,
     string Username,
     string Family,
     DateTimeOffset IssuedUtc,
     DateTimeOffset ExpiresUtc,
-    bool Revoked);
+    bool Revoked,
+    DateTimeOffset? RevokedUtc = null);

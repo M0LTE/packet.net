@@ -40,7 +40,8 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
             family      TEXT NOT NULL,
             issued_utc  TEXT NOT NULL,
             expires_utc TEXT NOT NULL,
-            revoked     INTEGER NOT NULL DEFAULT 0);
+            revoked     INTEGER NOT NULL DEFAULT 0,
+            revoked_utc TEXT);
         CREATE INDEX IF NOT EXISTS ix_refresh_token_family ON refresh_token (family);
         """;
 
@@ -72,10 +73,24 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
             using var conn = Open();
             conn.Execute("PRAGMA journal_mode=WAL;");
             conn.Execute(SchemaSql);
+            EnsureRevokedUtcColumn(conn);
         }
         catch (SqliteException ex)
         {
             LogSchemaFailed(ex, connectionString);
+        }
+    }
+
+    // Migrate a pre-existing refresh_token table (created before the reuse-leeway
+    // column existed) by adding revoked_utc if it's absent. CREATE TABLE IF NOT
+    // EXISTS never alters an existing table, so a node upgraded in place needs this.
+    private static void EnsureRevokedUtcColumn(SqliteConnection conn)
+    {
+        var hasColumn = conn.Query<string>("SELECT name FROM pragma_table_info('refresh_token');")
+            .Any(name => string.Equals(name, "revoked_utc", StringComparison.OrdinalIgnoreCase));
+        if (!hasColumn)
+        {
+            conn.Execute("ALTER TABLE refresh_token ADD COLUMN revoked_utc TEXT;");
         }
     }
 
@@ -87,8 +102,8 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
         {
             using var conn = Open();
             conn.Execute(
-                "INSERT INTO refresh_token (token_hash, username, family, issued_utc, expires_utc, revoked) " +
-                "VALUES (@h, @u, @f, @i, @e, @r);",
+                "INSERT INTO refresh_token (token_hash, username, family, issued_utc, expires_utc, revoked, revoked_utc) " +
+                "VALUES (@h, @u, @f, @i, @e, @r, @ru);",
                 new
                 {
                     h = token.TokenHash,
@@ -97,6 +112,7 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
                     i = Stamp(token.IssuedUtc),
                     e = Stamp(token.ExpiresUtc),
                     r = token.Revoked ? 1 : 0,
+                    ru = token.RevokedUtc is { } ru ? Stamp(ru) : null,
                 });
             return true;
         }
@@ -116,7 +132,8 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
             using var conn = Open();
             var row = conn.QuerySingleOrDefault<TokenRow>(
                 "SELECT token_hash AS TokenHash, username AS Username, family AS Family, " +
-                "issued_utc AS IssuedUtc, expires_utc AS ExpiresUtc, revoked AS Revoked " +
+                "issued_utc AS IssuedUtc, expires_utc AS ExpiresUtc, revoked AS Revoked, " +
+                "revoked_utc AS RevokedUtc " +
                 "FROM refresh_token WHERE token_hash = @h;",
                 new { h = tokenHash });
             return row is null ? null : ToRecord(row);
@@ -129,21 +146,39 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
     }
 
     /// <inheritdoc/>
-    public bool Revoke(string tokenHash)
+    public bool Revoke(string tokenHash, DateTimeOffset? consumedAtUtc)
     {
         ArgumentNullException.ThrowIfNull(tokenHash);
         try
         {
             using var conn = Open();
             int rows = conn.Execute(
-                "UPDATE refresh_token SET revoked = 1 WHERE token_hash = @h;",
-                new { h = tokenHash });
+                "UPDATE refresh_token SET revoked = 1, revoked_utc = @ru WHERE token_hash = @h;",
+                new { h = tokenHash, ru = consumedAtUtc is { } ru ? Stamp(ru) : null });
             return rows > 0;
         }
         catch (SqliteException ex)
         {
             LogWriteFailed(ex, connectionString);
             return false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool HasLiveToken(string family)
+    {
+        ArgumentNullException.ThrowIfNull(family);
+        try
+        {
+            using var conn = Open();
+            return conn.ExecuteScalar<long>(
+                "SELECT EXISTS(SELECT 1 FROM refresh_token WHERE family = @f AND revoked = 0);",
+                new { f = family }) != 0;
+        }
+        catch (SqliteException ex)
+        {
+            LogReadFailed(ex, connectionString);
+            return false;   // fail safe — deny the leeway grace on a store fault
         }
     }
 
@@ -188,7 +223,8 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
         row.Family,
         ParseStamp(row.IssuedUtc),
         ParseStamp(row.ExpiresUtc),
-        row.Revoked != 0);
+        row.Revoked != 0,
+        string.IsNullOrEmpty(row.RevokedUtc) ? null : ParseStamp(row.RevokedUtc));
 
     private static string Stamp(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
 
@@ -204,6 +240,7 @@ public sealed partial class SqliteRefreshTokenStore : IRefreshTokenStore
         public string IssuedUtc { get; set; } = string.Empty;
         public string ExpiresUtc { get; set; } = string.Empty;
         public long Revoked { get; set; }
+        public string? RevokedUtc { get; set; }
     }
 
     [LoggerMessage(Level = LogLevel.Warning,

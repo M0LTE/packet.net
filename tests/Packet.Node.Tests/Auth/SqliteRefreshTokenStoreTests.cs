@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Packet.Node.Core.Auth;
 
 namespace Packet.Node.Tests.Auth;
@@ -44,17 +45,40 @@ public sealed class SqliteRefreshTokenStoreTests : IDisposable
     }
 
     [Fact]
-    public void Revoke_marks_a_single_token()
+    public void Revoke_marks_a_single_token_and_stamps_the_consume_time()
     {
         var store = Open();
         store.Insert(NewToken("hash-1", "famA")).Should().BeTrue();
         store.Insert(NewToken("hash-2", "famA")).Should().BeTrue();
 
-        store.Revoke("hash-1").Should().BeTrue();
-        store.FindByHash("hash-1")!.Revoked.Should().BeTrue();
+        var consumedAt = new DateTimeOffset(2026, 6, 12, 8, 0, 0, TimeSpan.Zero);
+        store.Revoke("hash-1", consumedAt).Should().BeTrue();
+        var revoked = store.FindByHash("hash-1")!;
+        revoked.Revoked.Should().BeTrue();
+        revoked.RevokedUtc.Should().Be(consumedAt);               // leeway-eligible stamp persisted
         store.FindByHash("hash-2")!.Revoked.Should().BeFalse();   // sibling untouched
 
-        store.Revoke("absent").Should().BeFalse();
+        // A hard revoke (null) leaves no leeway stamp.
+        store.Revoke("hash-2", null).Should().BeTrue();
+        store.FindByHash("hash-2")!.RevokedUtc.Should().BeNull();
+
+        store.Revoke("absent", consumedAt).Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasLiveToken_tracks_whether_a_family_still_has_an_unrevoked_token()
+    {
+        var store = Open();
+        store.Insert(NewToken("a1", "famA")).Should().BeTrue();
+        store.Insert(NewToken("a2", "famA")).Should().BeTrue();
+
+        store.HasLiveToken("famA").Should().BeTrue();
+        store.HasLiveToken("famZ").Should().BeFalse();            // unknown family
+
+        store.Revoke("a1", null).Should().BeTrue();
+        store.HasLiveToken("famA").Should().BeTrue();             // a2 still live
+        store.Revoke("a2", null).Should().BeTrue();
+        store.HasLiveToken("famA").Should().BeFalse();            // family now dead
     }
 
     [Fact]
@@ -88,6 +112,33 @@ public sealed class SqliteRefreshTokenStoreTests : IDisposable
     }
 
     [Fact]
+    public void Opening_a_pre_leeway_db_migrates_in_the_revoked_utc_column()
+    {
+        // Simulate a node upgraded in place: a refresh_token table created before the
+        // revoked_utc column existed. Opening the store must ALTER it in, not fail.
+        var cs = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using (var conn = new SqliteConnection(cs))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "CREATE TABLE refresh_token (token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, " +
+                "family TEXT NOT NULL, issued_utc TEXT NOT NULL, expires_utc TEXT NOT NULL, " +
+                "revoked INTEGER NOT NULL DEFAULT 0);";
+            cmd.ExecuteNonQuery();
+        }
+
+        var store = Open();   // runs the migration
+        store.Insert(NewToken("hash-1", "famA")).Should().BeTrue();
+        var consumedAt = new DateTimeOffset(2026, 6, 12, 8, 0, 0, TimeSpan.Zero);
+        store.Revoke("hash-1", consumedAt).Should().BeTrue();
+        store.FindByHash("hash-1")!.RevokedUtc.Should().Be(consumedAt);
+
+        // Idempotent — a second open over the now-migrated table doesn't re-ALTER/throw.
+        Open().FindByHash("hash-1").Should().NotBeNull();
+    }
+
+    [Fact]
     public void Data_persists_across_a_reopen()
     {
         Open().Insert(NewToken("hash-1", "famA")).Should().BeTrue();
@@ -105,8 +156,9 @@ public sealed class SqliteRefreshTokenStoreTests : IDisposable
 
         broken.Insert(NewToken("h", "f")).Should().BeFalse();
         broken.FindByHash("h").Should().BeNull();
-        broken.Revoke("h").Should().BeFalse();
+        broken.Revoke("h", null).Should().BeFalse();
         broken.RevokeFamily("f").Should().Be(0);
+        broken.HasLiveToken("f").Should().BeFalse();
         broken.PruneExpired(DateTimeOffset.UnixEpoch).Should().Be(0);
     }
 
