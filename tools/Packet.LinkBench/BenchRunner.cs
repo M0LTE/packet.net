@@ -15,6 +15,7 @@ internal sealed record BenchResult
     public bool Completed { get; init; }
     public string? Failure { get; init; }
     public bool IntegrityOk { get; init; }
+    public string? IntegrityDetail { get; init; }
     public TimeSpan ConnectTime { get; init; }
     public TimeSpan TransferTime { get; init; }
     public double ThroughputBytesPerSec { get; init; }
@@ -161,21 +162,44 @@ internal static class BenchRunner
             }
             var connected = DateTimeOffset.UtcNow;
 
+            // B's accepted session — always captured (needed for SREJ enablement
+            // and for the bidirectional send). By the time A's ConnectAsync has
+            // returned, B has sent its UA, so B is Connected and its establish
+            // (which sets the v2.0 reject mode) has already run.
+            Ax25Session bSession;
+            try
+            {
+                bSession = await sessionOnB.Task.WaitAsync(runCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return Fail(cfg, "B never saw the inbound session", tapA, tapB, receipts, receiptsGate, SnapshotEvents());
+            }
+
+            // SREJ (selective reject): force it on BOTH ends, mirroring the engine's
+            // own Set_Selective_Reject verb (the figc4.7 v2.2 default). Must be set
+            // AFTER establish — a mod-8 connect runs Set_Version_2_0, which clears
+            // SrejEnabled — so ConfigureSession (pre-connect) would be clobbered;
+            // this is exactly how DataLinkSrejUnderLossTests stage it. SREJ only
+            // changes behaviour under frame loss (the --loss knob, or net-sim
+            // collisions): a clean run never produces an out-of-sequence frame, so
+            // the selective/go-back-N choice never arises. Done before any I-frame
+            // is queued (the SendChunked calls below), so no frame escapes pre-SREJ.
+            if (cfg.Srej)
+            {
+                foreach (var ctx in new[] { session.Context, bSession.Context })
+                {
+                    ctx.ImplicitReject = false;
+                    ctx.SrejEnabled = true;
+                }
+            }
+
             // ── Stream the payload(s) as connected-mode I-frames ──
             var transferStarted = DateTimeOffset.UtcNow;
             SendChunked(listenerA, session, payloadAtoB, cfg.Paclen);
 
             if (cfg.Bidirectional)
             {
-                Ax25Session bSession;
-                try
-                {
-                    bSession = await sessionOnB.Task.WaitAsync(runCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return Fail(cfg, "B never saw the inbound session", tapA, tapB, receipts, receiptsGate, SnapshotEvents());
-                }
                 SendChunked(listenerB, bSession, payloadBtoA, cfg.Paclen);
             }
 
@@ -200,6 +224,9 @@ internal static class BenchRunner
 
             var transferTime = lastByteAt - transferStarted;
             var integrity = sinkOnB.Matches(payloadAtoB) && (!cfg.Bidirectional || sinkOnA.Matches(payloadBtoA));
+            string? integrityDetail = integrity ? null
+                : "B: " + sinkOnB.Diagnose(payloadAtoB)
+                  + (cfg.Bidirectional ? " | A: " + sinkOnA.Diagnose(payloadBtoA) : "");
 
             // ── Clean DISC from A ──
             session.PostEvent(new DlDisconnectRequest());
@@ -221,6 +248,7 @@ internal static class BenchRunner
                 Config = cfg,
                 Completed = true,
                 IntegrityOk = integrity,
+                IntegrityDetail = integrityDetail,
                 ConnectTime = connected - connectStarted,
                 TransferTime = transferTime,
                 ThroughputBytesPerSec = transferTime > TimeSpan.Zero ? totalPayload / transferTime.TotalSeconds : 0,
@@ -364,6 +392,31 @@ internal static class BenchRunner
             {
                 return buffer.Length == expected.Length &&
                        buffer.GetBuffer().AsSpan(0, (int)buffer.Length).SequenceEqual(expected);
+            }
+        }
+
+        /// <summary>On an integrity failure, classify HOW the delivered byte stream
+        /// diverged from the payload — the channel is drop-only and order-preserving,
+        /// so any divergence is the engine delivering to L3 wrongly: extra bytes ⇒
+        /// duplicate delivery; equal length but mismatched ⇒ out-of-order delivery;
+        /// short ⇒ a gap never filled.</summary>
+        public string Diagnose(byte[] expected)
+        {
+            lock (gate)
+            {
+                var got = (int)buffer.Length;
+                var b = buffer.GetBuffer();
+                var firstDiff = -1;
+                var n = Math.Min(got, expected.Length);
+                for (var i = 0; i < n; i++)
+                {
+                    if (b[i] != expected[i]) { firstDiff = i; break; }
+                }
+                var lenNote = got > expected.Length ? $"+{got - expected.Length} EXTRA bytes (duplicate delivery)"
+                            : got < expected.Length ? $"-{expected.Length - got} SHORT (gap never filled)"
+                            : "exact length";
+                var diffNote = firstDiff < 0 ? "no content diff in overlap" : $"first content diff at byte {firstDiff}/{expected.Length}";
+                return $"got {got}/{expected.Length} — {lenNote}; {diffNote}";
             }
         }
     }

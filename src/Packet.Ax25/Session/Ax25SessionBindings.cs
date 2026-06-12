@@ -145,7 +145,7 @@ public static class Ax25SessionBindings
                 Ax25Guard.VsEqVa            => () => context.VS == context.VA,
                 // legacy binding: V_s_eq_V_a_plus_k
                 Ax25Guard.VsEqVaPlusK
-                    => () => ((context.VS - context.VA + context.Modulus) % context.Modulus) >= context.K,
+                    => () => ((context.VS - context.VA + context.Modulus) % context.Modulus) >= context.EffectiveWindow,
                 // legacy binding: v_s_eq_x — Invoke_Retransmission loop terminator:
                 // V(s) caught up to its saved-on-entry value X. False if X unset.
                 Ax25Guard.VsEqX             => () => context.X.HasValue && context.VS == context.X.Value,
@@ -225,7 +225,7 @@ public static class Ax25SessionBindings
                 if (currentTrigger?.Invoke() is not IFrameReceived) return false;
                 if (IncomingNs(currentTrigger.Invoke()) is not byte ns) return false;
                 int offset = (ns - context.VR + context.Modulus) % context.Modulus;
-                return offset >= context.K;   // N(S) outside [V(r), V(r)+k)
+                return offset >= context.EffectiveWindow;   // N(S) outside [V(r), V(r)+effective k)
             }
 
             var baseRejectException = bindings[Ax25Guard.RejectException];
