@@ -472,7 +472,7 @@ public sealed class Ax25Session
         if (CurrentState is not ("Connected" or "TimerRecovery")) return false;
         if (Context.PeerReceiverBusy) return false;
         int outstanding = (Context.VS - Context.VA + Context.Modulus) % Context.Modulus;
-        return outstanding < Context.K;
+        return outstanding < Context.EffectiveWindow;
     }
 
     /// <summary>

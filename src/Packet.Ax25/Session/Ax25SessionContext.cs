@@ -131,6 +131,24 @@ public sealed class Ax25SessionContext
     /// <summary>Maximum outstanding I frames (k). Default 4 (mod-8) / 32 (mod-128).</summary>
     public int K { get; set; } = 4;
 
+    /// <summary>
+    /// The window (k) the engine actually enforces for BOTH the send side
+    /// (max outstanding I-frames) and the receive side (the in-window acceptance
+    /// bound for storing out-of-sequence frames) — <see cref="K"/>, but capped
+    /// at <c>Modulus/2</c> while Selective Repeat (<see cref="SrejEnabled"/>) is in
+    /// effect, per the Selective-Repeat window-wrap invariant (ax25spec#13). Above
+    /// that cap, two in-flight frames could share an N(S) and SREJ recovery can
+    /// silently deliver a stale stored frame (m0lte/packet.net#393). Gated by
+    /// <see cref="Ax25SessionQuirks.Ax25Spec13ClampSrejWindowToHalfModulus"/>
+    /// (default on); with the quirk off it is just <see cref="K"/>, reproducing the
+    /// unbounded figure-literal behaviour. Go-back-N links (SREJ off) are never
+    /// capped — they tolerate <c>k</c> up to <c>Modulus−1</c>.
+    /// </summary>
+    public int EffectiveWindow =>
+        Quirks.Ax25Spec13ClampSrejWindowToHalfModulus && SrejEnabled
+            ? Math.Min(K, Modulus / 2)
+            : K;
+
     /// <summary>True for mod-128 (SABME / extended); false for mod-8 (SABM).</summary>
     public bool IsExtended { get; set; }
 
