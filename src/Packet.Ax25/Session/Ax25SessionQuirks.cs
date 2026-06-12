@@ -402,6 +402,39 @@ public sealed record Ax25SessionQuirks
     public bool Ax25Spec9AckProgressResetsRc { get; init; } = true;
 
     /// <summary>
+    /// Enforce the Selective-Repeat window-wrap invariant for
+    /// <c>packethacking/ax25spec#13</c>: when SREJ is enabled, the send window
+    /// must satisfy <c>k ≤ modulus/2</c> (≤ 4 for mod-8, ≤ 64 for mod-128).
+    /// Selective Repeat keys retransmission-recovery state by the bare N(S), so
+    /// the sender and receiver windows must not overlap modulo the sequence
+    /// space — the classic 2·W ≤ modulus bound. AX.25 lets <c>k</c> range to
+    /// modulus−1 (fine for go-back-N, which buffers no out-of-order frames), and
+    /// the figures never enforce the tighter Selective-Repeat bound, so a session
+    /// running SREJ with <c>k &gt; modulus/2</c> can, under loss, <b>silently
+    /// deliver a stale stored I-frame from the previous ring cycle</b> (one with
+    /// the same N(S) exactly <c>modulus</c> frames back) in place of the live
+    /// frame — exact-length, wrong-content payload corruption. Reproduced by
+    /// <c>tools/Packet.LinkBench</c>: at mod-8, 5% loss, SREJ on, corruption
+    /// appears at <c>k ≥ 5</c> and is absent at <c>k ≤ 4</c> (m0lte/packet.net#393).
+    /// </summary>
+    /// <remarks>
+    /// When <c>true</c> (default), <see cref="Ax25SessionContext.EffectiveSendWindow"/>
+    /// caps the outstanding-I-frame window at <c>modulus/2</c> whenever
+    /// <see cref="Ax25SessionContext.SrejEnabled"/> is set — both the
+    /// <c>v_s_eq_v_a_plus_k</c> guard and the I-frame-queue drain honour the cap,
+    /// so no more than <c>modulus/2</c> frames are ever outstanding and two
+    /// in-flight frames can never share an N(S). A configured <c>k</c> above the
+    /// cap is silently run at the safe window for the duration that SREJ is in
+    /// effect (the configured value is untouched and applies again if SREJ is
+    /// disabled / on a go-back-N link). When <c>false</c>
+    /// (<see cref="StrictlyFaithful"/>), the figures run as drawn — SREJ at
+    /// <c>k &gt; modulus/2</c> is permitted and corrupts under loss, for
+    /// conformance study only. Tighten or remove once ax25spec#13 resolves how
+    /// the spec should bound <c>k</c>.
+    /// </remarks>
+    public bool Ax25Spec13ClampSrejWindowToHalfModulus { get; init; } = true;
+
+    /// <summary>
     /// Default preset — spec-<i>correct</i> behaviour (all quirks on). This is
     /// what a session uses unless explicitly configured otherwise.
     /// </summary>
@@ -424,5 +457,6 @@ public sealed record Ax25SessionQuirks
         Ax25Spec45FrmrFallbackReestablishesV20 = false,
         Ax25Spec47TimerRecoveryDrainAdvancesVR = false,
         Ax25Spec9AckProgressResetsRc = false,
+        Ax25Spec13ClampSrejWindowToHalfModulus = false,
     };
 }
