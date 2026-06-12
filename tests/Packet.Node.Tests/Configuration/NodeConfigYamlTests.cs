@@ -517,6 +517,53 @@ public class NodeConfigYamlTests
     }
 
     [Fact]
+    public void Kiss_t1FromTxComplete_parses_and_round_trips_when_set_true()
+    {
+        var config = NodeConfigYaml.Parse("""
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports:
+              - id: vhf
+                enabled: true
+                transport:
+                  kind: kiss-tcp
+                  host: 127.0.0.1
+                  port: 8001
+                kiss:
+                  ackMode: true
+                  t1FromTxComplete: true
+            """);
+
+        config.Ports[0].Kiss!.T1FromTxComplete.Should().BeTrue();
+
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(config));
+        reparsed.Ports[0].Kiss!.T1FromTxComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Kiss_t1FromTxComplete_defaults_false_when_absent()
+    {
+        // Pre-feature configs keep enqueue-time T1 semantics — no behaviour change.
+        var config = NodeConfigYaml.Parse("""
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            ports:
+              - id: vhf
+                enabled: true
+                transport:
+                  kind: kiss-tcp
+                  host: 127.0.0.1
+                  port: 8001
+                kiss:
+                  txDelay: 30
+            """);
+
+        config.Ports[0].Kiss!.T1FromTxComplete.Should().BeFalse();
+    }
+
+    [Fact]
     public void Kiss_ackMode_defaults_false_when_absent()
     {
         // A port with KISS knobs set but no ackMode key must default the flag off —

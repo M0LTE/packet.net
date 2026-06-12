@@ -47,6 +47,25 @@ public interface ITimerScheduler
     TimeSpan TimeRemaining(string name);
 
     /// <summary>
+    /// Atomically re-arm <paramref name="name"/> with a fresh
+    /// <paramref name="duration"/> and its <em>existing</em> expiry callback —
+    /// but only if it is currently running. Returns <c>false</c> (touching
+    /// nothing) when the timer isn't armed.
+    /// </summary>
+    /// <remarks>
+    /// The TX-complete→T1 seam: when a TNC's ACKMODE echo reports that an
+    /// I-frame / enquiry actually cleared the air, the listener pushes a
+    /// <em>running</em> T1's deadline out to (now + T1V) — the SDL armed T1 at
+    /// enqueue, before the frame had even keyed up. The
+    /// check-and-re-arm must be atomic against the SDL stopping T1 on the
+    /// dispatch thread (an ack racing the echo): re-arming a timer the SDL
+    /// just stopped would resurrect a watchdog the figures believe is off.
+    /// Default implementation is a conservative no-op so virtual-time test
+    /// schedulers don't have to care.
+    /// </remarks>
+    bool RearmIfRunning(string name, TimeSpan duration) => false;
+
+    /// <summary>
     /// Capture the currently-armed timers (name, time remaining, expiry
     /// callback) so the set can be restored with <see cref="RestoreState"/>.
     /// </summary>

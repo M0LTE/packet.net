@@ -77,6 +77,60 @@ public sealed class PacingKissModemTests
     }
 
     [Fact]
+    public async Task Explicit_ack_send_is_routed_through_the_queue_in_arrival_order()
+    {
+        // The TX-complete→T1 seam depends on this: an explicit
+        // SendFrameWithAckAsync must NOT bypass the pacing queue (which would
+        // reorder it against the fire-and-forget frames around it) — it takes
+        // its place in line and resolves with ITS frame's receipt.
+        await using var inner = new GatedModem();
+        await using var modem = new PacingKissModem(inner, TimeSpan.FromSeconds(30), NullLogger.Instance);
+
+        await modem.SendFrameAsync(Encoding.ASCII.GetBytes("A"));        // fire-and-forget
+        var bTask = modem.SendFrameWithAckAsync(Encoding.ASCII.GetBytes("B"));  // explicit receipt
+        await modem.SendFrameAsync(Encoding.ASCII.GetBytes("C"));        // fire-and-forget
+
+        // A is in flight; B must be queued BEHIND it, not racing it via a bypass.
+        (await inner.WaitForInFlightAsync("A")).Should().BeTrue();
+        inner.Started.Should().Equal("A");
+        bTask.IsCompleted.Should().BeFalse("B's receipt can only resolve after B's own echo");
+
+        inner.SignalAck();                                                // A's echo
+        (await inner.WaitForInFlightAsync("B")).Should().BeTrue();
+        inner.Started.Should().Equal("A", "B");
+
+        inner.SignalAck();                                                // B's echo
+        var receipt = await bTask.WaitAsync(TimeSpan.FromSeconds(5));
+        receipt.Should().NotBeNull();
+
+        (await inner.WaitForInFlightAsync("C")).Should().BeTrue();
+        inner.Started.Should().Equal("A", "B", "C");
+        inner.SignalAck();
+        (await inner.WaitForCompletedCountAsync(3)).Should().BeTrue();
+        inner.Completed.Should().Equal("A", "B", "C");
+    }
+
+    [Fact]
+    public async Task Explicit_ack_send_faults_its_caller_on_timeout_but_the_pump_keeps_going()
+    {
+        await using var inner = new GatedModem();
+        await using var modem = new PacingKissModem(inner, TimeSpan.FromSeconds(30), NullLogger.Instance);
+
+        inner.ThrowTimeoutOnce = true;
+        var xTask = modem.SendFrameWithAckAsync(Encoding.ASCII.GetBytes("X"));  // echo never comes
+        await modem.SendFrameAsync(Encoding.ASCII.GetBytes("Y"));
+
+        // The caller sees ITS frame's timeout (it can decide what that means —
+        // the T1 wiring just leaves T1 alone); the pump moves on to Y regardless.
+        await xTask.Invoking(t => t.WaitAsync(TimeSpan.FromSeconds(5)))
+            .Should().ThrowAsync<TimeoutException>();
+        (await inner.WaitForInFlightAsync("Y")).Should().BeTrue();
+        inner.SignalAck();
+        (await inner.WaitForCompletedCountAsync(1)).Should().BeTrue();
+        inner.Completed.Should().Equal("Y");
+    }
+
+    [Fact]
     public async Task Read_and_param_setters_pass_through_to_inner_unchanged()
     {
         await using var inner = new GatedModem(Frame("hello"));

@@ -169,5 +169,8 @@ public static class ReconcilePlanner
     // equal to absent here. No channel profile sets ackMode, so comparing the explicit
     // per-port config (rather than the profile-resolved value) is exact.
     private static bool AckModeChanged(KissParams? oldKiss, KissParams? newKiss)
-        => (oldKiss?.AckMode ?? false) != (newKiss?.AckMode ?? false);
+        => (oldKiss?.AckMode ?? false) != (newKiss?.AckMode ?? false)
+        // t1FromTxComplete is likewise a construction-time choice (it changes how
+        // the listener sends, decided at build) — a toggle needs the restart too.
+        || (oldKiss?.T1FromTxComplete ?? false) != (newKiss?.T1FromTxComplete ?? false);
 }

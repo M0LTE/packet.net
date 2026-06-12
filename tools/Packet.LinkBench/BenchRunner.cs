@@ -113,6 +113,7 @@ internal static class BenchRunner
             T1V = t1,
             T2 = t2,
             T3 = t3,
+            RestartT1OnTxComplete = cfg.T1FromTxComplete,
             ConfigureSession = s =>
             {
                 s.DataLinkSignalEmitted += (_, sig) =>
@@ -130,6 +131,7 @@ internal static class BenchRunner
             T1V = t1,
             T2 = t2,
             T3 = t3,
+            RestartT1OnTxComplete = cfg.T1FromTxComplete,
             ConfigureSession = s =>
             {
                 s.DataLinkSignalEmitted += (_, sig) => sinkOnB.OnSignal(sig);

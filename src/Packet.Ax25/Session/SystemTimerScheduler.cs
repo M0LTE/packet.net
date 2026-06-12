@@ -74,6 +74,20 @@ public sealed class SystemTimerScheduler : ITimerScheduler, IDisposable
     }
 
     /// <inheritdoc/>
+    public bool RearmIfRunning(string name, TimeSpan duration)
+    {
+        lock (gate)
+        {
+            if (!timers.TryGetValue(name, out var entry))
+            {
+                return false;
+            }
+            ArmLocked(name, duration, entry.OnExpiry);
+            return true;
+        }
+    }
+
+    /// <inheritdoc/>
     public TimeSpan TimeRemaining(string name)
     {
         lock (gate)

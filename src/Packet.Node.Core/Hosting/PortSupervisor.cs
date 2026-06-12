@@ -507,7 +507,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable
                 loggerFactory.CreateLogger<PacingKissModem>());
         }
 
-        var options = BuildListenerOptions(effectiveAx25, port.Compat, myCall);
+        // TX-complete→T1 (kiss.t1FromTxComplete): construction-time, like the
+        // PacingKissModem wrap above — see KissParams.T1FromTxComplete.
+        var options = BuildListenerOptions(
+            effectiveAx25, port.Compat, myCall,
+            restartT1OnTxComplete: effectiveKiss?.T1FromTxComplete == true);
         var listener = new Ax25Listener(modem, options, timeProvider);
         var connector = new Ax25OutboundConnector(port.Id, listener, r => ClaimOutbound(r));
         listener.SessionAccepted += (_, e) => OnSessionAccepted(listener, connector, e.Session);
@@ -683,7 +687,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         }
     }
 
-    private static Ax25ListenerOptions BuildListenerOptions(Ax25PortParams? ax25, PortCompatConfig? compat, Callsign myCall)
+    private static Ax25ListenerOptions BuildListenerOptions(
+        Ax25PortParams? ax25, PortCompatConfig? compat, Callsign myCall, bool restartT1OnTxComplete = false)
     {
         var p = MapAx25Params(ax25, compat);
         return new Ax25ListenerOptions
@@ -697,6 +702,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             MaxCachedPeers = p.MaxCachedPeers,
             ParseOptions = p.ParseOptions,
             Quirks = p.Quirks,
+            RestartT1OnTxComplete = restartT1OnTxComplete,
         };
     }
 

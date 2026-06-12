@@ -109,6 +109,19 @@ public class ReconcilePlannerTests
     }
 
     [Fact]
+    public void T1FromTxComplete_toggle_is_a_single_port_restart_not_a_live_kiss_apply()
+    {
+        // kiss.t1FromTxComplete changes how the listener sends (decided at listener
+        // construction), so like ackMode it needs the restart to take effect.
+        var before = Config("M0LTE-1", Tcp("a", kiss: new KissParams { AckMode = true }));
+        var to = Config("M0LTE-1", Tcp("a", kiss: new KissParams { AckMode = true, T1FromTxComplete = true }));
+        var plan = ReconcilePlanner.Plan(before, to);
+
+        plan.ToRestart.Select(p => p.Id).Should().Equal("a");
+        plan.KissParamsChanged.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Ackmode_unchanged_with_other_kiss_change_stays_a_live_apply()
     {
         // ackMode steady (here: both on); only TXDELAY moved → still the hot live path.

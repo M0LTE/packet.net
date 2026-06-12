@@ -11,6 +11,7 @@ internal sealed record RunConfig
     public TimeSpan? T2 { get; init; }                        // null = engine default (3 s); 0 = ack-per-frame
     public int Paclen { get; init; } = 256;                   // bytes per I-frame (≤ N1)
     public bool AckMode { get; init; } = true;                // §2: ackmode is the assumed default
+    public bool T1FromTxComplete { get; init; }               // re-arm T1 on the frame's TX-complete echo
     public bool Bidirectional { get; init; }
 
     // InProcChannel model knobs (ignored on axudp/netsim).
@@ -38,7 +39,7 @@ internal sealed record RunConfig
     public string Describe() =>
         $"{Channel} k={EffectiveK} T1={(T1 is { } t1 ? $"{t1.TotalMilliseconds:F0}ms" : "def")} " +
         $"T2={(T2 is { } t2 ? $"{t2.TotalMilliseconds:F0}ms" : "def")} paclen={Paclen} " +
-        $"ack={(AckMode ? "on" : "off")} baud={(Baud > 0 ? Baud.ToString(System.Globalization.CultureInfo.InvariantCulture) : "∞")} " +
+        $"ack={(AckMode ? "on" : "off")}{(T1FromTxComplete ? " t1tx" : "")} baud={(Baud > 0 ? Baud.ToString(System.Globalization.CultureInfo.InvariantCulture) : "∞")} " +
         $"{(HalfDuplex ? "half" : "full")}-duplex loss={Loss:0.###}" +
         (Bidirectional ? " bidi" : "") +
         (TimeScale != 1.0 ? $" ×{TimeScale:G3}" : "");

@@ -118,9 +118,32 @@ internal sealed class LoopbackModem : IKissModem
         }
     }
 
-    public Task<AckModeReceipt> SendFrameWithAckAsync(
+    /// <summary>
+    /// When non-null, <see cref="SendFrameWithAckAsync"/> is supported: the frame
+    /// is recorded like a plain send and the call's receipt resolves when the test
+    /// releases this gate (one release = one TX-completion echo) — letting tests
+    /// control exactly when a frame "clears the air". When null (default), ACKMODE
+    /// is unsupported and the call throws, like a plain non-ACKMODE modem.
+    /// </summary>
+    public SemaphoreSlim? AckEchoGate { get; set; }
+
+    public async Task<AckModeReceipt> SendFrameWithAckAsync(
         ReadOnlyMemory<byte> ax25Bytes, TimeSpan? timeout = null, ushort? sequenceTag = null,
-        CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        CancellationToken cancellationToken = default)
+    {
+        if (AckEchoGate is not { } gate)
+        {
+            throw new NotSupportedException("this LoopbackModem has no ACKMODE (AckEchoGate not set).");
+        }
+        var queued = DateTimeOffset.UtcNow;
+        Interlocked.Increment(ref outboundCount);
+        if (!DropOutbound)
+        {
+            SentFrames.Add(ax25Bytes.ToArray());
+        }
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new AckModeReceipt(sequenceTag ?? 0, queued, DateTimeOffset.UtcNow);
+    }
     public Task SetTxDelayAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
     public Task SetPersistenceAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
     public Task SetSlotTimeAsync(byte v, CancellationToken c = default) => Task.CompletedTask;
