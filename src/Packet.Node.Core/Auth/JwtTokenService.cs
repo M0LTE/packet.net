@@ -80,9 +80,22 @@ public sealed class JwtTokenService
     /// the compact JWT string and its absolute expiry instant.
     /// </summary>
     public (string Token, DateTimeOffset ExpiresAt) Issue(string username, string scope)
+        => Issue(username, scope, lifetime);
+
+    /// <summary>
+    /// Issue a token with an explicit <paramref name="lifetime"/> instead of the
+    /// service default. Used for the long-lived MCP bearer token (Phase 8): a Claude
+    /// Code config holds a static header, so it needs a token that outlives the 60-min
+    /// access-token default. Same issuer/audience/scope claim + signing key — so it
+    /// validates through the existing JwtBearer middleware unchanged; only the expiry
+    /// differs. The longer the lifetime, the more a leaked token matters — callers
+    /// default the MCP token to the <c>read</c> scope.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) Issue(string username, string scope, TimeSpan lifetime)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lifetime, TimeSpan.Zero);
 
         var now = clock.GetUtcNow();
         var expires = now + lifetime;

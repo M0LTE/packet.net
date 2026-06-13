@@ -10,12 +10,23 @@ using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Traffic;
 using Packet.Node.Core.Transports;
+using Packet.Node.Mcp;
 
 // The composition root for the Packet.NET node. This IS a Generic Host (the
 // WebApplication builder gives us DI, config, hosted services, and logging),
 // but slice 1 maps ZERO authenticated endpoints — only GET /healthz. The web
 // server is present-but-inert: Kestrel binds from config, and the API / auth /
 // UI arrive in later slices.
+
+// `pdn mcp` — the stdio MCP server subcommand (Phase 8). A separate, short process
+// that bridges to the running node's loopback REST API and speaks MCP over stdio to a
+// local client (Claude Code, etc.). It must short-circuit BEFORE the web host is built
+// — it is not the node, it talks to the node. See McpStdioEntry + docs/mcp-design.md.
+if (args.Length > 0 && args[0] == "mcp")
+{
+    await McpStdioEntry.RunAsync(args);
+    return;
+}
 
 var configPath = ResolveConfigPath(args);
 var dbPath = ResolveDbPath(args);
@@ -77,6 +88,14 @@ builder.Services.AddSingleton<INetRomRoutingStore>(routingStore);
 // auth then cannot be enabled (login returns 503), but the node still boots.
 var userStore = new SqliteUserStore(dbPath, bootstrapLoggers.CreateLogger<SqliteUserStore>());
 builder.Services.AddSingleton<IUserStore>(userStore);
+
+// The node-wide audit log for privileged actions, persisted to the same pdn.db. Same
+// resilient discipline as the user/routing stores (a store fault degrades to
+// "logged-but-not-persisted", never faults the node). Wired into the MCP write tools;
+// REST write endpoints adopt the same IAuditLog seam. The §6 audit promise.
+var auditLog = new Packet.Node.Core.Audit.SqliteAuditLog(
+    dbPath, bootstrapLoggers.CreateLogger<Packet.Node.Core.Audit.SqliteAuditLog>());
+builder.Services.AddSingleton<Packet.Node.Core.Audit.IAuditLog>(auditLog);
 
 var signingKey = userStore.GetOrCreateSigningKey();
 var accessTokenLifetime = TimeSpan.FromMinutes(configProvider.Current.Management.Auth.AccessTokenMinutes ?? 60);
@@ -290,6 +309,11 @@ builder.Services.AddSingleton<Packet.Rhp2.Server.IRhpGateway, Packet.Node.Rhp.Su
 builder.Services.AddSingleton<Packet.Rhp2.Server.RhpServerHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Packet.Rhp2.Server.RhpServerHostedService>());
 
+// Phase 8: the in-process MCP tool surface + live backend. The HTTP transport is
+// mounted below (MapPdnMcp) only when mcp.sse.enabled; stdio is the `pdn mcp`
+// subcommand. Registering the services is harmless when unused. See docs/mcp-design.md.
+builder.Services.AddPdnMcp();
+
 // Bind Kestrel from the node config's management.http section, plus an optional TLS
 // listener (management.https). HTTPS is opt-in; the plain HTTP listener is unchanged.
 var management = configProvider.Current.Management;
@@ -423,6 +447,21 @@ app.MapPdnAppPackagesApi();
 // the privileged packetnet-update.service on the apt channel). See PdnSystemApi +
 // docs/node-self-update-design.md. Mapped before the catch-all; specific routes win.
 app.MapPdnSystemApi();
+
+// The audit-log read API (GET /api/v1/audit, admin-gated): recent privileged-action
+// records from the node-wide audit log (pdn.db). Mapped before the catch-all. See
+// PdnAuditApi + §6.
+app.MapPdnAuditApi();
+
+// MCP management (Phase 8): POST /api/v1/mcp/token mints the long-lived MCP bearer
+// token an operator pastes into a Claude Code config to reach /mcp over LAN/Tailscale.
+// Admin-gated + audited. See PdnMcpApi + docs/mcp-design.md.
+app.MapPdnMcpApi();
+
+// Phase 8: the in-process MCP server's Streamable-HTTP transport, mounted at the
+// configured path (default /mcp) on the web listener when mcp.sse.enabled, gated
+// `read`. A no-op when MCP/SSE is off (the default). See McpRegistration + docs/mcp-design.md.
+app.MapPdnMcp();
 
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*

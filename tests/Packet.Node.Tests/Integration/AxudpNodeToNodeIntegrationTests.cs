@@ -57,6 +57,15 @@ public sealed class AxudpNodeToNodeIntegrationTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await using var toB = await connector!.ConnectAsync(NodeBCall, cts.Token);
 
+        // Monitor-v2 (#173): with the session up (ConnectAsync returns on
+        // DL-CONNECT-confirm), the link's live timer state is surfaced from the connected
+        // session — node A has a real, positive SRT estimate for NODEB-1. This is the value
+        // that feeds the REST /links projection + the MCP link_quality tool (previously
+        // hard-coded 0); the retry count (RC) is read from the same place. (RC's exact
+        // value just after the handshake is timing-dependent, so it isn't asserted here.)
+        var (rttMs, _) = Packet.Node.Api.PdnReadApi.SessionTimers(nodeA, "axudp", "NODEB-1");
+        rttMs.Should().BeGreaterThan(0, "a connected session has a smoothed round-trip estimate (SRT)");
+
         // The connect itself proves the SABM/UA handshake crossed the AXUDP link
         // (ConnectAsync only returns on DL-CONNECT-confirm). Now prove an I-frame
         // round-trip both ways: send a command and read node B's reply back over the
@@ -66,7 +75,11 @@ public sealed class AxudpNodeToNodeIntegrationTests
         // banner sent before that subscribe can be missed; a reply to OUR command is
         // strictly after we subscribed and is race-free.)
         await toB.WriteAsync(Encoding.ASCII.GetBytes("I\r"), cts.Token);
-        var infoReply = await ReadUntilAsync(toB, "NODEB-1", cts.Token);
+        // Read through to the Info reply itself. The needle must be a token unique to the
+        // Info reply ("Software:"), NOT "NODEB-1" — node B's eager connect banner
+        // ("Welcome to NODE-B (NODEB-1)") also contains the callsign, so a callsign needle
+        // can return on the banner before the Info reply arrives (a flake).
+        var infoReply = await ReadUntilAsync(toB, "Software:", cts.Token);
         infoReply.Should().Contain("Software: Packet.NET",
             "node B's Info reply (carried in an I-frame over AXUDP) reached node A");
         infoReply.Should().Contain("NODEB-1",

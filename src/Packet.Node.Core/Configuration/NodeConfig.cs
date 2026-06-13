@@ -55,6 +55,15 @@ public sealed record NodeConfig
     /// See <c>docs/rhp2-server.md</c>.</summary>
     public RhpConfig Rhp { get; init; } = new();
 
+    /// <summary>The MCP server (Phase 8): exposes the node's read / diagnostic /
+    /// network-exploration tools — and operate-gated write tools — to MCP clients
+    /// (Claude Code, etc.). Default-off. The stdio transport is the <c>pdn mcp</c>
+    /// subcommand (a separate process, no config here); the in-process
+    /// SSE/Streamable-HTTP transport piggybacks the web listener at
+    /// <see cref="McpSseConfig.Path"/> (like RHPv2-WS at <c>/rhp</c>) and is gated
+    /// <c>read</c> by the auth layer. See <c>docs/mcp-design.md</c>.</summary>
+    public McpConfig Mcp { get; init; } = new();
+
     /// <summary>Registered node applications — the app-extensibility platform. Each entry
     /// is launched (out-of-process) when a connected user types its <see cref="ApplicationConfig.Match"/>
     /// verb at the node prompt; the session is bridged to the app over the
@@ -172,6 +181,43 @@ public sealed record RhpConfig
     /// frames is unbounded). A stalled peer (slowloris) is dropped after this. Default 30;
     /// 0 disables the bound.</summary>
     public int InFrameTimeoutSeconds { get; init; } = 30;
+}
+
+/// <summary>
+/// The MCP server config. <see cref="Enabled"/> is the master switch (registers the
+/// MCP tool surface in DI); <see cref="Sse"/> additionally mounts the in-process
+/// HTTP transport. The <c>pdn mcp</c> stdio subcommand is independent of this — it
+/// runs in its own process and bridges to the node's loopback REST API. See
+/// <c>docs/mcp-design.md</c>.
+/// </summary>
+public sealed record McpConfig
+{
+    /// <summary>Whether the MCP tool surface is registered at all. Default <c>false</c>.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>The SSE/Streamable-HTTP transport (piggybacks the web listener).</summary>
+    public McpSseConfig Sse { get; init; } = new();
+
+    /// <summary>Lifetime (days) of a minted MCP bearer token — the durable credential a
+    /// Claude Code config holds in its <c>Authorization</c> header (login JWTs are too
+    /// short-lived for a static header). Default 90. Only relevant when auth is enabled;
+    /// the token is admin-gated to mint, scoped (defaulting to <c>read</c>), and audited.</summary>
+    public int TokenLifetimeDays { get; init; } = 90;
+}
+
+/// <summary>
+/// The in-process MCP HTTP transport. It is served on the node's existing web
+/// listener (so it inherits TLS + the auth gateway), not a separate socket — the
+/// §6 "8051" plan note is superseded by this piggyback pattern, matching RHPv2-WS
+/// at <c>/rhp</c>. Gated <c>read</c> by the auth layer (pass-through when auth is off).
+/// </summary>
+public sealed record McpSseConfig
+{
+    /// <summary>Whether to mount the HTTP transport. Default <c>false</c>.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Path the transport is mounted at on the web listener. Default <c>/mcp</c>.</summary>
+    public string Path { get; init; } = "/mcp";
 }
 
 /// <summary>How a registered application is run. <see cref="Process"/> is the spawn-per-connect

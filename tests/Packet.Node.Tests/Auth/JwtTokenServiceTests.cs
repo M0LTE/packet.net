@@ -33,6 +33,31 @@ public class JwtTokenServiceTests
     }
 
     [Fact]
+    public async Task A_long_lived_token_honours_the_explicit_lifetime_and_still_validates()
+    {
+        // The MCP bearer overload: a 90-day token still validates the same way (issuer/
+        // audience/key/scope), only the expiry differs from the service default.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 6, 13, 0, 0, 0, TimeSpan.Zero));
+        var svc = Make(clock, TimeSpan.FromHours(1));
+
+        var (token, expiresAt) = svc.Issue("mcp:m0lte", AuthScopes.Read, TimeSpan.FromDays(90));
+
+        expiresAt.Should().Be(clock.GetUtcNow() + TimeSpan.FromDays(90), "the explicit lifetime wins over the 1h default");
+        var principal = await svc.ValidateAsync(token);
+        principal.Should().NotBeNull();
+        principal!.FindFirst("sub")!.Value.Should().Be("mcp:m0lte");
+        principal.FindFirst(AuthScopes.ScopeClaim)!.Value.Should().Be(AuthScopes.Read);
+    }
+
+    [Fact]
+    public void Issue_rejects_a_non_positive_lifetime()
+    {
+        var svc = Make(new FakeTimeProvider());
+        var act = () => svc.Issue("m0lte", AuthScopes.Read, TimeSpan.Zero);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public async Task A_tampered_token_is_rejected()
     {
         var clock = new FakeTimeProvider();
