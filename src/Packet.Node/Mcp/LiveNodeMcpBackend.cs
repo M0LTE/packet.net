@@ -89,12 +89,17 @@ public sealed partial class LiveNodeMcpBackend(
 
         var result = link is null
             ? new McpLinkQuality(portId ?? "?", remote, 0, 0, 0, 0, 0, 0, Unknown: true)
-            // SmoothedRttMs + Retries stay 0: they live in the session timer state the
-            // frame tap can't see — the monitor-v2 seam surfaces them later (and retires
-            // the matching zeros in the REST /links projection at the same time).
-            : new McpLinkQuality(link.PortId, link.Peer, 0, 0, link.RejCount, link.SrejCount,
-                link.FramesIn, link.FramesOut, Unknown: false);
+            : BuildLinkQuality(link);
         return Task.FromResult(result);
+    }
+
+    private McpLinkQuality BuildLinkQuality(Packet.Node.Core.Telemetry.LinkSnapshot link)
+    {
+        // SmoothedRttMs + Retries are read from the live session's timer state (the
+        // monitor-v2 seam, #173) — 0 when no connected-mode session backs this link.
+        var (rttMs, retries) = PdnReadApi.SessionTimers(host.Supervisor, link.PortId, link.Peer);
+        return new McpLinkQuality(link.PortId, link.Peer, rttMs, retries, link.RejCount,
+            link.SrejCount, link.FramesIn, link.FramesOut, Unknown: false);
     }
 
     public Task<McpNetworkTopology> NetworkTopologyAsync(CancellationToken ct = default)

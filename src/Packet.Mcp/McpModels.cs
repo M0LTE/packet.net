@@ -47,8 +47,8 @@ public sealed record McpMonitorFrame(
 public sealed record McpLinkQuality(
     [property: Description("Port the link is on.")] string PortId,
     [property: Description("Remote callsign.")] string Peer,
-    [property: Description("Smoothed round-trip time (ms); 0 until the monitor-v2 timer-state seam lands.")] int SmoothedRttMs,
-    [property: Description("Retransmission count; 0 until the monitor-v2 timer-state seam lands.")] int Retries,
+    [property: Description("Smoothed round-trip time (ms) from the link's SRT estimator; 0 when no connected-mode session backs the link.")] int SmoothedRttMs,
+    [property: Description("Current retransmission count (RC) on the link; 0 when no connected-mode session backs the link.")] int Retries,
     [property: Description("REJ frames observed on the link.")] long RejCount,
     [property: Description("SREJ frames observed on the link.")] long SrejCount,
     [property: Description("Frames received on the link.")] long FramesIn,

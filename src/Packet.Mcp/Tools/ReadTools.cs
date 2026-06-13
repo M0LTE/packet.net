@@ -36,7 +36,7 @@ public sealed class ReadTools(INodeMcpBackend backend)
         => backend.RecentFramesAsync(new FrameFilter(port, peer, kind, sinceSeconds, limit), ct);
 
     [McpServerTool(Name = "link_quality")]
-    [Description("Per-link quality for a remote station: REJ/SREJ counts, frame/byte counters, and (once the monitor-v2 seam lands) smoothed RTT and retries.")]
+    [Description("Per-link quality for a remote station: smoothed RTT, current retry count, REJ/SREJ counts, and frame/byte counters.")]
     public Task<McpLinkQuality> LinkQuality(
         [Description("Remote callsign (with optional -SSID).")] string remote,
         [Description("Pin to a specific port; omit to take the first link to that peer.")] string? port = null,

@@ -262,20 +262,45 @@ public static class PdnReadApi
 
     internal static LinkStats[] BuildLinks(NodeHostedService host)
     {
-        // Frame/byte counts and REJ/SREJ tallies ARE real — they come straight from
-        // the frame tap. SmoothedRttMs and Retries are NOT derivable from the tap
-        // alone: they live in each session's T1/SRTT timer state, which the monitor
-        // doesn't observe. They stay 0 until a later step surfaces the timer state
-        // (rather than fabricating a value from frame timing, which would be wrong).
-        return host.Telemetry.Links().Select(link => new LinkStats(
-            PortId: link.PortId,
-            Peer: link.Peer,
-            SmoothedRttMs: 0,   // not derivable from the frame tap — see comment above.
-            Retries: 0,         // not derivable from the frame tap — see comment above.
-            RejCount: link.RejCount,
-            SrejCount: link.SrejCount,
-            FramesIn: link.FramesIn,
-            FramesOut: link.FramesOut)).ToArray();
+        // Frame/byte counts and REJ/SREJ tallies come from the frame tap. SmoothedRttMs
+        // and Retries can't come from the tap — they live in the connected-mode session's
+        // T1/SRTT timer state — so they're read from the live session for the (port, peer)
+        // when one exists (the monitor-v2 seam, #173); a link with no live session (UI-only
+        // traffic, or a session that has since closed) keeps 0, which is honest.
+        return host.Telemetry.Links().Select(link =>
+        {
+            var (rttMs, retries) = SessionTimers(host.Supervisor, link.PortId, link.Peer);
+            return new LinkStats(
+                PortId: link.PortId,
+                Peer: link.Peer,
+                SmoothedRttMs: rttMs,
+                Retries: retries,
+                RejCount: link.RejCount,
+                SrejCount: link.SrejCount,
+                FramesIn: link.FramesIn,
+                FramesOut: link.FramesOut);
+        }).ToArray();
+    }
+
+    /// <summary>
+    /// The live connected-mode timer state for a link — the smoothed round-trip time
+    /// (SRT, ms) and the current retry count (RC) — read from the matching live
+    /// <see cref="Packet.Ax25.Session.Ax25Session"/> on the port. Returns <c>(0, 0)</c>
+    /// when no connected session exists for <paramref name="peer"/> (e.g. UI-only
+    /// traffic, or after the session closed). This is the monitor-v2 source feeding both
+    /// the REST <c>/links</c> projection and the MCP <c>link_quality</c> tool (#173).
+    /// </summary>
+    internal static (int RttMs, int Retries) SessionTimers(PortSupervisor? supervisor, string portId, string peer)
+    {
+        var session = supervisor?.GetPort(portId)?.Listener.ActiveSessions
+            .FirstOrDefault(s => s.Context.Remote.ToString() == peer);
+        if (session is null)
+        {
+            return (0, 0);
+        }
+        var ctx = session.Context;
+        int rtt = (int)Math.Clamp(ctx.Srt.TotalMilliseconds, 0, int.MaxValue);
+        return (rtt, ctx.RC);
     }
 
     private static object BuildNetRomRoutes(NodeHostedService host, TimeProvider clock)
