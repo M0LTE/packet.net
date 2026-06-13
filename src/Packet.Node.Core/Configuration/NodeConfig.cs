@@ -203,6 +203,30 @@ public sealed record McpConfig
     /// short-lived for a static header). Default 90. Only relevant when auth is enabled;
     /// the token is admin-gated to mint, scoped (defaulting to <c>read</c>), and audited.</summary>
     public int TokenLifetimeDays { get; init; } = 90;
+
+    /// <summary>The OAuth 2.1 authorization-server endpoints for the hosted claude.ai
+    /// connector. Default-off: dormant until an operator opts in. See <see cref="McpOauthConfig"/>
+    /// and <c>docs/mcp-oauth-design.md</c>.</summary>
+    public McpOauthConfig Oauth { get; init; } = new();
+}
+
+/// <summary>
+/// The MCP OAuth 2.1 authorization-server config (the hosted claude.ai connector path).
+/// <b>Default-off and security-critical</b> — when <see cref="Enabled"/>, the node exposes
+/// discovery + dynamic client registration + an interactive authorize/consent + token
+/// endpoints (all on the existing web listener). Review before enabling in production
+/// (cf. the WebAuthn review). See <c>docs/mcp-oauth-design.md</c>.
+/// </summary>
+public sealed record McpOauthConfig
+{
+    /// <summary>Whether the OAuth endpoints are mapped at all. Default <c>false</c> — when off,
+    /// the discovery/register/authorize/token/revoke routes return 404 and nothing is exposed.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Lifetime (minutes) of an OAuth-issued MCP access token. Default 60 — short,
+    /// because the connector re-runs the authorize flow when it expires (no refresh token in
+    /// this cut; refresh is a documented follow-up).</summary>
+    public int AccessTokenLifetimeMinutes { get; init; } = 60;
 }
 
 /// <summary>

@@ -97,6 +97,16 @@ var auditLog = new Packet.Node.Core.Audit.SqliteAuditLog(
     dbPath, bootstrapLoggers.CreateLogger<Packet.Node.Core.Audit.SqliteAuditLog>());
 builder.Services.AddSingleton<Packet.Node.Core.Audit.IAuditLog>(auditLog);
 
+// MCP OAuth 2.1 stores (the hosted claude.ai connector — docs/mcp-oauth-design.md). Registered
+// unconditionally (same resilient pdn.db pattern); the endpoints are inert unless
+// mcp.oauth.enabled. Persist registered clients + single-use authorization codes.
+builder.Services.AddSingleton<Packet.Node.Core.Auth.Oauth.IOauthClientStore>(
+    new Packet.Node.Core.Auth.Oauth.SqliteOauthClientStore(
+        dbPath, bootstrapLoggers.CreateLogger<Packet.Node.Core.Auth.Oauth.SqliteOauthClientStore>()));
+builder.Services.AddSingleton<Packet.Node.Core.Auth.Oauth.IOauthCodeStore>(
+    new Packet.Node.Core.Auth.Oauth.SqliteOauthCodeStore(
+        dbPath, bootstrapLoggers.CreateLogger<Packet.Node.Core.Auth.Oauth.SqliteOauthCodeStore>()));
+
 var signingKey = userStore.GetOrCreateSigningKey();
 var accessTokenLifetime = TimeSpan.FromMinutes(configProvider.Current.Management.Auth.AccessTokenMinutes ?? 60);
 JwtTokenService? tokenService =
@@ -225,6 +235,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                             context.Token = cookie;
                         }
                     }
+                }
+                return Task.CompletedTask;
+            },
+
+            // MCP OAuth discovery hint (RFC 9728): when OAuth is enabled, a 401 on the MCP
+            // endpoint carries WWW-Authenticate pointing at the protected-resource metadata, so
+            // an unconfigured MCP client (claude.ai) can discover how to get a token. Only for
+            // /mcp + only when mcp.oauth.enabled — every other 401 keeps the default challenge.
+            OnChallenge = context =>
+            {
+                var http = context.HttpContext;
+                var cfg = http.RequestServices.GetService<Packet.Node.Core.Configuration.IConfigProvider>();
+                if (cfg?.Current.Mcp.Oauth.Enabled == true
+                    && http.Request.Path.StartsWithSegments(cfg.Current.Mcp.Sse.Path))
+                {
+                    context.HandleResponse();
+                    var b = $"{http.Request.Scheme}://{http.Request.Host.Value}";
+                    http.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    http.Response.Headers.Append(
+                        "WWW-Authenticate",
+                        $"Bearer resource_metadata=\"{b}/.well-known/oauth-protected-resource\"");
                 }
                 return Task.CompletedTask;
             },
@@ -457,6 +488,11 @@ app.MapPdnAuditApi();
 // token an operator pastes into a Claude Code config to reach /mcp over LAN/Tailscale.
 // Admin-gated + audited. See PdnMcpApi + docs/mcp-design.md.
 app.MapPdnMcpApi();
+
+// MCP OAuth 2.1 authorization server (the hosted claude.ai connector path). Every route
+// is inert (404) unless mcp.oauth.enabled — default-off. Discovery + DCR + authorize/consent
+// + token + revoke. Security-critical; review before enabling. See PdnOauthApi + docs/mcp-oauth-design.md.
+app.MapPdnOauthApi();
 
 // Phase 8: the in-process MCP server's Streamable-HTTP transport, mounted at the
 // configured path (default /mcp) on the web listener when mcp.sse.enabled, gated
