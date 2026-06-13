@@ -23,11 +23,10 @@ namespace Packet.Node.Api;
 /// operator opts in. Review before enabling in production (cf. the WebAuthn review).</para>
 /// <para><b>Flow:</b> discovery (RFC 9728 + 8414) → dynamic client registration (RFC 7591) →
 /// authorize (code + PKCE S256, owner login + explicit consent) → token (code→JWT). The MCP
-/// access token is a normal node JWT (issued via <see cref="JwtTokenService.Issue(string,string,TimeSpan)"/>,
-/// the same control-API audience as the Claude Code bearer), so <c>/mcp</c> validates it
-/// through the existing JwtBearer middleware unchanged. <b>No refresh token in this cut</b>
-/// (the connector re-runs authorize on expiry); refresh + per-token-audience segregation are
-/// documented follow-ups.</para>
+/// access token is a node JWT minted on the dedicated <see cref="JwtTokenService.McpAudience"/>
+/// (so it reaches <c>/mcp</c> only — never the wider control API), validated through the
+/// existing JwtBearer middleware unchanged. <b>No refresh token in this cut</b>
+/// (the connector re-runs authorize on expiry); refresh is a documented follow-up.</para>
 /// <para><b>Hardening:</b> PKCE S256 mandatory; exact redirect-URI match (no wildcards);
 /// single-use, short-TTL codes bound to client+redirect+challenge+user; explicit consent by a
 /// logged-in owner; login throttled; everything audited (source <c>oauth</c>).</para>
@@ -196,7 +195,12 @@ public static class PdnOauthApi
             }
 
             var user = users.FindByUsername(username);
-            bool ok = user is not null && PasswordHasher.Verify(password, user.PasswordHash);
+            // Spend an equivalent Argon2 derivation when the user is unknown, so a probe
+            // for a non-existent username takes the same wall-clock as one for a real
+            // user — no username enumeration via the response timing.
+            bool ok = user is not null
+                ? PasswordHasher.Verify(password, user.PasswordHash)
+                : PasswordHasher.VerifyDummy(password);
             if (!ok || user is null)
             {
                 throttle?.RecordFailure(userKey);
@@ -224,6 +228,9 @@ public static class PdnOauthApi
             var sep = req.RedirectUri.Contains('?', StringComparison.Ordinal) ? '&' : '?';
             var sb = new StringBuilder(req.RedirectUri).Append(sep).Append("code=").Append(Uri.EscapeDataString(code));
             if (!string.IsNullOrEmpty(req.State)) sb.Append("&state=").Append(Uri.EscapeDataString(req.State));
+            // RFC 9207: identify the issuer in the authorization response so the client can
+            // detect a mix-up attack (a code minted by a different AS than it expected).
+            sb.Append("&iss=").Append(Uri.EscapeDataString(BaseUrl(ctx)));
             return Results.Redirect(sb.ToString());
         });
 
@@ -256,7 +263,8 @@ public static class PdnOauthApi
             }
 
             var lifetime = TimeSpan.FromMinutes(Math.Clamp(config.Current.Mcp.Oauth.AccessTokenLifetimeMinutes, 1, 1440));
-            var (token, expiresAt) = tokens.Issue(stored.Username, stored.Scope, lifetime);
+            // MCP audience: the connector token reaches /mcp only, never the wider control API.
+            var (token, expiresAt) = tokens.Issue(stored.Username, stored.Scope, lifetime, JwtTokenService.McpAudience);
             audit.RecordRest(ctx, clock, "oauth_token", clientId, "ok", $"user={stored.Username} scope={stored.Scope}");
 
             return Results.Json(new Dictionary<string, object?>

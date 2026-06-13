@@ -63,7 +63,8 @@ public static class PdnMcpApi
 
             int days = Math.Clamp(config.Current.Mcp.TokenLifetimeDays, 1, 3650);
             string actor = ctx.User.Identity?.Name ?? "owner";
-            var (token, expires) = tokens.Issue($"mcp:{actor}", scope, TimeSpan.FromDays(days));
+            // MCP audience: this token reaches /mcp only, never the wider control API.
+            var (token, expires) = tokens.Issue($"mcp:{actor}", scope, TimeSpan.FromDays(days), JwtTokenService.McpAudience);
 
             audit.Record(AuditEntry.New(
                 clock.GetUtcNow(), actor, "rest", "mint_mcp_token", scope, "ok",

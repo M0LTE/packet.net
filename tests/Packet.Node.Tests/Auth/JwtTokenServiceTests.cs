@@ -50,6 +50,28 @@ public class JwtTokenServiceTests
     }
 
     [Fact]
+    public async Task The_default_overloads_stamp_the_control_api_audience()
+    {
+        var svc = Make(new FakeTimeProvider());
+        var principal = await svc.ValidateAsync(svc.Issue("m0lte", AuthScopes.Read).Token);
+        principal!.FindFirst("aud")!.Value.Should().Be(JwtTokenService.Audience);
+    }
+
+    [Fact]
+    public async Task The_audience_overload_stamps_the_mcp_audience_and_still_validates()
+    {
+        // An MCP-audience token validates through the same parameters (both audiences
+        // are accepted at the middleware) — the segregation is enforced at the policy,
+        // not by rejecting the token outright.
+        var svc = Make(new FakeTimeProvider());
+        var (token, _) = svc.Issue("mcp:m0lte", AuthScopes.Read, TimeSpan.FromDays(90), JwtTokenService.McpAudience);
+
+        var principal = await svc.ValidateAsync(token);
+        principal.Should().NotBeNull();
+        principal!.FindFirst("aud")!.Value.Should().Be(JwtTokenService.McpAudience);
+    }
+
+    [Fact]
     public void Issue_rejects_a_non_positive_lifetime()
     {
         var svc = Make(new FakeTimeProvider());
