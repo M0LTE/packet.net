@@ -18,6 +18,16 @@ using Packet.Node.Mcp;
 // server is present-but-inert: Kestrel binds from config, and the API / auth /
 // UI arrive in later slices.
 
+// `pdn mcp` — the stdio MCP server subcommand (Phase 8). A separate, short process
+// that bridges to the running node's loopback REST API and speaks MCP over stdio to a
+// local client (Claude Code, etc.). It must short-circuit BEFORE the web host is built
+// — it is not the node, it talks to the node. See McpStdioEntry + docs/mcp-design.md.
+if (args.Length > 0 && args[0] == "mcp")
+{
+    await McpStdioEntry.RunAsync(args);
+    return;
+}
+
 var configPath = ResolveConfigPath(args);
 var dbPath = ResolveDbPath(args);
 
