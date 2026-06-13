@@ -886,6 +886,8 @@ Targets: linux-x64, linux-arm64, linux-arm (v7), win-x64, osx-arm64, osx-x64. Se
 
 All write endpoints audit-logged (actor, IP, scope, payload hash) into `config.db`.
 
+The RHPv2 TCP front-end is resource-bounded against a hostile/buggy peer (defaults, all configurable in the `rhp:` block): a concurrent-connection cap (`maxConnections`, 64), a per-client live-handle cap (`maxHandlesPerClient`, 256 — refused with errCode 4), and an in-frame read timeout (`inFrameTimeoutSeconds`, 30 — drops a peer that stalls part-way through a frame, while leaving idle-between-frames unbounded). See the 2026-06-13 amendment-log entry.
+
 JWT scopes: `frames:read`, `ports:read`, `ports:write`, `sessions:write`, `system:admin`, `mcp:invoke`.
 
 ### 10.1 On-air authentication — TOTP (future direction)
@@ -1067,6 +1069,24 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+
+### 2026-06-13 — Web auth core security review (no findings) — written up
+
+Read the security-critical web-auth components end to end (`JwtTokenService`, `RefreshTokenService`, `TotpService`, `PasswordHasher`, `ScopeRequirementHandler` / `AuthScopes.Satisfies`, and the `PdnAuthApi` login flow). **No exploitable issues** — the surface is well-built: HS256 with `ValidAlgorithms` pinned (blocks alg-confusion), zero clock skew; opaque hashed one-time-use refresh tokens with reuse-detection; the TOTP strictly-greater replay guard with constant-time compare; Argon2id at OWASP params with fixed-time verify; correct rank-based scope implication with no fail-open; and a login flow that throttles before the Argon2 verify, pays full Argon2 cost on unknown users (no enumeration timing oracle), and returns a generic 401. Two non-bug observations recorded (TOTP high-water-mark persistence is the caller's responsibility; RHP auth is cleartext-by-protocol so network exposure remains the real control). Full write-up plus the whole session's security work in [`docs/security-review-2026-06-13.md`](security-review-2026-06-13.md).
+
+### 2026-06-13 — CI: NuGet vulnerability-scan gate; fuzz PR trigger widened to the new parsers
+
+Added a `dependency-scan` job to `ci.yml` (self-hosted, per the no-hosted-runners rule): `dotnet list package --vulnerable --include-transitive` over `Packet.NET.slnx`, failing the build if any direct or transitive package has a known advisory (detected by the table's `>` row marker, since the command always exits 0). Currently clean. Also widened `fuzz.yml`'s PR `paths` trigger to `src/Packet.Aprs/**`, `src/Packet.Agw/**`, `src/Packet.NetRom/**` so a change to a newly-fuzzed parser gets an immediate smoke signal (the nightly `--smoke` already exercises all nine targets).
+
+### 2026-06-13 — Fuzzer extended to APRS / AGW / NET/ROM; fixed an AGW `Try*`-throws finding
+
+Extended `tools/Packet.Fuzz` past the AX.25/KISS/node-command surface to the three higher-layer wire parsers that also ingest untrusted bytes: the APRS info-field decoders (all public `Aprs*Decoder.TryDecode`, both presets), AGW length-prefixed framing (`AgwFrame.Parse` + `TryReadDataLength`), and the NET/ROM network-layer parsers (`NetRomPacket`/`NetRomNetworkHeader`/`NetRomTransportHeader`/`NodesBroadcast`). Three new smoke targets + AFL subcommands (`aprs`/`agw`/`netrom`), seed corpora, and structured generators. **Found and fixed a real bug:** `AgwFrame.TryReadDataLength` — a `Try*` method documented to return `false` — *threw* `InvalidDataException` when the advertised little-endian data-length field overflowed Int32, and that throw is wire-reachable (`AgwFrameStream`'s read loop calls it un-guarded on every header off the socket → catch-all → the whole AGW stream tears down). A peer sending a header with a length field ≥ `0x7FFFFFDC` could kill the AGW transport (default loopback; `--listen-public` exposes it). Fix: return `false` on the overflow case (honours the `Try*` contract; `AgwFrame.Parse` keeps its one-shot throwing contract); the streaming caller's false branch now gives an honest "unusable length; stream desynced" message. Regression pinned in `AgwFrameTests`; logged in `tools/Packet.Fuzz/FINDINGS.md` (2026-06-13). 50k-iteration smoke across all nine targets is clean. Additive tooling + a localized bug fix — no parser named-flag, no ax25-ts parity impact.
+
+### 2026-06-13 — RHPv2 server hardening: connection cap, per-client handle cap, in-frame read timeout (slowloris)
+
+The RHPv2 TCP front-end (`src/Packet.Rhp2.Server/RhpServer.cs`) accepted unbounded connections, let a single client allocate unbounded handles (`socket`/`open` in a loop), and awaited each frame forever — so a peer that connected and dribbled (or never finished) a frame pinned the connection indefinitely (slowloris). Added three bounds, all configurable via the `rhp:` block and on by default: **`MaxConnections`** (default 64 — the overflow is closed on accept, not absorbed by the OS backlog); **`MaxHandlesPerClient`** (default 256 — a request past it is refused with errCode 4 "No memory"; the reservation is atomic and freed on handle teardown); and **`InFrameTimeout`** (default 30s — bounds how long the *rest* of a frame may take once its first byte arrives, leaving idle-between-frames unbounded so a legitimately-idle multiplexed connection is never dropped). The slowloris fix lives at the framing layer: a new `RhpFraming.ReadFrameAsync(stream, inFrameTimeout, ct)` overload reads the first header byte un-timed, then bounds the remainder, throwing `TimeoutException` on a stall. Config plumbed through `RhpConfig` (`maxConnections`/`maxHandlesPerClient`/`inFrameTimeoutSeconds`, validated) → `RhpServerHostedService`. Tests: `RhpServerHardeningTests` (caps + reservation-free-on-close + per-connection isolation + stall-drop + idle-survives over real TCP) and framing-level timeout tests in `FramingTests`. No parser named-flag and not in the ax25-ts parity inventory (RhpServerOptions isn't mirrored), so no TS leg required.
+
+Also added a **per-source-IP brute-force throttle on the cleartext `auth` message** (`RhpServerOptions.AuthThrottle`), reusing the web panel's `LoginThrottle` (sliding window, success resets, bounded memory): when `requireAuth` is on, a locked-out IP is refused before the password verify is reached — closing the unlimited-guessing gap on a `--listen-public` port. Wired on in `RhpServerHostedService` whenever auth is required; tested in `RhpServerHardeningTests` (lockout short-circuits the verify; a success clears the counter).
 
 ### 2026-06-13 — Phase 7 slice 2a: the self-contained channel's release artifacts + the decisions
 
