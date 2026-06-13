@@ -14,13 +14,14 @@ namespace Packet.Node.Core.Console;
 /// console.
 /// </summary>
 /// <remarks>
-/// The adapter subscribes to the session's <see cref="Ax25Session.DataLinkSignalEmitted"/>
-/// stream (the same seam axcall's <c>SessionRelay</c> uses). It must be
-/// constructed and subscribed before data flows — for inbound sessions the
-/// listener's <c>ConfigureSession</c> hook is the right place; for outbound, the
-/// session returned by <see cref="Ax25Listener.ConnectAsync"/> is already
-/// connected, so any data arriving between connect and subscribe is a non-issue
-/// in slice 1 (the remote waits for our banner before sending).
+/// The adapter attaches to the session's <see cref="Ax25Session.DataLinkSignalEmitted"/>
+/// stream via <see cref="Ax25Session.AttachConsumerWithReplay"/> (the same signal seam
+/// axcall's <c>SessionRelay</c> uses). The replay matters for <b>outbound</b> sessions: the
+/// session returned by <see cref="Ax25Listener.ConnectAsync"/> is already connected, so a peer
+/// that sends immediately on accept — another pdn node emits its console banner the moment it
+/// accepts, it does <em>not</em> wait — can put data on the wire in the window between connect
+/// and this subscribe. A plain <c>+=</c> would drop it (the bug where an RHP <c>open</c> to a
+/// node callsign connected but the banner never arrived); the replay delivers it instead.
 /// </remarks>
 public sealed class Ax25NodeConnection : INodeConnection
 {
@@ -37,7 +38,9 @@ public sealed class Ax25NodeConnection : INodeConnection
     {
         this.listener = listener ?? throw new ArgumentNullException(nameof(listener));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
-        session.DataLinkSignalEmitted += OnSignal;
+        // Replay-then-subscribe: catches a peer's pre-subscribe greeting (e.g. a node's connect
+        // banner on an outbound link) that a plain `+= OnSignal` would miss. See class remarks.
+        session.AttachConsumerWithReplay(OnSignal);
     }
 
     /// <inheritdoc/>
