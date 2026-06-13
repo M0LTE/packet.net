@@ -1,13 +1,27 @@
 name: codeql
 
-# CodeQL static analysis for the C# code. Runs the github/codeql-action
-# JS actions on our own self-hosted runners — zero GitHub-hosted Actions
-# minutes consumed (this project has no hosted-runner budget; every job
-# targets [self-hosted, Linux, X64], same discipline as ci/fuzz/interop).
+# CodeQL static analysis. Runs the github/codeql-action JS actions on our own
+# self-hosted runners — zero GitHub-hosted Actions minutes consumed (this
+# project has no hosted-runner budget; every job targets
+# [self-hosted, Linux, X64], same discipline as ci/fuzz/interop).
 #
-# Findings surface in the repo Security > Code scanning tab (SARIF upload),
-# so on top of push/PR we run a weekly scheduled sweep to re-scan main
-# against any newly-shipped CodeQL queries even when the code is quiet.
+# Scope = the two SHIPPED codebases: the .NET product (csharp) and the served
+# control-panel SPA (web/packetnet-ui, javascript-typescript). The python/rust/c
+# spec directories are reference artifacts, not product, so they're not scanned.
+#
+# Both languages use build-mode: none (buildless extraction). C# buildless skips
+# the full Release compile entirely — far lighter on the shared self-hosted box
+# than a traced build, so this workflow needs no EXCLUSIVE /tmp/pdn-ci-heavy.lock
+# (it isn't the CPU-heavy compile that lock guards against). The trade is a small
+# loss of completeness vs a traced build, acceptable for a buildless first cut.
+#
+# Findings surface in the repo Security > Code scanning tab (SARIF upload), so on
+# top of push/PR we run a weekly scheduled sweep to re-scan main against any
+# newly-shipped CodeQL queries even when the code is quiet.
+#
+# NB: SARIF upload requires GitHub code scanning enabled on the repo (GitHub
+# Advanced Security on a private repo). Until that's on, the analyze step's
+# upload will fail.
 
 on:
   push:
@@ -16,8 +30,7 @@ on:
     branches: [main]
   schedule:
     # Weekly, Mondays at 03:37 UTC. Deliberately off the half-hour and
-    # distinct from the 02:17 fuzz nightly so the two CPU-heavy workflows
-    # never collide on the shared self-hosted box.
+    # distinct from the 02:17 fuzz nightly.
     - cron: '37 3 * * 1'
   workflow_dispatch:
 
@@ -29,6 +42,8 @@ permissions:
   contents: read
   # CodeQL uploads its results as SARIF to the code-scanning API.
   security-events: write
+  # Fetching internal / private CodeQL query packs.
+  packages: read
   # The codeql-action reads workflow/run metadata when uploading.
   actions: read
 
@@ -42,35 +57,27 @@ env:
 
 jobs:
   analyze:
-    name: analyze (csharp)
+    name: analyze (${{ matrix.language }})
     runs-on: [self-hosted, Linux, X64]
     # Self-hosted Linux runner — zero GitHub Actions minutes consumed.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp                 # the .NET product
+            build-mode: none
+          - language: javascript-typescript  # web/packetnet-ui (the served SPA)
+            build-mode: none
     steps:
       - uses: actions/checkout@v6
 
       - name: initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
-          languages: csharp
-          # Manual build mode: autobuild can't reliably restore this repo
-          # (Central Package Management + a .slnx solution), so we drive the
-          # build ourselves between init and analyze.
-          build-mode: manual
-
-      - name: report .NET
-        run: dotnet --version
-
-      - name: build
-        # The compile CodeQL traces to build its C# database. This is a full
-        # Release build of the whole solution → CPU-heavy, so it takes the
-        # EXCLUSIVE box-wide flock (same discipline as fuzz.yml's smoke run):
-        # never overlap a concurrent CPU-heavy workflow on the shared
-        # self-hosted host (§7.2.2). flock passes the command's exit through.
-        run: |
-          flock -x /tmp/pdn-ci-heavy.lock \
-          dotnet build Packet.NET.slnx --configuration Release
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
 
       - name: analyze CodeQL
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
-          category: /language:csharp
+          category: /language:${{ matrix.language }}
