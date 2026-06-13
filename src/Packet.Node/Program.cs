@@ -453,6 +453,11 @@ app.MapPdnSystemApi();
 // PdnAuditApi + §6.
 app.MapPdnAuditApi();
 
+// MCP management (Phase 8): POST /api/v1/mcp/token mints the long-lived MCP bearer
+// token an operator pastes into a Claude Code config to reach /mcp over LAN/Tailscale.
+// Admin-gated + audited. See PdnMcpApi + docs/mcp-design.md.
+app.MapPdnMcpApi();
+
 // Phase 8: the in-process MCP server's Streamable-HTTP transport, mounted at the
 // configured path (default /mcp) on the web listener when mcp.sse.enabled, gated
 // `read`. A no-op when MCP/SSE is off (the default). See McpRegistration + docs/mcp-design.md.

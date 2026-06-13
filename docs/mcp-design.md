@@ -95,6 +95,7 @@ mcp:
   sse:
     enabled: false          # mount the Streamable-HTTP transport on the web listener
     path: /mcp              # served on the EXISTING web listener (piggyback, like RHPv2-WS at /rhp)
+  tokenLifetimeDays: 90     # lifetime of a minted MCP bearer token (the Claude Code credential)
   # stdio needs no config — it's the `pdn mcp` subcommand
 ```
 
@@ -116,7 +117,28 @@ All four reachability paths are in scope (operator's choice — they're the same
 | **Public HTTPS domain** | the lab `pdn.m0lte.uk` model — DDNS/port-forward + real cert | node JWT bearer | works (harden: rate-limit, token lifetime) |
 | **Hosted claude.ai connector** | claude.ai "custom connector" → public HTTPS URL | **OAuth 2.1** (MCP auth spec) | **needs building** — see below |
 
-**Auth over the wire.** `/mcp` is gated `read` (read tools) / `operate` (write tools) via the node's existing JWT bearer when `management.auth.enabled` is on, with TLS from the web listener. **Claude Code (desktop/CLI)** supports remote HTTP MCP servers with an `Authorization: Bearer …` header, so it works against `/mcp` today given reachability + a node-issued token. Planned convenience: a long-lived, `read`/`operate`-scoped **MCP token** an operator mints in the panel (rather than reusing a short-lived login JWT).
+**Auth over the wire.** `/mcp` is gated `read` (read tools) / `operate` (write tools) via the node's existing JWT bearer when `management.auth.enabled` is on, with TLS from the web listener. **Claude Code (desktop/CLI)** supports remote HTTP MCP servers with an `Authorization: Bearer …` header, so it works against `/mcp` given reachability + a node-issued token.
+
+### Blessed path (decided 2026-06-13): Claude Code over LAN-direct or Tailscale
+
+Tom narrowed the target to **Claude Code (bearer)** over **LAN-direct** or **Tailscale/WireGuard**. (Public-HTTPS still works but isn't the focus; the **hosted claude.ai connector / OAuth** is *parked* — the design is recorded in [`mcp-oauth-design.md`](mcp-oauth-design.md) for when it's wanted.)
+
+The durable credential is an **MCP bearer token**: `POST /api/v1/mcp/token` (admin-gated, audited) mints a long-lived (`mcp.tokenLifetimeDays`, default 90) JWT scoped `read` (default) or `operate`, via the existing `JwtTokenService` — so it validates through the existing JwtBearer middleware unchanged. Login JWTs are too short-lived for a static header; this isn't.
+
+```sh
+# 1. mint a read-only MCP token (admin token in $ADMIN; omit auth header if auth is off)
+curl -sk -X POST https://node.lan:8443/api/v1/mcp/token \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"scope":"read"}'         # → { "token": "...", "expiresAt": "...", "scope": "read" }
+
+# 2. register the node as an MCP server in Claude Code (LAN-direct, or a Tailscale name)
+claude mcp add --transport http pdn https://node.lan:8443/mcp \
+  --header "Authorization: Bearer <token-from-step-1>"
+```
+
+For Tailscale, the only change is the host (`https://<node-ts-name>/mcp`); the node must be on the tailnet and its web listener bound so the overlay can reach it. For LAN-direct, the web listener must bind a LAN address (`management.http`/`https`), not just loopback — the same requirement as reaching the panel from another machine.
+
+**Revocation caveat (documented):** the minted token is a stateless JWT, so it can't be individually revoked — rotating the node's signing key invalidates *all* tokens. The `read` default + the bounded lifetime keep the blast radius small on a LAN/Tailscale trust boundary; per-token (jti-denylist) revocation is a hardening follow-up.
 
 **The OAuth gap (the claude.ai connector path).** Hosted claude.ai custom connectors follow the MCP authorization spec — OAuth 2.1 with the MCP server as an OAuth **resource server**, discovered via `/.well-known/oauth-protected-resource` + an authorization server. The full design is in **[`mcp-oauth-design.md`](mcp-oauth-design.md)**: the node is its own AS+RS (reusing `SqliteUserStore` + passkeys + `JwtTokenService` + `RefreshTokenService`), access tokens are audience-segregated from panel tokens, and it ships in slices (discovery → DCR → authorize/consent → token → revoke+review). This is the long pole of the four paths and is **security-sensitive — the authorize/token core wants Tom's review before merge** (like the WebAuthn work). The other three need only config + docs + minor hardening on top of what's shipped.
 

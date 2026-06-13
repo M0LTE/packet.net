@@ -197,6 +197,12 @@ public sealed record McpConfig
 
     /// <summary>The SSE/Streamable-HTTP transport (piggybacks the web listener).</summary>
     public McpSseConfig Sse { get; init; } = new();
+
+    /// <summary>Lifetime (days) of a minted MCP bearer token — the durable credential a
+    /// Claude Code config holds in its <c>Authorization</c> header (login JWTs are too
+    /// short-lived for a static header). Default 90. Only relevant when auth is enabled;
+    /// the token is admin-gated to mint, scoped (defaulting to <c>read</c>), and audited.</summary>
+    public int TokenLifetimeDays { get; init; } = 90;
 }
 
 /// <summary>
