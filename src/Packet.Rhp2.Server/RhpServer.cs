@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Core;
+using Packet.Node.Core.Auth;
 using Packet.Node.Core.Console;
 
 namespace Packet.Rhp2.Server;
@@ -50,6 +51,16 @@ public sealed class RhpServerOptions
     /// <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> disables it.
     /// </summary>
     public TimeSpan InFrameTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Optional per-source-IP throttle on failed <c>auth</c> attempts (only consulted
+    /// when <see cref="RequireAuth"/> is on). Once an IP accumulates the throttle's
+    /// failure budget within its window, further <c>auth</c> attempts from it are
+    /// refused without reaching the password verify — the same sliding-window defence
+    /// the web panel uses, applied to the cleartext RHP <c>auth</c> message so a
+    /// publicly-exposed port can't be brute-forced. Null disables throttling.
+    /// </summary>
+    public LoginThrottle? AuthThrottle { get; init; }
 }
 
 /// <summary>
@@ -263,10 +274,28 @@ public sealed partial class RhpServer : IAsyncDisposable
         switch (msg)
         {
             case AuthMessage auth:
+                // Per-IP brute-force throttle (only when auth is required): a locked-out
+                // source is refused before the password verify, exactly like the web 429.
+                if (options.RequireAuth && options.AuthThrottle?.IsLocked(client.PeerIp) == true)
+                {
+                    LogAuthThrottled(client.Peer);
+                    await WriteAsync(client, new AuthReplyMessage
+                    {
+                        Id = auth.Id,
+                        ErrCode = RhpErrorCode.Unauthorised,
+                        ErrText = RhpErrorCode.Text(RhpErrorCode.Unauthorised),
+                    }, ct).ConfigureAwait(false);
+                    break;
+                }
                 bool ok = options.Authenticate?.Invoke(auth.User, auth.Pass) ?? !options.RequireAuth;
                 if (ok)
                 {
                     client.Authed = true;
+                    options.AuthThrottle?.Reset(client.PeerIp);
+                }
+                else if (options.RequireAuth)
+                {
+                    options.AuthThrottle?.RecordFailure(client.PeerIp);
                 }
                 LogAuth(client.Peer, auth.User, ok);
                 await WriteAsync(client, new AuthReplyMessage
@@ -947,12 +976,17 @@ public sealed partial class RhpServer : IAsyncDisposable
             Stream = new NetworkStream(socket, ownsSocket: false);
             Authed = authed;
             Peer = socket.RemoteEndPoint?.ToString() ?? "?";
+            PeerIp = (socket.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "unknown";
         }
 
         public Socket Socket { get; }
         public NetworkStream Stream { get; }
         public SemaphoreSlim WriteGate { get; } = new(1, 1);
         public string Peer { get; }
+
+        /// <summary>The source IP alone (no port) — the throttle key, stable across the
+        /// many short-lived connections a brute-forcer would open.</summary>
+        public string PeerIp { get; }
         public bool Authed { get; set; }
 
         /// <summary>Next push seqno: one counter per RHP connection, starting at 0, shared
@@ -1049,6 +1083,9 @@ public sealed partial class RhpServer : IAsyncDisposable
 
     [LoggerMessage(Level = LogLevel.Information, Message = "RHP auth from {Peer} as '{User}': {Ok}.")]
     private partial void LogAuth(string peer, string user, bool ok);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "RHP auth from {Peer} refused: source IP is throttled (too many recent failures).")]
+    private partial void LogAuthThrottled(string peer);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "RHP handle {Handle} opened to {Remote} for {Peer}.")]
     private partial void LogOpened(int handle, string remote, string peer);

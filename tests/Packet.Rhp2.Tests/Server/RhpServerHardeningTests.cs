@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Packet.Node.Core.Auth;
 using Packet.Rhp2;
 using Packet.Rhp2.Server;
 using Xunit;
@@ -210,5 +211,71 @@ public sealed class RhpServerHardeningTests : IAsyncDisposable
         await HelloAsync(client, 1);
         await Task.Delay(600);
         await HelloAsync(client, 2);
+    }
+
+    // ── Auth brute-force throttle ────────────────────────────────────────
+
+    [Fact]
+    public async Task Auth_is_throttled_after_repeated_failures_without_reaching_the_verify()
+    {
+        // Count password-verify invocations: once the source IP locks out, further auth
+        // attempts must be refused WITHOUT reaching the verify.
+        int verifyCalls = 0;
+        var throttle = new LoginThrottle(TimeProvider.System, maxFailures: 3, window: TimeSpan.FromMinutes(5));
+        var gateway = new RhpServerTests.FakeGateway();
+        var server = new RhpServer(new RhpServerOptions
+        {
+            Bind = IPAddress.Loopback,
+            Port = 0,
+            RequireAuth = true,
+            Authenticate = (_, _) => { Interlocked.Increment(ref verifyCalls); return false; },
+            AuthThrottle = throttle,
+        }, gateway);
+        cleanup.Add(server);
+        await server.StartAsync();
+        var client = await ConnectAsync(server);
+
+        // Five bad auths over one connection. The first three reach the verify and fail;
+        // by the fourth the IP is locked, so the verify is skipped — but every reply is
+        // still Unauthorised on the wire.
+        for (int i = 1; i <= 5; i++)
+        {
+            await client.SendAsync(new AuthMessage { Id = i, User = "sysop", Pass = "wrong" });
+            var reply = await client.ExpectAsync<AuthReplyMessage>();
+            Assert.Equal(RhpErrorCode.Unauthorised, reply.ErrCode);
+        }
+
+        Assert.Equal(3, verifyCalls);   // locked out after 3 — attempts 4 and 5 short-circuited
+    }
+
+    [Fact]
+    public async Task A_successful_auth_clears_the_throttle()
+    {
+        var throttle = new LoginThrottle(TimeProvider.System, maxFailures: 3, window: TimeSpan.FromMinutes(5));
+        var gateway = new RhpServerTests.FakeGateway();
+        var server = new RhpServer(new RhpServerOptions
+        {
+            Bind = IPAddress.Loopback,
+            Port = 0,
+            RequireAuth = true,
+            Authenticate = (_, pass) => pass == "right",
+            AuthThrottle = throttle,
+        }, gateway);
+        cleanup.Add(server);
+        await server.StartAsync();
+        var client = await ConnectAsync(server);
+
+        // Two failures (under the cap), then a success resets the counter.
+        for (int i = 1; i <= 2; i++)
+        {
+            await client.SendAsync(new AuthMessage { Id = i, User = "sysop", Pass = "wrong" });
+            Assert.Equal(RhpErrorCode.Unauthorised, (await client.ExpectAsync<AuthReplyMessage>()).ErrCode);
+        }
+        await client.SendAsync(new AuthMessage { Id = 3, User = "sysop", Pass = "right" });
+        Assert.Equal(RhpErrorCode.Ok, (await client.ExpectAsync<AuthReplyMessage>()).ErrCode);
+
+        // The reset means the failure budget is full again — three more failures are
+        // needed to lock, proving the earlier two were cleared.
+        Assert.False(throttle.IsLocked(IPAddress.Loopback.ToString()));
     }
 }
