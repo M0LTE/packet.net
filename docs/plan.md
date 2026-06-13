@@ -882,6 +882,8 @@ Targets: linux-x64, linux-arm64, linux-arm (v7), win-x64, osx-arm64, osx-x64. Se
 
 All write endpoints audit-logged (actor, IP, scope, payload hash) into `config.db`.
 
+The RHPv2 TCP front-end is resource-bounded against a hostile/buggy peer (defaults, all configurable in the `rhp:` block): a concurrent-connection cap (`maxConnections`, 64), a per-client live-handle cap (`maxHandlesPerClient`, 256 — refused with errCode 4), and an in-frame read timeout (`inFrameTimeoutSeconds`, 30 — drops a peer that stalls part-way through a frame, while leaving idle-between-frames unbounded). See the 2026-06-13 amendment-log entry.
+
 JWT scopes: `frames:read`, `ports:read`, `ports:write`, `sessions:write`, `system:admin`, `mcp:invoke`.
 
 ### 10.1 On-air authentication — TOTP (future direction)
@@ -1063,6 +1065,10 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+
+### 2026-06-13 — RHPv2 server hardening: connection cap, per-client handle cap, in-frame read timeout (slowloris)
+
+The RHPv2 TCP front-end (`src/Packet.Rhp2.Server/RhpServer.cs`) accepted unbounded connections, let a single client allocate unbounded handles (`socket`/`open` in a loop), and awaited each frame forever — so a peer that connected and dribbled (or never finished) a frame pinned the connection indefinitely (slowloris). Added three bounds, all configurable via the `rhp:` block and on by default: **`MaxConnections`** (default 64 — the overflow is closed on accept, not absorbed by the OS backlog); **`MaxHandlesPerClient`** (default 256 — a request past it is refused with errCode 4 "No memory"; the reservation is atomic and freed on handle teardown); and **`InFrameTimeout`** (default 30s — bounds how long the *rest* of a frame may take once its first byte arrives, leaving idle-between-frames unbounded so a legitimately-idle multiplexed connection is never dropped). The slowloris fix lives at the framing layer: a new `RhpFraming.ReadFrameAsync(stream, inFrameTimeout, ct)` overload reads the first header byte un-timed, then bounds the remainder, throwing `TimeoutException` on a stall. Config plumbed through `RhpConfig` (`maxConnections`/`maxHandlesPerClient`/`inFrameTimeoutSeconds`, validated) → `RhpServerHostedService`. Tests: `RhpServerHardeningTests` (caps + reservation-free-on-close + per-connection isolation + stall-drop + idle-survives over real TCP) and framing-level timeout tests in `FramingTests`. No parser named-flag and not in the ax25-ts parity inventory (RhpServerOptions isn't mirrored), so no TS leg required.
 
 ### 2026-06-13 — Phase 7 self-update: the three open decisions settled (active apt Apply, channel marker, restart contract)
 

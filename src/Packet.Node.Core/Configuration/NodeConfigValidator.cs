@@ -263,6 +263,18 @@ public sealed class RhpConfigValidator : AbstractValidator<RhpConfig>
             .Must(b => System.Net.IPAddress.TryParse(b, out _))
             .When(r => r.Enabled)
             .WithMessage(r => $"rhp.bind '{r.Bind}' must be an IP address when rhp is enabled.");
+
+        RuleFor(r => r.MaxConnections)
+            .GreaterThan(0)
+            .WithMessage("rhp.maxConnections must be greater than 0.");
+
+        RuleFor(r => r.MaxHandlesPerClient)
+            .GreaterThan(0)
+            .WithMessage("rhp.maxHandlesPerClient must be greater than 0.");
+
+        RuleFor(r => r.InFrameTimeoutSeconds)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("rhp.inFrameTimeoutSeconds must be 0 (disabled) or greater.");
     }
 }
 

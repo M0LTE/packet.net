@@ -92,6 +92,11 @@ public sealed partial class RhpServerHostedService : IHostedService, IAsyncDispo
                     Port = next.Port,
                     RequireAuth = next.RequireAuth,
                     Authenticate = Validate,
+                    MaxConnections = next.MaxConnections,
+                    MaxHandlesPerClient = next.MaxHandlesPerClient,
+                    InFrameTimeout = next.InFrameTimeoutSeconds <= 0
+                        ? System.Threading.Timeout.InfiniteTimeSpan
+                        : TimeSpan.FromSeconds(next.InFrameTimeoutSeconds),
                 },
                 gateway,
                 loggerFactory.CreateLogger<RhpServer>());

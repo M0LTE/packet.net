@@ -60,8 +60,28 @@ public static class RhpFraming
     }
 
     /// <summary>
-    /// Reads one length-prefixed frame.
+    /// Reads one length-prefixed frame, with no time limit on a stalled peer.
+    /// Equivalent to <see cref="ReadFrameAsync(Stream, TimeSpan, CancellationToken)"/>
+    /// with <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>.
     /// </summary>
+    public static Task<byte[]?> ReadFrameAsync(Stream input, CancellationToken ct = default)
+        => ReadFrameAsync(input, System.Threading.Timeout.InfiniteTimeSpan, ct);
+
+    /// <summary>
+    /// Reads one length-prefixed frame, bounding how long a peer may take
+    /// <em>once a frame has started</em>.
+    /// </summary>
+    /// <param name="input">The stream to read from.</param>
+    /// <param name="inFrameTimeout">
+    /// Maximum time the rest of a frame may take to arrive after its first byte.
+    /// A peer may sit idle between frames indefinitely (the multiplexed RHP
+    /// connection legitimately waits on async pushes), but once it starts sending
+    /// a frame it must finish within this window — a peer that sends a length
+    /// prefix and then dribbles or stalls (a slowloris) is dropped rather than
+    /// pinning the connection forever. <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>
+    /// disables the bound.
+    /// </param>
+    /// <param name="ct">Cancellation for the whole read.</param>
     /// <returns>
     /// The payload bytes (possibly empty for a zero-length frame), or
     /// <see langword="null"/> if the stream ended cleanly before any header
@@ -72,42 +92,73 @@ public static class RhpFraming
     /// The stream ended part-way through a header or body — the peer hung
     /// up mid-frame, which is always abnormal.
     /// </exception>
-    public static async Task<byte[]?> ReadFrameAsync(Stream input, CancellationToken ct = default)
+    /// <exception cref="TimeoutException">
+    /// The peer started a frame but did not finish it within
+    /// <paramref name="inFrameTimeout"/>.
+    /// </exception>
+    public static async Task<byte[]?> ReadFrameAsync(Stream input, TimeSpan inFrameTimeout, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        // Distinguish "no more frames" (clean close, return null) from
-        // "frame cut short" (protocol violation, throw): only a zero-byte
-        // first read counts as clean.
+        // First byte of the header is NOT time-bounded: an idle multiplexed
+        // connection may wait here arbitrarily long. A zero-byte read is the
+        // clean "no more frames" close; anything else means a frame has begun.
         var header = new byte[2];
-        var got = await input.ReadAtLeastAsync(header, header.Length, throwOnEndOfStream: false, ct).ConfigureAwait(false);
+        var got = await input.ReadAtLeastAsync(header.AsMemory(0, 1), 1, throwOnEndOfStream: false, ct).ConfigureAwait(false);
         if (got == 0)
         {
             return null;
         }
 
-        if (got < header.Length)
+        // A frame has started. From here the rest of the header and the whole
+        // body must arrive within inFrameTimeout.
+        CancellationTokenSource? timeoutCts = null;
+        var readCt = ct;
+        if (inFrameTimeout != System.Threading.Timeout.InfiniteTimeSpan)
         {
-            throw new EndOfStreamException("Stream ended inside an RHP frame header.");
+            timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(inFrameTimeout);
+            readCt = timeoutCts.Token;
         }
 
-        int length = BinaryPrimitives.ReadUInt16BigEndian(header);
-        if (length == 0)
-        {
-            return [];
-        }
-
-        var payload = new byte[length];
         try
         {
-            await input.ReadExactlyAsync(payload, ct).ConfigureAwait(false);
-        }
-        catch (EndOfStreamException ex)
-        {
-            throw new EndOfStreamException($"Stream ended inside an RHP frame body of {length} bytes.", ex);
-        }
+            try
+            {
+                await input.ReadExactlyAsync(header.AsMemory(1, 1), readCt).ConfigureAwait(false);
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new EndOfStreamException("Stream ended inside an RHP frame header.", ex);
+            }
 
-        return payload;
+            int length = BinaryPrimitives.ReadUInt16BigEndian(header);
+            if (length == 0)
+            {
+                return [];
+            }
+
+            var payload = new byte[length];
+            try
+            {
+                await input.ReadExactlyAsync(payload, readCt).ConfigureAwait(false);
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new EndOfStreamException($"Stream ended inside an RHP frame body of {length} bytes.", ex);
+            }
+
+            return payload;
+        }
+        catch (OperationCanceledException) when (timeoutCts?.IsCancellationRequested == true && !ct.IsCancellationRequested)
+        {
+            // The timeout fired, not the caller's token: a peer stalled mid-frame.
+            throw new TimeoutException($"RHP peer stalled part-way through a frame (exceeded {inFrameTimeout}).");
+        }
+        finally
+        {
+            timeoutCts?.Dispose();
+        }
     }
 
     private static void ThrowIfOversize(int length, string paramName)
