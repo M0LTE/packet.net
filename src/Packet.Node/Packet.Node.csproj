@@ -16,6 +16,9 @@
     <!-- The RHPv2 server (the app platform's network plane) — hosted here, bridged onto the
          running PortSupervisor via SupervisorRhpGateway. See docs/rhp2-server.md. -->
     <ProjectReference Include="..\Packet.Rhp2.Server\Packet.Rhp2.Server.csproj" />
+    <!-- The MCP tool surface (Phase 8). The node implements the live backend
+         (LiveNodeMcpBackend) + mounts the transports. See docs/mcp-design.md. -->
+    <ProjectReference Include="..\Packet.Mcp\Packet.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,6 +35,11 @@
     <!-- App-gateway reverse proxy (the human plane): IHttpForwarder forwards
          /apps/{id}/* to an app's loopback web server. See docs/app-gateway.md. -->
     <PackageReference Include="Yarp.ReverseProxy" />
+    <!-- The MCP Streamable-HTTP transport (Phase 8): mounts the in-process MCP
+         server on the web listener (app.MapMcp). The transport-agnostic tool
+         surface is Packet.Mcp (ModelContextProtocol.Core); this is the ASP.NET
+         hosting half. See docs/mcp-design.md. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>

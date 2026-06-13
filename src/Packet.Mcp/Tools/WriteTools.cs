@@ -18,6 +18,21 @@ public sealed class WriteTools(INodeMcpBackend backend, IMcpCallerAccessor calle
     private readonly INodeMcpBackend backend = backend;
     private readonly IMcpCallerAccessor caller = caller;
 
+    // Every write tool needs `operate`. The /mcp endpoint is gated `read` (so any
+    // access needs at least read), and this is the per-tool step up to operate.
+    // When the node has auth off, the host grants all scopes, so this passes
+    // through — matching the REST surface's behaviour.
+    private McpCaller RequireOperate()
+    {
+        var c = caller.Current;
+        if (!c.HasScope(McpScopes.Operate))
+        {
+            throw new UnauthorizedAccessException(
+                "this tool requires the 'operate' scope.");
+        }
+        return c;
+    }
+
     [McpServerTool(Name = "send_ui_frame")]
     [Description("Transmit a connectionless UI frame on a port. The frame is built strictly (spec-valid); the payload is sent as UTF-8.")]
     public Task<SendResult> SendUiFrame(
@@ -27,21 +42,21 @@ public sealed class WriteTools(INodeMcpBackend backend, IMcpCallerAccessor calle
         [Description("Optional digipeater path, in order.")] IReadOnlyList<string>? path = null,
         [Description("PID byte; defaults to 0xF0 (no layer 3).")] byte pid = 0xF0,
         CancellationToken ct = default)
-        => backend.SendUiFrameAsync(new SendUiRequest(port, dest, payload, path, pid), caller.Current, ct);
+        => backend.SendUiFrameAsync(new SendUiRequest(port, dest, payload, path, pid), RequireOperate(), ct);
 
     [McpServerTool(Name = "reset_port")]
     [Description("Restart a radio port (tear down and bring back up). Disrupts any sessions on the port.")]
     public Task<PortActionResult> ResetPort(
         [Description("Port id to restart.")] string port,
         CancellationToken ct = default)
-        => backend.ResetPortAsync(port, caller.Current, ct);
+        => backend.ResetPortAsync(port, RequireOperate(), ct);
 
     [McpServerTool(Name = "disconnect_session")]
     [Description("Disconnect a live AX.25 session by its port:peer id.")]
     public Task<SessionResult> DisconnectSession(
         [Description("Session id, formatted port:peer.")] string id,
         CancellationToken ct = default)
-        => backend.DisconnectSessionAsync(id, caller.Current, ct);
+        => backend.DisconnectSessionAsync(id, RequireOperate(), ct);
 
     [McpServerTool(Name = "set_kiss_param")]
     [Description("Set a KISS parameter on a port (txdelay, persist, slottime, txtail). The result says whether it took live or needs a port restart.")]
@@ -50,5 +65,5 @@ public sealed class WriteTools(INodeMcpBackend backend, IMcpCallerAccessor calle
         [Description("Parameter name: txdelay, persist, slottime, txtail.")] string param,
         [Description("Parameter value (0..255).")] int value,
         CancellationToken ct = default)
-        => backend.SetKissParamAsync(new SetKissParamRequest(port, param, value), caller.Current, ct);
+        => backend.SetKissParamAsync(new SetKissParamRequest(port, param, value), RequireOperate(), ct);
 }

@@ -52,11 +52,11 @@
          IHostApplicationLifetime, ILogger). The host shell (Packet.Node) pulls
          the full hosting stack via Microsoft.NET.Sdk.Web; the core library
          depends only on the abstractions. -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
-    <!-- 10.0.7 (not 10.0.0): the MCP SDK (ModelContextProtocol.Core, Phase 8)
-         depends on Logging.Abstractions >= 10.0.7; CPM transitive pinning makes
-         the lower pin a downgrade error (NU1109). 10.0.7 is the .NET 10 servicing
-         build and back-compatible for every other consumer. -->
+    <!-- 10.0.7 (not 10.0.0): the MCP SDK (Phase 8) floors both of these — Core needs
+         Logging.Abstractions >= 10.0.7, .AspNetCore needs Hosting.Abstractions >= 10.0.7.
+         CPM transitive pinning makes the lower pins NU1109 downgrade errors. 10.0.7 is
+         the .NET 10 servicing build, back-compatible for every other consumer. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
 
     <!-- Serial / IO -->

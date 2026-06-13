@@ -62,6 +62,39 @@ public class ToolSurfaceTests
         backend.LastKissParam.Value.Should().Be(40);
     }
 
+    [Fact]
+    public async Task Write_tools_reject_a_caller_without_the_operate_scope()
+    {
+        var backend = new FakeNodeMcpBackend();
+        var readOnly = new FixedCallerAccessor(new McpCaller(
+            "viewer", "sse", new HashSet<string>(StringComparer.Ordinal) { McpScopes.Read }));
+        var tools = new WriteTools(backend, readOnly);
+
+        var act = async () => await tools.ResetPort("vhf");
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        backend.LastCaller.Should().BeNull(); // never reached the backend
+    }
+
+    [Fact]
+    public async Task Operate_scope_is_enough_to_invoke_a_write_tool()
+    {
+        var backend = new FakeNodeMcpBackend();
+        var operate = new FixedCallerAccessor(new McpCaller(
+            "op", "sse", new HashSet<string>(StringComparer.Ordinal) { McpScopes.Read, McpScopes.Operate }));
+        var tools = new WriteTools(backend, operate);
+
+        var result = await tools.ResetPort("vhf");
+
+        result.Accepted.Should().BeTrue();
+        backend.LastCaller!.Actor.Should().Be("op");
+    }
+
+    private sealed class FixedCallerAccessor(McpCaller caller) : IMcpCallerAccessor
+    {
+        public McpCaller Current { get; } = caller;
+    }
+
     private sealed class FakeNodeMcpBackend : INodeMcpBackend
     {
         public IReadOnlyList<McpPortStatus> Ports { get; init; } = [];

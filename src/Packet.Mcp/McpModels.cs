@@ -37,7 +37,7 @@ public sealed record McpMonitorFrame(
     [property: Description("Monotonic sequence number within the ring.")] long Seq,
     [property: Description("UTC timestamp the frame was observed.")] DateTimeOffset Timestamp,
     [property: Description("Port the frame was seen on.")] string PortId,
-    [property: Description("rx | tx.")] string Direction,
+    [property: Description("in (received) | out (transmitted).")] string Direction,
     [property: Description("Source callsign.")] string Source,
     [property: Description("Destination callsign.")] string Destination,
     [property: Description("Frame kind, e.g. UI, I, RR, SABM.")] string Kind,
@@ -113,11 +113,38 @@ public sealed record SetKissParamRequest(
 public sealed record KissParamResult(bool Accepted, bool RequiresRestart, string Message);
 
 /// <summary>
-/// Who is invoking a write tool, for the audit trail. <see cref="Actor"/> is the
-/// token subject over SSE, or <c>local-stdio</c> over the stdio bridge.
+/// Scope names mirroring the node's <c>AuthScopes</c> (the hierarchical
+/// <c>read</c> ⊂ <c>operate</c> ⊂ <c>admin</c> model). Kept as plain strings here
+/// so Packet.Mcp stays free of the node-host assembly; the host populates a
+/// caller's <see cref="McpCaller.Scopes"/> with the expanded set.
 /// </summary>
-public sealed record McpCaller(string Actor, string Transport)
+public static class McpScopes
 {
-    /// <summary>The local-user identity for the stdio transport (no token).</summary>
-    public static McpCaller LocalStdio { get; } = new("local-stdio", "stdio");
+    /// <summary>Read tools.</summary>
+    public const string Read = "read";
+    /// <summary>Write tools.</summary>
+    public const string Operate = "operate";
+    /// <summary>Administrative (superset of operate).</summary>
+    public const string Admin = "admin";
+}
+
+/// <summary>
+/// Who is invoking a tool, for authorization + the audit trail. <see cref="Actor"/>
+/// is the token subject over SSE, or <c>local-stdio</c> over the stdio bridge.
+/// <see cref="Scopes"/> is the caller's expanded scope set (the host fills it from
+/// the authenticated token, or grants all when auth is off / for the local user).
+/// </summary>
+public sealed record McpCaller(string Actor, string Transport, IReadOnlySet<string> Scopes)
+{
+    /// <summary>True if the caller holds <paramref name="scope"/>.</summary>
+    public bool HasScope(string scope) => Scopes.Contains(scope);
+
+    /// <summary>
+    /// The local-user identity for the stdio transport (no token). A process that
+    /// can exec <c>pdn mcp</c> and reach loopback is OS-trusted, so it holds every
+    /// scope.
+    /// </summary>
+    public static McpCaller LocalStdio { get; } =
+        new("local-stdio", "stdio", new HashSet<string>(StringComparer.Ordinal)
+            { McpScopes.Read, McpScopes.Operate, McpScopes.Admin });
 }

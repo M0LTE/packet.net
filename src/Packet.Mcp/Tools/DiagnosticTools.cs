@@ -10,7 +10,7 @@ namespace Packet.Mcp.Tools;
 /// running — and is the natural test/wiring anchor for the whole surface.
 /// </summary>
 [McpServerToolType]
-public static class DiagnosticTools
+public sealed class DiagnosticTools
 {
     [McpServerTool(Name = "decode_frame")]
     [Description("Decode an AX.25 frame from hex into a human-readable breakdown " +

@@ -10,6 +10,7 @@ using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Traffic;
 using Packet.Node.Core.Transports;
+using Packet.Node.Mcp;
 
 // The composition root for the Packet.NET node. This IS a Generic Host (the
 // WebApplication builder gives us DI, config, hosted services, and logging),
@@ -290,6 +291,11 @@ builder.Services.AddSingleton<Packet.Rhp2.Server.IRhpGateway, Packet.Node.Rhp.Su
 builder.Services.AddSingleton<Packet.Rhp2.Server.RhpServerHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Packet.Rhp2.Server.RhpServerHostedService>());
 
+// Phase 8: the in-process MCP tool surface + live backend. The HTTP transport is
+// mounted below (MapPdnMcp) only when mcp.sse.enabled; stdio is the `pdn mcp`
+// subcommand. Registering the services is harmless when unused. See docs/mcp-design.md.
+builder.Services.AddPdnMcp();
+
 // Bind Kestrel from the node config's management.http section, plus an optional TLS
 // listener (management.https). HTTPS is opt-in; the plain HTTP listener is unchanged.
 var management = configProvider.Current.Management;
@@ -423,6 +429,11 @@ app.MapPdnAppPackagesApi();
 // the privileged packetnet-update.service on the apt channel). See PdnSystemApi +
 // docs/node-self-update-design.md. Mapped before the catch-all; specific routes win.
 app.MapPdnSystemApi();
+
+// Phase 8: the in-process MCP server's Streamable-HTTP transport, mounted at the
+// configured path (default /mcp) on the web listener when mcp.sse.enabled, gated
+// `read`. A no-op when MCP/SSE is off (the default). See McpRegistration + docs/mcp-design.md.
+app.MapPdnMcp();
 
 // An unknown /api/* path returns 404 — it must NOT fall through to the SPA
 // index.html below (the catch-all is less specific than the real /api/v1/*

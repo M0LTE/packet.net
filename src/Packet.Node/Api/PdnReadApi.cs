@@ -139,7 +139,7 @@ public static class PdnReadApi
                 Dropped: traffic?.DroppedFrames ?? 0));
     }
 
-    private static PortStatus[] BuildPorts(NodeHostedService host, IConfigProvider config)
+    internal static PortStatus[] BuildPorts(NodeHostedService host, IConfigProvider config)
     {
         var supervisor = host.Supervisor;
         var current = config.Current;
@@ -180,7 +180,7 @@ public static class PdnReadApi
         }).ToArray();
     }
 
-    private static SessionInfo[] BuildSessions(NodeHostedService host, TimeProvider clock)
+    internal static SessionInfo[] BuildSessions(NodeHostedService host, TimeProvider clock)
     {
         var supervisor = host.Supervisor;
         var running = RunningPorts(supervisor);
@@ -260,7 +260,7 @@ public static class PdnReadApi
             .Select(n => n.Neighbour.ToString())
             .ToHashSet(StringComparer.Ordinal);
 
-    private static LinkStats[] BuildLinks(NodeHostedService host)
+    internal static LinkStats[] BuildLinks(NodeHostedService host)
     {
         // Frame/byte counts and REJ/SREJ tallies ARE real — they come straight from
         // the frame tap. SmoothedRttMs and Retries are NOT derivable from the tap
