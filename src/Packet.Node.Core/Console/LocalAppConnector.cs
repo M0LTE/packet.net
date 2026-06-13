@@ -41,11 +41,11 @@ internal sealed class LocalAppConnector : IOutboundConnector
             appPeerId: callerPeerId, appKind: callerKind,
             userPeerId: target.ToString(), userKind: callerKind);
 
-        // Hand the app end to the registered app. It owns appEnd from here (the RHP server pumps
-        // it against the app's handle and disposes it when the handle closes). We don't await the
-        // handler — the console drives the session via the user end — but we observe it so a
-        // handler fault never surfaces as an unobserved task exception, and we always dispose the
-        // app end when the handler returns (closes the loopback if the app side ended first).
+        // Hand the app end to the registered app's accept handler. From here the handler OWNS
+        // appEnd, exactly as the over-the-air inbound path does (PortSupervisor.OnAppSessionAccepted
+        // — "the handler owns the connection from here"): the RHPv2 server's accept handler pushes
+        // ACCEPT and then pumps appEnd against the app's child handle in the BACKGROUND, returning
+        // immediately. We observe the handler so a fault never becomes an unobserved task exception.
         _ = RunAppAsync(appEnd);
         return Task.FromResult(userEnd);
     }
@@ -55,13 +55,20 @@ internal sealed class LocalAppConnector : IOutboundConnector
         try
         {
             await onAccepted(appEnd, portLabel).ConfigureAwait(false);
+            // Do NOT dispose appEnd here. onAccepted returns once the app has TAKEN OWNERSHIP
+            // (its background pump now drives appEnd and disposes it when the child handle
+            // closes) — NOT when the bridged session ends. Disposing on this (immediate) return
+            // tore the loopback down the instant ACCEPT was pushed — Connected → immediately
+            // Disconnected, no data bridged. Teardown flows through the shared loopback instead:
+            // when the caller drops, the console disposes userEnd, which EOFs appEnd so the app's
+            // pump closes; when the app closes its handle, the pump disposes appEnd, EOFing userEnd
+            // so the console relay ends.
         }
         catch
         {
-            // The app handler owns its own error reporting; a fault here just ends the bridge.
-        }
-        finally
-        {
+            // The handler faulted before taking ownership — nothing else will dispose appEnd, so
+            // we must (this also unblocks the user end with EOF). DisposeAsync is idempotent, so a
+            // handler that already disposed it (e.g. refused the accept) is harmless.
             await appEnd.DisposeAsync().ConfigureAwait(false);
         }
     }

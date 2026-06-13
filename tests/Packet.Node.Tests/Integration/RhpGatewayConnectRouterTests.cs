@@ -85,6 +85,51 @@ public sealed class RhpGatewayConnectRouterTests
     }
 
     [Fact]
+    public async Task A_local_app_whose_handler_returns_immediately_stays_bridged()
+    {
+        // The regression this guards (the deterministic one-node repro): the REAL RHPv2 server's
+        // accept handler pushes ACCEPT then pumps the connection in the BACKGROUND and RETURNS
+        // immediately. LocalAppConnector used to dispose the app end of the loopback on that
+        // (immediate) return — tearing the bridge down before any data crossed (Connected ->
+        // immediately Disconnected, app got the accept but its banner never reached the caller).
+        // The earlier crossconnect tests missed it because their handlers await a read loop
+        // (return only when the link ends). This one mirrors the real server: own + return.
+        var (host, config) = await StartedHostAsync(new SharedRadioBus());
+        using var hostLifetime = host;
+
+        var fromCaller = new ConcurrentQueue<string>();
+        using var registration = host.Supervisor!.RegisterAppCallsign(AppCall, portId: null, (conn, portId) =>
+        {
+            _ = Task.Run(async () =>
+            {
+                await conn.WriteAsync("DAPPSv1>\r"u8.ToArray());
+                while (true)
+                {
+                    var chunk = await conn.ReadAsync();
+                    if (chunk.IsEmpty)
+                    {
+                        break;
+                    }
+                    fromCaller.Enqueue(Encoding.UTF8.GetString(chunk.Span));
+                }
+            });
+            return Task.CompletedTask;   // ownership taken; pump runs on — return immediately
+        });
+
+        var gateway = new SupervisorRhpGateway(host, config);
+        await using var userConn = await gateway.OpenAx25StreamAsync(portLabel: null, local: OriginApp.ToString(), remote: AppCall.ToString());
+
+        // The bridge must outlive the handler's return: the app's banner reaches the caller…
+        var greeting = await ReadTextAsync(userConn, TimeSpan.FromSeconds(10));
+        Assert.Contains("DAPPSv1>", greeting, StringComparison.Ordinal);
+
+        // …and caller → app still flows.
+        await userConn.WriteAsync("PING\r"u8.ToArray());
+        await Wait.ForAsync(() => fromCaller.Any(s => s.Contains("PING", StringComparison.Ordinal)),
+            "caller data reaches the app after the handler returned — the bridge was not torn down");
+    }
+
+    [Fact]
     public async Task An_explicit_port_skips_the_local_app_and_validates_the_port()
     {
         var (host, config) = await StartedHostAsync(new SharedRadioBus());
