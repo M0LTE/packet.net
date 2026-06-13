@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # build-deb.sh builds the web UI (npm ci + vite build) before publishing.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -42,9 +42,9 @@ jobs:
           fi
 
       - name: Set up QEMU (arm64 emulation)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
