@@ -58,9 +58,12 @@ Here the in-app updater earns its keep. It is **atomic via a symlink swap** and 
   /opt/packetnet/releases/0.9.0/
   /opt/packetnet/current -> releases/0.9.0     ← ExecStart=/opt/packetnet/current/Packet.Node
   ```
-- **Update:** download the new build → **cosign-verify** signature against the baked-in sigstore pubkey → unpack into `releases/<new>` *alongside* the running one → flip `current` → restart.
+- **Update:** the node fetches `latest.json` from its configured **feed** (version + per-arch tarball + sha256), and if newer, the helper downloads the tarball → **verifies the sha256** → unpacks into `releases/<new>` *alongside* the running one → flips `current` → restarts.
+- **Trust root = the release `SHA256SUMS` / `latest.json` digest (checksum-only, decided 2026-06-13).** Cosign signing is a planned **hardening follow-up**, not in the first cut; the helper has a clear verify seam so a `cosign verify-blob` step drops in later without reshaping the flow. (Contrast the apt channel, whose trust root is apt's repo GPG signature — two channels, two trust roots.)
 - **Watchdog rollback:** if the new version fails its post-start health check (`/healthz` within a timeout), the helper flips `current` back to the prior release and restarts. The atomic symlink swap means there is never a half-written running tree; rollback is one symlink + one restart.
 - **Never in the swap set:** config (`/etc/packetnet`) and state/data (`/var/lib/packetnet`, `/opt/packetnet/...`). Only binaries + `wwwroot` move. Old `releases/*` are GC'd keeping the last N (e.g. 2) for rollback.
+- **Migrations stay additive (load-bearing rule).** Rolling the *binary* back does **not** roll back `pdn.db`, so every schema migration MUST be backward-compatible — additive only (a new column/table an older binary simply ignores, as `revoked_utc` is). A destructive migration would break binary rollback; so we don't ship one. This is a rule, not a hope.
+- **Feed host (deployment dependency).** `packet.net` is a **private** repo, so a self-contained node can't anonymously pull release assets from it. The tarballs + `latest.json` therefore need a **public** home (the operator's domain / OARC object storage / a public mirror) — the same way the apt channel's repo is the maintainer's. The node's feed URL is **configuration** (`management.update.feedUrl`-style), defaulting to wherever that public home ends up; the build just *produces* the artifacts (see below).
 
 ## Privilege model (both channels)
 
@@ -88,7 +91,12 @@ These were the three open questions; all resolved with the maintainer.
 - **Packaging** (`packaging/` + `build-deb.sh`): the `install-channel` marker (`apt`) at `/usr/lib/packetnet/`, the `packetnet-update.service` oneshot, the `packetnet-apt-update` helper (targeted `apt-get install --only-upgrade` + is-active health-gate + downgrade rollback), and the `49-packetnet-update.rules` polkit rule; `Depends: polkitd | policykit-1`.
 - **Tests**: `InstallChannelProviderTests` + `SystemUpdateApiTests` (channel branches, admin gating, launcher invoked/not).
 
-**Deferred (later slices):** the **self-contained** channel (versioned dirs + `current` symlink + cosign + atomic flip + rollback); the **web UI** Apply button + version-poll completion UX; deepening the apt-channel health gate from `systemctl is-active` to a real `/healthz` probe; the available-version check (`updateAvailable`) feeding the UI; the `dpkg-query` channel-sniff fallback.
+**Slice 2 — the self-contained channel — is in progress.**
+
+- **Release artifacts (done):** `publish-node.yml` now emits, alongside the `.deb`s, a per-arch self-contained **`packetnet_<ver>_<arch>.tar.gz`** (the published binary tree), a **`latest.json`** manifest (`{version, artifacts:{<arch>:{file,sha256}}}`), and an extended **`SHA256SUMS`** covering both — the download targets a self-contained node consumes.
+- **Still to build:** the node-side update helper (download → sha256-verify → unpack into `releases/<new>` → flip `current` → restart → `/healthz` rollback) + the `selfcontained` install layout/unit; `installers/install.sh`; the API generalization (the `selfcontained` channel stops 501-ing → triggers the helper, via a channel-agnostic launch); the configurable feed URL + the available-version check; a public feed host (deployment).
+
+**Deferred further:** the **web UI** Apply button + version-poll completion UX; deepening the apt-channel health gate from `systemctl is-active` to a real `/healthz` probe; **cosign** signing/verify (the checksum-only seam hardens to it later); the `dpkg-query` channel-sniff fallback.
 
 ## Cross-references
 
