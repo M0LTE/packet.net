@@ -17,11 +17,9 @@ name: codeql
 #
 # Findings surface in the repo Security > Code scanning tab (SARIF upload), so on
 # top of push/PR we run a weekly scheduled sweep to re-scan main against any
-# newly-shipped CodeQL queries even when the code is quiet.
-#
-# NB: SARIF upload requires GitHub code scanning enabled on the repo (GitHub
-# Advanced Security on a private repo). Until that's on, the analyze step's
-# upload will fail.
+# newly-shipped CodeQL queries even when the code is quiet. This repo is public,
+# so code scanning is free + available with no setup — the analyze step's SARIF
+# upload just works. (On a private repo it would need GitHub Advanced Security.)
 
 on:
   push:
