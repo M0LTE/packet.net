@@ -1,6 +1,10 @@
 # MCP remote auth — OAuth 2.1 design (the hosted claude.ai connector)
 
-**Status:** design, 2026-06-13. The "hosted claude.ai connector" path from [`mcp-design.md` § Deployment](mcp-design.md) — the one reachability option that needs more than config. The other three (LAN-direct / Tailscale / public-HTTPS) work today with a node-issued **JWT bearer** header on `/mcp`; this doc is only about letting the **claude.ai web app** connect as a *custom connector*, which follows the MCP authorization spec (OAuth 2.1). **Security-critical — wants Tom's review before the token/authorize endpoints land (cf. the WebAuthn review).**
+**Status:** **implemented behind the default-off `mcp.oauth.enabled` flag, 2026-06-13** (slices 1–4 + revoke; see § Implementation slices for what's deferred). The "hosted claude.ai connector" path from [`mcp-design.md` § Deployment](mcp-design.md) — the one reachability option that needs more than config. The other three (LAN-direct / Tailscale / public-HTTPS) work today with a node-issued **JWT bearer** header on `/mcp`; this doc is about letting the **claude.ai web app** connect as a *custom connector*, which follows the MCP authorization spec (OAuth 2.1). **Security-critical — the code merged dormant behind the flag; review before ENABLING it in production (cf. the WebAuthn review).**
+
+> **Implementation note (2026-06-13).** Live in `PdnOauthApi` + the `Packet.Node.Core.Auth.Oauth` stores. Endpoints return 404 unless `mcp.oauth.enabled`. **Two deliberate deviations from the design below, both documented follow-ups:**
+> 1. **Access-token-only, no refresh token.** The connector re-runs the authorize flow on expiry (`mcp.oauth.accessTokenLifetimeMinutes`, default 60). Refresh-token rotation (reusing `RefreshTokenService`) + a meaningful `/oauth/revoke` are the next slice; revoke currently answers RFC-7009-style 200 but can't kill a live JWT (rotate the signing key to invalidate all).
+> 2. **No audience segregation yet.** The MCP access token is minted via the existing `JwtTokenService.Issue` with the **control-API audience** — identical to the already-shipped Claude Code bearer (step 7), so `/mcp` validates it unchanged. The design's per-resource `aud` (so an MCP token can't hit `/api/v1`) is a hardening pass covering *both* token types. Scopes still cap MCP at `operate` (no admin).
 
 ## What the MCP spec requires
 
@@ -72,7 +76,7 @@ POST /oauth/revoke                              RFC 7009 token revocation
 4. **Token** — `POST /oauth/token` (code+PKCE→audience-bound MCP JWT + refresh); `JwtTokenService` audience/scope extension; `/mcp` accepts the MCP audience.
 5. **Revoke + harden + review** — `POST /oauth/revoke`, the panel "connected apps" screen, rate-limits, and the security review (its own `docs/mcp-oauth-review-*.md`, like WebAuthn).
 
-Slices 1–2 carry no token-issuance risk and can land first; **slices 3–5 are the sensitive core and should not merge without the security review.**
+**Status of the slices (2026-06-13):** 1 ✅ (discovery + the `WWW-Authenticate` hint on `/mcp`), 2 ✅ (DCR + persisted `oauth_client` store), 3 ✅ (authorize + server-rendered login/consent + single-use `oauth_code` store), 4 ✅ *partial* (token: code+PKCE→JWT — but control-API audience, not a per-resource one; no refresh), 5 ⬜ (revoke is a stub-200; the panel "connected apps" screen, refresh-token rotation, audience segregation, and the formal security review are the remaining work). All merged **dormant behind `mcp.oauth.enabled`**. **Review before enabling in production.** Server-rendered consent does **password** login only for now (passkey-in-consent is a follow-up; passkeys remain on the panel).
 
 ## Out of scope
 
