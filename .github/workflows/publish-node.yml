@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v6
 
       # build-deb.sh builds the web UI (npm ci + vite build) before publishing.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -120,4 +120,4 @@ jobs:
             artifacts/SHA256SUMS artifacts/latest.json \
             --repo "${{ github.repository }}" \
             --title "pdn node-v${VERSION}" \
-            --notes "Packet.NET node host (pdn) ${VERSION}. **apt / Debian:** install the \`.deb\` for your arch — \`sudo apt install ./packetnet_${VERSION}_<arch>.deb\` (no .NET runtime required), runs as a hardened systemd unit; edit /etc/packetnet/packetnet.yaml. **Self-contained:** the \`*.tar.gz\` + \`latest.json\` are the self-contained-channel artifacts (Phase 7 in-app self-update); \`SHA256SUMS\` covers everything."
+            --notes "Packet.NET node host (pdn) ${VERSION}. **apt / Debian:** install the \`.deb\` for your arch — \`sudo apt install ./packetnet_${VERSION}_<arch>.deb\` (no .NET runtime required), runs as a hardened systemd unit; edit /etc/packetnet/packetnet.yaml. **Self-contained:** the \`*.tar.gz\` + \`latest.json\` are the self-contained-channel artifacts (Phase 7 in-app self-update); \`SHA256SUMS\` covers everything. **Docker:** \`docker run -p 8080:8080 m0lte/packet.net:${VERSION}\` (also \`:latest\`; multi-arch amd64+arm64 — published by publish-docker.yml)."
