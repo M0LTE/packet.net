@@ -114,6 +114,111 @@ public class FramingTests
         got.Should().Equal(payload);
     }
 
+    [Fact]
+    public async Task ReadFrameAsync_times_out_when_a_started_frame_stalls()
+    {
+        // A peer sends the first byte of a frame and then never sends the rest —
+        // the slowloris shape. With an in-frame timeout the reader gives up rather
+        // than waiting forever.
+        using var stalled = new StallAfterStream(yield: [0x00]);
+        var act = async () => await RhpFraming.ReadFrameAsync(stalled, TimeSpan.FromMilliseconds(150));
+        await act.Should().ThrowAsync<TimeoutException>();
+    }
+
+    [Fact]
+    public async Task ReadFrameAsync_does_not_time_out_while_idle_before_a_frame()
+    {
+        // The first byte of a frame is NOT time-bounded — an idle multiplexed
+        // connection may wait arbitrarily long. Here the first byte only arrives
+        // after the (short) timeout window, yet the whole frame still reads.
+        var payload = Encoding.UTF8.GetBytes("""{"type":"close","handle":3}""");
+        using var assembled = new MemoryStream();
+        RhpFraming.WriteFrame(assembled, payload);
+        using var delayed = new DelayFirstReadStream(assembled.ToArray(), TimeSpan.FromMilliseconds(300));
+
+        var got = await RhpFraming.ReadFrameAsync(delayed, TimeSpan.FromMilliseconds(100));
+
+        got.Should().Equal(payload);
+    }
+
+    [Fact]
+    public async Task ReadFrameAsync_with_timeout_round_trips_a_complete_frame()
+    {
+        using var ms = new MemoryStream();
+        var payload = Encoding.UTF8.GetBytes("""{"type":"auth"}""");
+        await RhpFraming.WriteFrameAsync(ms, payload);
+
+        ms.Position = 0;
+        var got = await RhpFraming.ReadFrameAsync(ms, TimeSpan.FromSeconds(5));
+
+        got.Should().Equal(payload);
+    }
+
+    /// <summary>Yields the given bytes once, then blocks every subsequent read until
+    /// cancelled — models a peer that starts a frame and then stalls.</summary>
+    private sealed class StallAfterStream(byte[] yield) : Stream
+    {
+        private int position;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            if (position < yield.Length)
+            {
+                buffer.Span[0] = yield[position++];
+                return 1;
+            }
+            await Task.Delay(System.Threading.Timeout.Infinite, ct).ConfigureAwait(false);
+            return 0;   // unreachable — the delay only ends by cancellation
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => yield.Length;
+        public override long Position { get => position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    /// <summary>Delays the very first read by <paramref name="firstDelay"/>, then serves
+    /// the buffer normally — models an idle connection whose next frame arrives late.</summary>
+    private sealed class DelayFirstReadStream(byte[] bytes, TimeSpan firstDelay) : Stream
+    {
+        private int position;
+        private bool delayed;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            if (!delayed)
+            {
+                delayed = true;
+                await Task.Delay(firstDelay, ct).ConfigureAwait(false);
+            }
+            if (position >= bytes.Length)
+            {
+                return 0;
+            }
+            int n = Math.Min(buffer.Length, bytes.Length - position);
+            bytes.AsSpan(position, n).CopyTo(buffer.Span);
+            position += n;
+            return n;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => bytes.Length;
+        public override long Position { get => position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     /// <summary>Read-only stream yielding a single byte per read, to exercise reassembly loops.</summary>
     private sealed class OneByteAtATimeStream(byte[] bytes) : Stream
     {

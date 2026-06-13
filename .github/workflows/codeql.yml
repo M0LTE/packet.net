@@ -1,0 +1,83 @@
+name: codeql
+
+# CodeQL static analysis. Runs the github/codeql-action JS actions on our own
+# self-hosted runners — zero GitHub-hosted Actions minutes consumed (this
+# project has no hosted-runner budget; every job targets
+# [self-hosted, Linux, X64], same discipline as ci/fuzz/interop).
+#
+# Scope = the two SHIPPED codebases: the .NET product (csharp) and the served
+# control-panel SPA (web/packetnet-ui, javascript-typescript). The python/rust/c
+# spec directories are reference artifacts, not product, so they're not scanned.
+#
+# Both languages use build-mode: none (buildless extraction). C# buildless skips
+# the full Release compile entirely — far lighter on the shared self-hosted box
+# than a traced build, so this workflow needs no EXCLUSIVE /tmp/pdn-ci-heavy.lock
+# (it isn't the CPU-heavy compile that lock guards against). The trade is a small
+# loss of completeness vs a traced build, acceptable for a buildless first cut.
+#
+# Findings surface in the repo Security > Code scanning tab (SARIF upload), so on
+# top of push/PR we run a weekly scheduled sweep to re-scan main against any
+# newly-shipped CodeQL queries even when the code is quiet.
+#
+# NB: SARIF upload requires GitHub code scanning enabled on the repo (GitHub
+# Advanced Security on a private repo). Until that's on, the analyze step's
+# upload will fail.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, Mondays at 03:37 UTC. Deliberately off the half-hour and
+    # distinct from the 02:17 fuzz nightly.
+    - cron: '37 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  # CodeQL uploads its results as SARIF to the code-scanning API.
+  security-events: write
+  # Fetching internal / private CodeQL query packs.
+  packages: read
+  # The codeql-action reads workflow/run metadata when uploading.
+  actions: read
+
+env:
+  # GitHub will force JavaScript actions onto Node.js 24 from
+  # June 2nd, 2026 and remove Node.js 20 from the runner on
+  # September 16th, 2026. Opting in early both silences the
+  # deprecation warning and lets us catch any Node 24 breakage
+  # well ahead of the forced cutover.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: [self-hosted, Linux, X64]
+    # Self-hosted Linux runner — zero GitHub Actions minutes consumed.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp                 # the .NET product
+            build-mode: none
+          - language: javascript-typescript  # web/packetnet-ui (the served SPA)
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: analyze CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

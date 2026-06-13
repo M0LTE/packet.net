@@ -159,6 +159,19 @@ public sealed record RhpConfig
     /// <summary>When true, a client must <c>auth</c> (validated against the node's users)
     /// before any other request is honoured. Default <c>false</c> (loopback trust).</summary>
     public bool RequireAuth { get; init; }
+
+    /// <summary>Maximum concurrent client TCP connections; the overflow is closed on accept.
+    /// Bounds connection-exhaustion. Default 64.</summary>
+    public int MaxConnections { get; init; } = 64;
+
+    /// <summary>Maximum live handles a single client connection may hold; a request past it is
+    /// refused with errCode 4. Bounds per-client memory growth. Default 256.</summary>
+    public int MaxHandlesPerClient { get; init; } = 256;
+
+    /// <summary>Seconds a peer may take to finish a frame once it has started one (idle between
+    /// frames is unbounded). A stalled peer (slowloris) is dropped after this. Default 30;
+    /// 0 disables the bound.</summary>
+    public int InFrameTimeoutSeconds { get; init; } = 30;
 }
 
 /// <summary>How a registered application is run. <see cref="Process"/> is the spawn-per-connect

@@ -92,6 +92,14 @@ public sealed partial class RhpServerHostedService : IHostedService, IAsyncDispo
                     Port = next.Port,
                     RequireAuth = next.RequireAuth,
                     Authenticate = Validate,
+                    MaxConnections = next.MaxConnections,
+                    MaxHandlesPerClient = next.MaxHandlesPerClient,
+                    InFrameTimeout = next.InFrameTimeoutSeconds <= 0
+                        ? System.Threading.Timeout.InfiniteTimeSpan
+                        : TimeSpan.FromSeconds(next.InFrameTimeoutSeconds),
+                    // Per-IP brute-force throttle on the cleartext auth message — only
+                    // meaningful when auth is enforced (and the port may be exposed).
+                    AuthThrottle = next.RequireAuth ? new LoginThrottle(TimeProvider.System) : null,
                 },
                 gateway,
                 loggerFactory.CreateLogger<RhpServer>());

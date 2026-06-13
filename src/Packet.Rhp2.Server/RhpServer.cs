@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Core;
+using Packet.Node.Core.Auth;
 using Packet.Node.Core.Console;
 
 namespace Packet.Rhp2.Server;
@@ -27,6 +28,39 @@ public sealed class RhpServerOptions
     /// <summary>Credential validator for the wire's <c>auth</c> message. Null with
     /// <see cref="RequireAuth"/> on means every auth fails (no users ⇒ no access).</summary>
     public Func<string, string, bool>? Authenticate { get; init; }
+
+    /// <summary>
+    /// Maximum number of concurrent client TCP connections. A connection accepted
+    /// beyond this is closed immediately (the OS backlog is not allowed to absorb
+    /// the overflow). Bounds connection-exhaustion / slowloris fan-out. Default 64.
+    /// </summary>
+    public int MaxConnections { get; init; } = 64;
+
+    /// <summary>
+    /// Maximum number of live handles (open streams + listening/socket handles) a
+    /// single client connection may hold at once. A request that would exceed it is
+    /// refused with errCode 4 ("No memory"). Bounds per-client memory growth from a
+    /// client that opens/sockets in a loop. Default 256.
+    /// </summary>
+    public int MaxHandlesPerClient { get; init; } = 256;
+
+    /// <summary>
+    /// How long the rest of a frame may take to arrive after its first byte. A client
+    /// may sit idle between frames indefinitely, but a peer that starts a frame and
+    /// then stalls (slowloris) is dropped after this window. Default 30 seconds;
+    /// <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> disables it.
+    /// </summary>
+    public TimeSpan InFrameTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Optional per-source-IP throttle on failed <c>auth</c> attempts (only consulted
+    /// when <see cref="RequireAuth"/> is on). Once an IP accumulates the throttle's
+    /// failure budget within its window, further <c>auth</c> attempts from it are
+    /// refused without reaching the password verify — the same sliding-window defence
+    /// the web panel uses, applied to the cleartext RHP <c>auth</c> message so a
+    /// publicly-exposed port can't be brute-forced. Null disables throttling.
+    /// </summary>
+    public LoginThrottle? AuthThrottle { get; init; }
 }
 
 /// <summary>
@@ -79,6 +113,7 @@ public sealed partial class RhpServer : IAsyncDisposable
     private readonly ConcurrentDictionary<int, RhpHandle> handles = new();
     private readonly ConcurrentDictionary<ClientState, byte> clients = new();
     private int nextHandle = FirstHandle - 1;
+    private int connectionCount;
     private Socket? listenSocket;
     private Task? acceptLoop;
     private int started;
@@ -134,6 +169,17 @@ public sealed partial class RhpServer : IAsyncDisposable
                 {
                     break;
                 }
+
+                // Connection cap: refuse the overflow immediately rather than letting
+                // the OS backlog (or unbounded client tasks) absorb it. The slot is
+                // released in HandleClientAsync's finally.
+                if (Interlocked.Increment(ref connectionCount) > options.MaxConnections)
+                {
+                    Interlocked.Decrement(ref connectionCount);
+                    LogConnectionRejected(accepted.RemoteEndPoint?.ToString() ?? "?", options.MaxConnections);
+                    try { accepted.Close(); } catch { /* already gone */ }
+                    continue;
+                }
                 _ = Task.Run(() => HandleClientAsync(accepted, ct), CancellationToken.None);
             }
         }
@@ -159,11 +205,16 @@ public sealed partial class RhpServer : IAsyncDisposable
                 byte[]? frame;
                 try
                 {
-                    frame = await RhpFraming.ReadFrameAsync(client.Stream, ct).ConfigureAwait(false);
+                    frame = await RhpFraming.ReadFrameAsync(client.Stream, options.InFrameTimeout, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
                     break;
+                }
+                catch (TimeoutException)
+                {
+                    LogClientStalled(client.Peer, options.InFrameTimeout);
+                    break;   // slowloris — peer started a frame and stalled; drop it
                 }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException or EndOfStreamException)
                 {
@@ -204,6 +255,7 @@ public sealed partial class RhpServer : IAsyncDisposable
             clients.TryRemove(client, out _);
             await CloseClientHandlesAsync(client).ConfigureAwait(false);
             client.Dispose();
+            Interlocked.Decrement(ref connectionCount);
             LogClientClosed(client.Peer);
         }
     }
@@ -222,10 +274,28 @@ public sealed partial class RhpServer : IAsyncDisposable
         switch (msg)
         {
             case AuthMessage auth:
+                // Per-IP brute-force throttle (only when auth is required): a locked-out
+                // source is refused before the password verify, exactly like the web 429.
+                if (options.RequireAuth && options.AuthThrottle?.IsLocked(client.PeerIp) == true)
+                {
+                    LogAuthThrottled(client.Peer);
+                    await WriteAsync(client, new AuthReplyMessage
+                    {
+                        Id = auth.Id,
+                        ErrCode = RhpErrorCode.Unauthorised,
+                        ErrText = RhpErrorCode.Text(RhpErrorCode.Unauthorised),
+                    }, ct).ConfigureAwait(false);
+                    break;
+                }
                 bool ok = options.Authenticate?.Invoke(auth.User, auth.Pass) ?? !options.RequireAuth;
                 if (ok)
                 {
                     client.Authed = true;
+                    options.AuthThrottle?.Reset(client.PeerIp);
+                }
+                else if (options.RequireAuth)
+                {
+                    options.AuthThrottle?.RecordFailure(client.PeerIp);
                 }
                 LogAuth(client.Peer, auth.User, ok);
                 await WriteAsync(client, new AuthReplyMessage
@@ -371,6 +441,16 @@ public sealed partial class RhpServer : IAsyncDisposable
             return;
         }
 
+        // Per-client handle cap: refuse before committing to the (slow) connect, so a
+        // client can't spin up unbounded in-flight opens. The reservation is released by
+        // TearDownHandleAsync once the handle exists, or here if the connect never lands.
+        if (!client.TryReserveHandle(options.MaxHandlesPerClient))
+        {
+            LogHandleCapReached(client.Peer, options.MaxHandlesPerClient);
+            await WriteAsync(client, new OpenReplyMessage { Id = open.Id, Handle = 0, ErrCode = RhpErrorCode.NoMemory, ErrText = RhpErrorCode.Text(RhpErrorCode.NoMemory) }, ct).ConfigureAwait(false);
+            return;
+        }
+
         // The connect can take seconds of air time — run it off the dispatch loop so this
         // client's other handles stay live; the reply correlates by id whenever it lands.
         // (Deviation D4: the reply carries the RESOLVED outcome, not an early optimistic one.)
@@ -383,11 +463,13 @@ public sealed partial class RhpServer : IAsyncDisposable
             }
             catch (RhpGatewayException gex)
             {
+                client.ReleaseHandle();   // reserved slot never became a handle
                 await WriteAsync(client, new OpenReplyMessage { Id = open.Id, Handle = 0, ErrCode = gex.ErrCode, ErrText = gex.Message }, ct).ConfigureAwait(false);
                 return;
             }
             catch (OperationCanceledException)
             {
+                client.ReleaseHandle();
                 return;   // server/client shutting down
             }
 
@@ -445,6 +527,14 @@ public sealed partial class RhpServer : IAsyncDisposable
         if (err != 0)
         {
             await WriteAsync(client, new SocketReplyMessage { Id = msg.Id, Handle = null, ErrCode = err, ErrText = text }, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Per-client handle cap — a socket handle counts like any other.
+        if (!client.TryReserveHandle(options.MaxHandlesPerClient))
+        {
+            LogHandleCapReached(client.Peer, options.MaxHandlesPerClient);
+            await WriteAsync(client, new SocketReplyMessage { Id = msg.Id, Handle = null, ErrCode = RhpErrorCode.NoMemory, ErrText = RhpErrorCode.Text(RhpErrorCode.NoMemory) }, ct).ConfigureAwait(false);
             return;
         }
 
@@ -543,6 +633,15 @@ public sealed partial class RhpServer : IAsyncDisposable
         if (listenerHandle.Closed)
         {
             await connection.DisposeAsync().ConfigureAwait(false);   // listener torn down mid-accept
+            return;
+        }
+
+        // The child handle counts against the listener's owner — refuse (and drop the
+        // inbound) rather than let accepts grow a client's handle set without bound.
+        if (!listenerHandle.Owner.TryReserveHandle(options.MaxHandlesPerClient))
+        {
+            LogHandleCapReached(listenerHandle.Owner.Peer, options.MaxHandlesPerClient);
+            await connection.DisposeAsync().ConfigureAwait(false);
             return;
         }
 
@@ -723,6 +822,7 @@ public sealed partial class RhpServer : IAsyncDisposable
         {
             return;   // already torn down
         }
+        handle.Owner.ReleaseHandle();   // free the per-client reservation
         handles.TryRemove(handle.Id, out _);
         handle.Registration?.Dispose();   // a listener stops answering for its callsign
         if (handle.Connection is { } conn)
@@ -868,6 +968,7 @@ public sealed partial class RhpServer : IAsyncDisposable
     private sealed class ClientState : IDisposable
     {
         private int seqno = -1;   // first push must carry seqno 0 (RHPTEST; live wire)
+        private int handleCount;  // live handles owned by this connection (capped)
 
         public ClientState(Socket socket, bool authed)
         {
@@ -875,17 +976,44 @@ public sealed partial class RhpServer : IAsyncDisposable
             Stream = new NetworkStream(socket, ownsSocket: false);
             Authed = authed;
             Peer = socket.RemoteEndPoint?.ToString() ?? "?";
+            PeerIp = (socket.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "unknown";
         }
 
         public Socket Socket { get; }
         public NetworkStream Stream { get; }
         public SemaphoreSlim WriteGate { get; } = new(1, 1);
         public string Peer { get; }
+
+        /// <summary>The source IP alone (no port) — the throttle key, stable across the
+        /// many short-lived connections a brute-forcer would open.</summary>
+        public string PeerIp { get; }
         public bool Authed { get; set; }
 
         /// <summary>Next push seqno: one counter per RHP connection, starting at 0, shared
         /// across all push types (recv/accept/status/server-close) — RHPTEST-verified.</summary>
         public int NextSeqno() => Interlocked.Increment(ref seqno);
+
+        /// <summary>Atomically reserve one handle slot if the client is under
+        /// <paramref name="max"/>; returns false (no reservation) when at the cap.</summary>
+        public bool TryReserveHandle(int max)
+        {
+            while (true)
+            {
+                int cur = Volatile.Read(ref handleCount);
+                if (cur >= max)
+                {
+                    return false;
+                }
+                if (Interlocked.CompareExchange(ref handleCount, cur + 1, cur) == cur)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>Release one reserved handle slot (on teardown, or a reserved
+        /// open whose connect failed before a handle existed).</summary>
+        public void ReleaseHandle() => Interlocked.Decrement(ref handleCount);
 
         public void Dispose()
         {
@@ -944,8 +1072,20 @@ public sealed partial class RhpServer : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "RHP client {Peer} sent an unparseable frame ({Reason}); closing the connection.")]
     private partial void LogBadFrame(string peer, string reason);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "RHP connection from {Peer} refused: at the {Max}-connection cap.")]
+    private partial void LogConnectionRejected(string peer, int max);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "RHP client {Peer} stalled part-way through a frame (exceeded {Timeout}); dropping the connection.")]
+    private partial void LogClientStalled(string peer, TimeSpan timeout);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "RHP client {Peer} refused a new handle: at the {Max}-handle per-connection cap.")]
+    private partial void LogHandleCapReached(string peer, int max);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "RHP auth from {Peer} as '{User}': {Ok}.")]
     private partial void LogAuth(string peer, string user, bool ok);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "RHP auth from {Peer} refused: source IP is throttled (too many recent failures).")]
+    private partial void LogAuthThrottled(string peer);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "RHP handle {Handle} opened to {Remote} for {Peer}.")]
     private partial void LogOpened(int handle, string remote, string peer);
