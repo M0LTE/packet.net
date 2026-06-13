@@ -38,6 +38,8 @@ public sealed class OauthApiTests : IDisposable
               http:
                 bind: 127.0.0.1
                 port: 8080
+              auth:
+                enabled: true
             mcp:
               oauth:
                 enabled: true
@@ -147,8 +149,22 @@ public sealed class OauthApiTests : IDisposable
         using var doc = JsonDocument.Parse(await tokenResp.Content.ReadAsStringAsync());
         doc.RootElement.GetProperty("token_type").GetString().Should().Be("Bearer");
         doc.RootElement.GetProperty("scope").GetString().Should().Be("mcp:operate");
-        // A well-formed JWT (header.payload.signature).
-        doc.RootElement.GetProperty("access_token").GetString()!.Split('.').Should().HaveCount(3);
+        // A well-formed JWT (header.payload.signature)...
+        var accessToken = doc.RootElement.GetProperty("access_token").GetString()!;
+        accessToken.Split('.').Should().HaveCount(3);
+        // ...carrying the MCP audience (so it reaches /mcp only, never the control API).
+        AudienceOf(accessToken).Should().Be(JwtTokenService.McpAudience);
+    }
+
+    // Decode the unverified JWT payload and read its `aud` claim (a string or an array).
+    private static string? AudienceOf(string jwt)
+    {
+        var payload = jwt.Split('.')[1];
+        payload = payload.Replace('-', '+').Replace('_', '/');
+        payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+        using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
+        var aud = doc.RootElement.GetProperty("aud");
+        return aud.ValueKind == JsonValueKind.Array ? aud[0].GetString() : aud.GetString();
     }
 
     [Fact]

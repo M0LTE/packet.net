@@ -40,8 +40,19 @@ public sealed class JwtTokenService
     /// <summary>The fixed JWT issuer the node stamps + the validator pins.</summary>
     public const string Issuer = "packet.net-node";
 
-    /// <summary>The fixed JWT audience the node stamps + the validator pins.</summary>
+    /// <summary>The audience for the <b>web control-API</b> credentials — the panel
+    /// login / refresh tokens. The default audience <see cref="Issue(string,string)"/>
+    /// stamps.</summary>
     public const string Audience = "packet.net-control-api";
+
+    /// <summary>The audience for <b>MCP</b> credentials — the static MCP bearer
+    /// (<c>/api/v1/mcp/token</c>) and the OAuth-issued connector tokens. Distinct from
+    /// <see cref="Audience"/> so an MCP token cannot drive the wider control API:
+    /// the JwtBearer middleware authenticates both audiences, but each endpoint's
+    /// authorization policy pins exactly one (the <c>read/operate/admin</c> gates pin
+    /// the control-API audience; the MCP gate pins this). Mints stay segregated even
+    /// though both ride the same signing key + issuer.</summary>
+    public const string McpAudience = "packet.net-mcp";
 
     private static readonly JsonWebTokenHandler Handler = new();
 
@@ -80,21 +91,32 @@ public sealed class JwtTokenService
     /// the compact JWT string and its absolute expiry instant.
     /// </summary>
     public (string Token, DateTimeOffset ExpiresAt) Issue(string username, string scope)
-        => Issue(username, scope, lifetime);
+        => Issue(username, scope, lifetime, Audience);
 
     /// <summary>
     /// Issue a token with an explicit <paramref name="lifetime"/> instead of the
-    /// service default. Used for the long-lived MCP bearer token (Phase 8): a Claude
-    /// Code config holds a static header, so it needs a token that outlives the 60-min
-    /// access-token default. Same issuer/audience/scope claim + signing key — so it
-    /// validates through the existing JwtBearer middleware unchanged; only the expiry
-    /// differs. The longer the lifetime, the more a leaked token matters — callers
-    /// default the MCP token to the <c>read</c> scope.
+    /// service default, for the <b>control-API</b> audience. Used for the long-lived
+    /// MCP-adjacent control tokens; for an MCP-audience token use the
+    /// <see cref="Issue(string,string,TimeSpan,string)"/> overload.
     /// </summary>
     public (string Token, DateTimeOffset ExpiresAt) Issue(string username, string scope, TimeSpan lifetime)
+        => Issue(username, scope, lifetime, Audience);
+
+    /// <summary>
+    /// Issue a token with an explicit <paramref name="lifetime"/> and an explicit
+    /// <paramref name="audience"/> (one of <see cref="Audience"/> / <see cref="McpAudience"/>).
+    /// Used for the long-lived MCP bearer token (Phase 8): a Claude Code config holds a
+    /// static header, so it needs a token that outlives the 60-min access-token default.
+    /// Same issuer/scope claim + signing key — so it validates through the existing
+    /// JwtBearer middleware unchanged; the <c>aud</c> is what segregates an MCP token
+    /// from a control-API token at the authorization gate. The longer the lifetime, the
+    /// more a leaked token matters — callers default the MCP token to the <c>read</c> scope.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) Issue(string username, string scope, TimeSpan lifetime, string audience)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(audience);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lifetime, TimeSpan.Zero);
 
         var now = clock.GetUtcNow();
@@ -103,7 +125,7 @@ public sealed class JwtTokenService
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = Issuer,
-            Audience = Audience,
+            Audience = audience,
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
             Expires = expires.UtcDateTime,
@@ -132,7 +154,10 @@ public sealed class JwtTokenService
         ValidateIssuer = true,
         ValidIssuer = Issuer,
         ValidateAudience = true,
-        ValidAudience = Audience,
+        // Authenticate BOTH audiences here; the per-endpoint policy pins which one is
+        // allowed where (control-API gates vs the MCP gate) — that's what keeps an MCP
+        // token off the wider control API.
+        ValidAudiences = [Audience, McpAudience],
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = signingKey,
         ValidateLifetime = true,

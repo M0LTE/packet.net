@@ -11,8 +11,9 @@ namespace Packet.Node.Mcp;
 /// Composition glue for the in-process MCP server (Phase 8). Registers the tool
 /// surface + the live backend, and — when <c>mcp.enabled</c> and <c>mcp.sse.enabled</c>
 /// — mounts the Streamable-HTTP transport on the web listener at the configured
-/// path, gated <c>read</c> (pass-through when auth is off, like the REST API).
-/// stdio is the separate <c>pdn mcp</c> subcommand. See docs/mcp-design.md.
+/// path, gated by the MCP-audience policy (read scope on an MCP-audience token;
+/// pass-through when auth is off, like the REST API). stdio is the separate
+/// <c>pdn mcp</c> subcommand. See docs/mcp-design.md.
 /// </summary>
 public static class McpRegistration
 {
@@ -42,7 +43,7 @@ public static class McpRegistration
         var mcp = app.Services.GetRequiredService<IConfigProvider>().Current.Mcp;
         if (mcp.Enabled && mcp.Sse.Enabled)
         {
-            app.MapMcp(mcp.Sse.Path).RequireAuthorization(PdnAuthPolicies.Read);
+            app.MapMcp(mcp.Sse.Path).RequireAuthorization(PdnAuthPolicies.Mcp);
         }
     }
 }

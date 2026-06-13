@@ -46,6 +46,21 @@ public class NodeConfigValidatorTests
         Validator.Validate(config).IsValid.Should().Be(expectValid);
     }
 
+    [Theory]
+    [InlineData(false, false, true)]   // both off — fine
+    [InlineData(false, true, true)]    // auth on, oauth off — fine
+    [InlineData(true, true, true)]     // oauth on AND auth on — fine
+    [InlineData(true, false, false)]   // oauth on but auth off — refused (tokens unenforced)
+    public void Mcp_oauth_requires_management_auth(bool oauthEnabled, bool authEnabled, bool expectValid)
+    {
+        var config = Valid() with
+        {
+            Mcp = new McpConfig { Oauth = new McpOauthConfig { Enabled = oauthEnabled } },
+            Management = new ManagementConfig { Auth = new AuthConfig { Enabled = authEnabled } },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
     [Fact]
     public void Rejects_duplicate_port_ids_but_accepts_distinct_ones()
     {

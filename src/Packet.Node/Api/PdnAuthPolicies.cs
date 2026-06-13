@@ -36,19 +36,33 @@ public static class PdnAuthPolicies
     /// <summary>Policy name for the admin-scope gate.</summary>
     public const string Admin = "pdn-admin";
 
-    /// <summary>Register the three scope policies on the options.</summary>
+    /// <summary>Policy name for the MCP endpoint gate — read scope, but pinned to the
+    /// MCP token audience so a control-API token can't reach <c>/mcp</c> and (more
+    /// importantly) an MCP token can't reach the control API. Per-tool step-up to
+    /// <c>operate</c> happens inside the MCP write tools.</summary>
+    public const string Mcp = "pdn-mcp";
+
+    /// <summary>Register the scope policies on the options. The control-API gates pin
+    /// the control-API audience; the MCP gate pins the MCP audience — so the two token
+    /// audiences stay segregated even though both validate on the same signing key.</summary>
     public static void AddPdnScopePolicies(this AuthorizationOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        options.AddPolicy(Read, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Read)));
-        options.AddPolicy(Operate, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Operate)));
-        options.AddPolicy(Admin, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Admin)));
+        options.AddPolicy(Read, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Read, JwtTokenService.Audience)));
+        options.AddPolicy(Operate, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Operate, JwtTokenService.Audience)));
+        options.AddPolicy(Admin, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Admin, JwtTokenService.Audience)));
+        options.AddPolicy(Mcp, p => p.AddRequirements(new ScopeRequirement(AuthScopes.Read, JwtTokenService.McpAudience)));
     }
 }
 
-/// <summary>An endpoint's required scope (one of <see cref="AuthScopes"/>).</summary>
-public sealed class ScopeRequirement(string requiredScope) : IAuthorizationRequirement
+/// <summary>An endpoint's required scope (one of <see cref="AuthScopes"/>) and the JWT
+/// audience the satisfying token must carry (control-API vs MCP) — so a token minted for
+/// one surface is not accepted on the other.</summary>
+public sealed class ScopeRequirement(string requiredScope, string requiredAudience) : IAuthorizationRequirement
 {
     /// <summary>The scope this endpoint requires.</summary>
     public string RequiredScope { get; } = requiredScope;
+
+    /// <summary>The JWT <c>aud</c> the satisfying token must carry.</summary>
+    public string RequiredAudience { get; } = requiredAudience;
 }

@@ -41,6 +41,16 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
 
         RuleFor(c => c.Management).NotNull().SetValidator(new ManagementValidator());
 
+        // Security: the MCP OAuth authorization server mints access tokens, but a token
+        // is only ENFORCED when management.auth.enabled is on — the scope gate passes
+        // through entirely when auth is off. Enabling the OAuth connector with auth off
+        // would stand up a working login/consent/token flow whose tokens are never
+        // checked, leaving /mcp and the REST API open to anyone who can reach them.
+        // Refuse the combination at config-apply rather than ship a false sense of security.
+        RuleFor(c => c)
+            .Must(c => !(c.Mcp.Oauth.Enabled && !c.Management.Auth.Enabled))
+            .WithMessage("mcp.oauth.enabled requires management.auth.enabled — OAuth tokens are only enforced when management auth is on.");
+
         RuleFor(c => c.NetRom).NotNull().SetValidator(new NetRomValidator());
 
         RuleFor(c => c.Beacon).NotNull().SetValidator(new BeaconConfigValidator());

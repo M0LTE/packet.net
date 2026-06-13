@@ -15,9 +15,10 @@ namespace Packet.Node.Api;
 /// The flag is read live from the <see cref="IConfigProvider"/> on each
 /// authorization decision (so the policy registration is independent of the flag's
 /// value and a config edit takes effect without re-wiring). When enabled, the
-/// principal must be authenticated and its <c>scope</c> claim must
+/// principal must be authenticated, its <c>scope</c> claim must
 /// <see cref="AuthScopes.Satisfies"/> the endpoint's required scope (admin ⊃
-/// operate ⊃ read).
+/// operate ⊃ read), and its <c>aud</c> must match the gate's required audience
+/// (control-API vs MCP) — so an MCP token never satisfies a control-API gate.
 /// </remarks>
 public sealed class ScopeRequirementHandler(IConfigProvider config) : AuthorizationHandler<ScopeRequirement>
 {
@@ -43,7 +44,11 @@ public sealed class ScopeRequirementHandler(IConfigProvider config) : Authorizat
         if (user?.Identity?.IsAuthenticated == true)
         {
             var granted = user.FindFirst(AuthScopes.ScopeClaim)?.Value;
-            if (AuthScopes.Satisfies(granted, requirement.RequiredScope))
+            // The token must also carry the audience this gate pins (control-API vs MCP),
+            // so a token minted for one surface can't be replayed against the other.
+            bool audienceMatches = user.FindAll("aud")
+                .Any(c => string.Equals(c.Value, requirement.RequiredAudience, StringComparison.Ordinal));
+            if (audienceMatches && AuthScopes.Satisfies(granted, requirement.RequiredScope))
             {
                 context.Succeed(requirement);
             }

@@ -86,6 +86,26 @@ public static class PasswordHasher
         return CryptographicOperations.FixedTimeEquals(candidate, p.Hash);
     }
 
+    // A stable per-process reference salt for the dummy-verify path. Random (not a
+    // constant a probe could special-case), but fixed for the process lifetime so the
+    // timing of a no-such-user attempt matches a real verify's Argon2 derivation.
+    private static readonly byte[] DummySalt = RandomNumberGenerator.GetBytes(SaltBytes);
+
+    /// <summary>
+    /// Spend a verify-equivalent Argon2 derivation against a fixed reference salt and
+    /// return <c>false</c>. Call this on the "no such user" path so a login probe for a
+    /// non-existent username costs the same wall-clock as one for a real user — closing
+    /// the timing oracle that would otherwise let an attacker enumerate valid usernames.
+    /// Always returns <c>false</c> (there is nothing to match).
+    /// </summary>
+    public static bool VerifyDummy(string password)
+    {
+        ArgumentNullException.ThrowIfNull(password);
+        // Discarded, but the derivation is a real library call so it isn't elided.
+        _ = Derive(password, DummySalt, MemoryKib, Iterations, Parallelism, HashBytes);
+        return false;
+    }
+
     private static byte[] Derive(string password, byte[] salt, int memoryKib, int iterations, int parallelism, int outputBytes)
     {
         using var argon2 = new Argon2id(Encoding.UTF8.GetBytes(password))
