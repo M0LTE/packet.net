@@ -39,6 +39,18 @@ public sealed class Ax25Session
     private readonly object dispatchGate = new();
     private bool dispatching;
 
+    // Early-inbound replay buffer. A consumer that wraps this session (the node's
+    // Ax25NodeConnection) subscribes to DataLinkSignalEmitted, but for an OUTBOUND
+    // session that is already connected by the time it is wrapped, the peer may have
+    // sent data — a node's connect banner is the canonical case — in the window
+    // between connect and subscribe, and the event fires it into the void. We buffer
+    // inbound DL-DATA indications here (under dispatchGate, so it's consistent with
+    // emission) until the first replay-consumer attaches via AttachConsumerWithReplay,
+    // which atomically replays then subscribes and disarms. Bounded so a session that
+    // is only ever tapped via the raw event (a NET/ROM interlink) can't grow it.
+    private List<DataLinkSignal>? earlyInbound = new();
+    private const int MaxEarlyInbound = 32;
+
     // ax25spec#9 (Ax25Spec9AckProgressResetsRc): set when a committed transition
     // advances V(A); consumed at the next T1 expiry to clamp RC. See
     // PreClampRetryCountOnT1Expiry.
@@ -97,7 +109,46 @@ public sealed class Ax25Session
     public void RaiseDataLinkSignal(DataLinkSignal signal)
     {
         ArgumentNullException.ThrowIfNull(signal);
-        DataLinkSignalEmitted?.Invoke(this, signal);
+        // Serialise the buffer-append with AttachConsumerWithReplay's replay+subscribe so a
+        // late-attaching consumer neither misses nor double-receives a signal. The dispatch
+        // path already holds dispatchGate (reentrant here, ~free); a custom rig calling this
+        // directly is simply serialised, which is safe.
+        lock (dispatchGate)
+        {
+            if (earlyInbound is { } buffered && buffered.Count < MaxEarlyInbound && signal is DataLinkDataIndication)
+            {
+                buffered.Add(signal);
+            }
+            DataLinkSignalEmitted?.Invoke(this, signal);
+        }
+    }
+
+    /// <summary>
+    /// Subscribe <paramref name="handler"/> to <see cref="DataLinkSignalEmitted"/>, first
+    /// replaying any inbound DL-DATA indications that were emitted <em>before</em> this call —
+    /// the early-inbound buffer. Atomic with respect to emission (both take the session's
+    /// dispatch gate), so a signal in flight is delivered to the handler exactly once, with no
+    /// loss and no duplication. Used by an outbound consumer (the node's Ax25NodeConnection)
+    /// that can only wrap the session after <see cref="Ax25Listener.ConnectAsync"/> has already
+    /// returned a connected link — closing the window in which a peer's immediate greeting
+    /// (e.g. a node's connect banner) would otherwise be dropped. The first such attach disarms
+    /// the buffer; subsequent raw <c>DataLinkSignalEmitted += </c> subscribers are unaffected.
+    /// </summary>
+    public void AttachConsumerWithReplay(EventHandler<DataLinkSignal> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        lock (dispatchGate)
+        {
+            if (earlyInbound is { } buffered)
+            {
+                foreach (var signal in buffered)
+                {
+                    handler(this, signal);
+                }
+                earlyInbound = null;   // disarm: this consumer now owns the live stream
+            }
+            DataLinkSignalEmitted += handler;
+        }
     }
 
     /// <summary>

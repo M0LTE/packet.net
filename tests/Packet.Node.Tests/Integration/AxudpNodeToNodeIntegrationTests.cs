@@ -67,13 +67,11 @@ public sealed class AxudpNodeToNodeIntegrationTests
         rttMs.Should().BeGreaterThan(0, "a connected session has a smoothed round-trip estimate (SRT)");
 
         // The connect itself proves the SABM/UA handshake crossed the AXUDP link
-        // (ConnectAsync only returns on DL-CONNECT-confirm). Now prove an I-frame
-        // round-trip both ways: send a command and read node B's reply back over the
-        // tunnel. (We drive the command rather than waiting on node B's eager banner
-        // because the connecting side subscribes to its session only once ConnectAsync
-        // returns — a documented slice-1 ordering nuance in Ax25NodeConnection — so a
-        // banner sent before that subscribe can be missed; a reply to OUR command is
-        // strictly after we subscribed and is race-free.)
+        // (ConnectAsync only returns on DL-CONNECT-confirm). Now prove a request/response
+        // I-frame round-trip: send a command and read node B's reply back over the tunnel.
+        // (Node B's eager connect banner is asserted separately by the unsolicited-banner
+        // test below — Ax25NodeConnection now replays pre-subscribe data, so the banner is
+        // no longer lost to the connect/subscribe window.)
         await toB.WriteAsync(Encoding.ASCII.GetBytes("I\r"), cts.Token);
         // Read through to the Info reply itself. The needle must be a token unique to the
         // Info reply ("Software:"), NOT "NODEB-1" — node B's eager connect banner
@@ -84,6 +82,42 @@ public sealed class AxudpNodeToNodeIntegrationTests
             "node B's Info reply (carried in an I-frame over AXUDP) reached node A");
         infoReply.Should().Contain("NODEB-1",
             "the Info reply names node B's callsign — proving a full request/response I-frame round-trip over AXUDP");
+    }
+
+    [Fact]
+    public async Task The_dialer_receives_node_Bs_eager_connect_banner_without_sending_first()
+    {
+        // The regression this guards: an outbound connect (the path an RHP `open` to a node's
+        // own callsign, or the console `C <node>`, takes) wraps an ALREADY-connected session in
+        // Ax25NodeConnection. Node B emits its console banner the instant it accepts — it does
+        // not wait — so the banner lands in the window between connect and subscribe. Before the
+        // fix that banner was dropped (open succeeded, Connected, then nothing — the caller
+        // stalls); now Ax25NodeConnection replays pre-subscribe inbound data, so reading WITHOUT
+        // sending anything first yields B's banner.
+        var (portA, portB) = (FreeUdpPort(), FreeUdpPort());
+        await using var nodeA = new PortSupervisor(
+            new TestConfigProvider(NodeConfig(NodeACall, "NODE-A", localPort: portA, remotePort: portB)),
+            TransportFactory.Instance, TimeProvider.System, NullLoggerFactory.Instance);
+        await using var nodeB = new PortSupervisor(
+            new TestConfigProvider(NodeConfig(NodeBCall, "NODE-B", localPort: portB, remotePort: portA)),
+            TransportFactory.Instance, TimeProvider.System, NullLoggerFactory.Instance);
+
+        await nodeA.StartAsync();
+        await nodeB.StartAsync();
+        await Wait.ForAsync(() => nodeA.RunningPortIds.Contains("axudp") && nodeB.RunningPortIds.Contains("axudp"),
+            "both AXUDP ports should come up");
+
+        var connector = nodeA.ResolveDefaultConnector();
+        connector.Should().NotBeNull();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var toB = await connector!.ConnectAsync(NodeBCall, cts.Token);
+
+        // No write — read straight through to the banner. If the eager banner were still being
+        // dropped, this would hang until the 20 s budget and the assertion would fail empty.
+        var banner = await ReadUntilAsync(toB, "NODEB-1", cts.Token);
+        banner.Should().Contain("NODEB-1",
+            "node B's unsolicited connect banner reaches the dialer (replayed past the connect/subscribe window)");
     }
 
     private static NodeConfig NodeConfig(Callsign call, string alias, int localPort, int remotePort) => new()
