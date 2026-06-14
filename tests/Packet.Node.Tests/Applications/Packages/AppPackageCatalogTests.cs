@@ -379,6 +379,159 @@ public class AppPackageCatalogTests : IDisposable
         entry.Error.Should().Contain("inline application 'other'");
     }
 
+    // ---- forward: block validation (docs/network-access.md) ---------------------------
+
+    private static string ForwardManifest(string id, string forwardYaml) => $"""
+        manifest: 1
+        id: {id}
+        service:
+          command: /bin/{id}
+        forward:
+        {forwardYaml}
+        """;
+
+    [Fact]
+    public void A_valid_forward_block_is_accepted_and_surfaced()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 993
+                target: 127.0.0.1:1430
+                tls: terminate
+            """));
+
+        var entry = catalog.Discover(Config()).Single();
+
+        entry.Error.Should().BeNull();
+        entry.Forwards.Should().ContainSingle();
+        entry.Forwards[0].Listen.Should().Be(993);
+        entry.Forwards[0].Target.Should().Be("127.0.0.1:1430");
+        entry.Forwards[0].Tls.Should().Be(ForwardTls.Terminate);
+    }
+
+    [Theory]
+    [InlineData("::1:993")]
+    [InlineData("localhost:993")]
+    public void Loopback_hosts_other_than_127_0_0_1_are_accepted(string target)
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", $"""
+              - listen: 993
+                target: {target}
+            """));
+
+        catalog.Discover(Config()).Single().Error.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_non_loopback_forward_target_is_an_error()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 993
+                target: 10.0.0.5:1430
+            """));
+
+        var entry = catalog.Discover(Config()).Single();
+
+        entry.Error.Should().Contain("forward[0].target").And.Contain("loopback");
+    }
+
+    [Fact]
+    public void A_forward_target_without_a_port_is_an_error()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 993
+                target: 127.0.0.1
+            """));
+
+        catalog.Discover(Config()).Single().Error.Should().Contain("forward[0].target");
+    }
+
+    [Fact]
+    public void A_listen_of_443_is_reserved_for_the_web_proxy_and_is_an_error()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 443
+                target: 127.0.0.1:1430
+            """));
+
+        var entry = catalog.Discover(Config()).Single();
+
+        entry.Error.Should().Contain("443").And.Contain("reserved");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(70000)]
+    public void A_listen_outside_1_65535_is_an_error(int listen)
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", $"""
+              - listen: {listen}
+                target: 127.0.0.1:1430
+            """));
+
+        catalog.Discover(Config()).Single().Error.Should().Contain("forward[0].listen");
+    }
+
+    [Fact]
+    public void Two_packages_claiming_the_same_listen_port_are_both_errors()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 993
+                target: 127.0.0.1:1430
+            """));
+        WritePackage(rootB, "post", ForwardManifest("post", """
+              - listen: 993
+                target: 127.0.0.1:1431
+            """));
+
+        var found = catalog.Discover(Config());
+
+        found.Should().HaveCount(2);
+        found.Single(p => p.Id == "mail").Error.Should().Contain("listen port 993").And.Contain("'post'");
+        found.Single(p => p.Id == "post").Error.Should().Contain("listen port 993").And.Contain("'mail'");
+    }
+
+    [Fact]
+    public void Different_listen_ports_across_packages_are_fine()
+    {
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 993
+                target: 127.0.0.1:1430
+            """));
+        WritePackage(rootB, "post", ForwardManifest("post", """
+              - listen: 465
+                target: 127.0.0.1:1431
+            """));
+
+        var found = catalog.Discover(Config());
+
+        found.Should().OnlyContain(p => p.Error == null);
+    }
+
+    [Fact]
+    public void An_out_of_range_listen_does_not_feed_the_cross_package_dup_check()
+    {
+        // An out-of-range listen is already its own per-package error; it must not also produce a
+        // confusing "collides with" message against a healthy same-(invalid)-port package. The
+        // dup-check runs only on listens that passed the range/reserved gate.
+        WritePackage(rootA, "mail", ForwardManifest("mail", """
+              - listen: 70000
+                target: 127.0.0.1:1430
+            """));
+        WritePackage(rootB, "post", ForwardManifest("post", """
+              - listen: 70000
+                target: 127.0.0.1:1431
+            """));
+
+        var found = catalog.Discover(Config());
+
+        // Each is flagged for the out-of-range listen, but NEITHER for a collision.
+        foreach (var p in found)
+        {
+            p.Error.Should().Contain("forward[0].listen");
+            p.Error.Should().NotContain("collides");
+        }
+    }
+
     // ---- resilience -------------------------------------------------------------------
 
     [Fact]

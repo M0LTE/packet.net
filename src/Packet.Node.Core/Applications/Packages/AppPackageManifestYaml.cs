@@ -30,8 +30,10 @@ public static class AppPackageManifestYaml
         // OnFailure), so a dedicated converter binds — and emits — the kebab forms.
         .WithTypeConverter(KebabCaseEnumYamlConverter.Instance)
         // Interface-typed collections need concrete types to bind (same trick as
-        // NodeConfigYaml): capabilities / args lists + the service environment map.
+        // NodeConfigYaml): capabilities / args lists + the service environment map + the
+        // forward: list of AppForwardSpec.
         .WithTypeMapping<IReadOnlyList<string>, List<string>>()
+        .WithTypeMapping<IReadOnlyList<AppForwardSpec>, List<AppForwardSpec>>()
         .WithTypeMapping<IReadOnlyDictionary<string, string>, Dictionary<string, string>>()
         .IgnoreUnmatchedProperties()
         .Build();
@@ -105,6 +107,7 @@ public static class AppPackageManifestYaml
             typeof(ApplicationKind),
             typeof(AppServiceRestart),
             typeof(AppServiceManaged),
+            typeof(ForwardTls),
         ];
 
         public bool Accepts(Type type) => Array.IndexOf(HandledEnums, type) >= 0;

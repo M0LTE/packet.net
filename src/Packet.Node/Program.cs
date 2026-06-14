@@ -378,7 +378,11 @@ builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IConfigProvider>(),
         sp.GetRequiredService<Packet.Node.Core.Tailscale.ITailscaleStatus>(),
         sp.GetRequiredService<TimeProvider>(),
-        sp.GetRequiredService<ILoggerFactory>()));
+        sp.GetRequiredService<ILoggerFactory>(),
+        // The app-package catalog feeds the sidecar the enabled apps' declared tailnet forwards
+        // (the --forwards-file); they ride the spawn fingerprint, so enabling/disabling a
+        // forward-declaring app restarts the sidecar. See docs/network-access.md.
+        packages: sp.GetRequiredService<Packet.Node.Core.Applications.Packages.IAppPackageCatalog>()));
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<Packet.Node.Core.Tailscale.TailscaleSidecarHostedService>());
 

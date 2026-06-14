@@ -31,7 +31,7 @@ import { AppIcon } from "@/components/icon";
 import { api, listApps, useQuery, type Query } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/lib/utils";
-import type { AppPackage, AppPackageService, AppPackageState, AvailableApp } from "@/lib/types";
+import type { AppForward, AppPackage, AppPackageService, AppPackageState, AvailableApp } from "@/lib/types";
 
 export function Apps() {
   const { data, loading, error } = useQuery(listApps);
@@ -438,6 +438,7 @@ function PackageManager({ query, reloadBoth }: { query: Query<AppPackage[]>; rel
             ) : (
               <p className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">No declared capabilities.</p>
             )}
+            <ForwardList forwards={confirming.forwards} />
           </div>
         )}
       </Modal>
@@ -583,4 +584,43 @@ function StatePill({ state, service }: { state: AppPackageState | null; service:
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   return <Badge variant={STATE_BADGE[state]}>{state.toLowerCase()}</Badge>;
+}
+
+// ---- declared tailnet forwards: the "exposes on your tailnet" capability -------
+// The well-known names for the ports an app is most likely to expose, so the line
+// reads "IMAPS :993 → 127.0.0.1:1430" rather than a bare port number.
+const FORWARD_PORT_NAMES: Record<number, string> = {
+  993: "IMAPS",
+  995: "POP3S",
+  465: "SMTPS",
+  587: "SMTP submission",
+  143: "IMAP",
+  110: "POP3",
+  25: "SMTP",
+};
+
+// A plain list of the tailnet exposures the owner is granting by enabling the app —
+// each forward is a capability (docs/network-access.md § App-declared port forwarding).
+// Renders nothing when the app declares no forwards.
+function ForwardList({ forwards }: { forwards: AppForward[] }) {
+  if (forwards.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-foreground">Exposes on your tailnet:</p>
+      <ul className="space-y-1.5">
+        {forwards.map((f) => {
+          const name = FORWARD_PORT_NAMES[f.listen];
+          return (
+            <li key={f.listen} className="flex items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+              <Icon name="link" size={13} className="shrink-0 text-primary" />
+              <span className="font-mono">
+                {name ? `${name} :${f.listen}` : `:${f.listen}`} → {f.target}
+              </span>
+              {f.tls === "raw" && <Badge variant="muted">raw</Badge>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }

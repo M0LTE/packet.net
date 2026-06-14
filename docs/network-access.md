@@ -62,12 +62,31 @@ tailscale:
 
 Everything needed is on the free **Personal** plan: **MagicDNS**, the **Let's Encrypt cert + TLS termination** (`ListenTLS`), **Serve**, **Funnel** (opt-in), `tsnet`, auth keys, tags/ACLs. The client lib is BSD-licensed; the control plane is Tailscale SaaS (free) or self-hosted **Headscale**. (Free-tier *limits* — ≈100 devices / up to 3 users — far exceed a node + the operator's devices; Tailscale reshuffles plan limits over time, but the feature set above is not paywalled.)
 
-## IMAP / SMTP posture (doc-only until the BBS arc)
+## App-declared port forwarding (built — S4)
+
+An app package may declare a `forward:` block in its `pdn-app.yaml` ([`app-packages.md`](app-packages.md) § The `forward:` block) asking the embedded Tailscale node to expose one or more ports **on the tailnet** and reverse-proxy each to one of the app's loopback listeners. This is what carries a packaged BBS's **IMAPS/SMTPS** to the operator's devices: the app stays plaintext on loopback, **pdn owns the TLS edge** with the node's `.ts.net` cert.
+
+```yaml
+# in the app's pdn-app.yaml
+forward:
+  - listen: 993            # tailnet-facing port on the node's tsnet node
+    target: 127.0.0.1:1430 # the app's plaintext loopback listener
+    tls: terminate         # terminate (default — sidecar adds TLS w/ the node cert) | raw
+```
+
+- **The sidecar contract.** The supervisor (`TailscaleSidecarHostedService`) collects the forwards from every **enabled, error-free** package and writes them to a JSON array file in the sidecar's state dir, handing the child **`--forwards-file <path>`**: `[{"listen":993,"target":"127.0.0.1:1430","tls":"terminate"}]`. The collected-forwards set is part of the spawn fingerprint, so enabling/disabling a forward-declaring app — or any forward change — **restarts the sidecar**. Forwards apply only when `tailscale.enabled` (no Tailscale → no forwards); the existing `--target` web reverse-proxy behaviour is unchanged.
+- **TLS terminate (the default).** The sidecar listens TLS on `listen` with the node's tailnet cert (the same auto Let's Encrypt cert it already uses for `:443`), terminates it, and proxies **plaintext** to the app's loopback `target`. The app never sees TLS — this is the everyday **implicit-TLS** path (IMAPS `:993`, SMTPS `:465`). **STARTTLS is out of scope** (the app would have to own the upgrade); apps that want it terminate their own TLS behind `tls: raw`.
+- **`tls: raw`** passes the TCP stream through unterminated, relying on WireGuard for transport encryption — for an app speaking its own TLS, or a plaintext tailnet-only protocol.
+- **Loopback-only target, `443` reserved.** pdn never proxies the tailnet to a non-loopback host (the target host must be `127.0.0.1`/`::1`/`localhost`), and `listen: 443` is rejected (the web reverse-proxy owns it). Two packages can't claim the same `listen` port — both are flagged broken. Validation lives in the app-package catalog; a broken/duplicate forward makes the package an error entry, so it never enables and its forwards are never collected.
+- **Capability-gated.** Each forward is shown in the enable confirm ("Exposes on your tailnet: IMAPS :993 → 127.0.0.1:1430") — the owner sees the tailnet exposure they are granting before flipping the trust switch.
+- **Tailnet-only.** This is a tailnet exposure, not a public one. **Funnel can't carry raw IMAP** (it's HTTPS-port-restricted), so internet-public mail remains the operator's own edge if ever needed (a non-goal here).
+
+## IMAP / SMTP posture (LAN doc-only; tailnet built — S4)
 
 Mail clients have no "secure context" notion — they care about **cert trust**:
 
 - **LAN:** self-signed (one-time iOS "Trust" tap, or the parked `.mobileconfig`); plaintext is resisted by modern iOS — avoid.
-- **Remote (tailnet):** the **real `.ts.net` cert** via `tailscale serve --tls-terminated-tcp` (system daemon) or the embedded node terminating IMAPS/SMTPS → **no prompt, no profile**. This is the everyday path (the phone is on the tailnet).
+- **Remote (tailnet) — built (S4):** the **real `.ts.net` cert**, via the embedded node terminating IMAPS/SMTPS for an app's declared `forward:` ports (see § App-declared port forwarding above) → **no prompt, no profile**. (A system-daemon operator can equally use `tailscale serve --tls-terminated-tcp`.) This is the everyday path (the phone is on the tailnet); a BBS just declares `forward: [{listen: 993, target: 127.0.0.1:<imap>, tls: terminate}, ...]`.
 - **Net effect of retiring DNS-01:** we **keep** trusted-cert mail for tailnet devices (the realistic case, incl. Tom's phone) and **lose only** internet-public, no-VPN trusted mail — Funnel can't carry raw IMAP (it's HTTPS-port-restricted), so that becomes the operator's own public edge if ever needed.
 
 ## pdn code changes
@@ -83,6 +102,7 @@ Mail clients have no "secure context" notion — they care about **cert trust**:
 - **S1 — HTTP-first foundation (no Go).** ForwardedHeaders + the `isSecureContext` passkey gate + the `tailscale:` config schema (parsed/validated, inert) + retire the DNS-01 recipe from docs/template + this ADR. Ships the posture without the Go build.
 - **S2 — the embedded tsnet sidecar.** The Go module + CI `go build` + `build-deb.sh` staging + `TailscaleSidecarHostedService` + cert/serve + status readback + the UI surfacing. The structural slice (Go enters the build).
 - **S3 — migrate the lab + retire DNS-01 for real.** Enable the sidecar on `packetdotnet`, join Tom's tailnet, set the RP ID to the `.ts.net` name, verify passkeys end-to-end over Tailscale; stop the `pdn.m0lte.uk` DNS-01 cert; update the cloudflare-token memory (superseded).
+- **S4 — app-declared tailnet port forwarding (built).** The manifest `forward:` block + catalog validation (loopback target, `443` reserved, cross-package dup-listen) + the supervisor feeding the sidecar `--forwards-file` (in the spawn fingerprint) + the Go sidecar consuming it + the inventory DTO `forwards` + the enable-confirm exposure line. Promotes the **tailnet IMAPS/SMTPS path from doc-only to built** (§ App-declared port forwarding); the IMAP/SMTP *server* itself is still the BBS arc.
 
 ## Security posture
 
@@ -96,7 +116,9 @@ Mail clients have no "secure context" notion — they care about **cert trust**:
 - Tier A (system-daemon orchestration) as a *first-class pdn feature* — supported only implicitly (pdn is HTTP behind any edge the operator runs).
 - Funnel/public exposure by default.
 - The self-signed CA + `.mobileconfig` smoothing ([#439](https://github.com/packet-net/packet.net/issues/439), parked).
-- IMAP/SMTP implementation (the BBS arc; this ADR only fixes the posture).
+- The IMAP/SMTP **server** itself (the BBS arc). S4 built the **transport** (tailnet TLS-terminating forwards for an app's declared ports); the mailbox/protocol implementation is the BBS's.
+- **STARTTLS** on a forwarded port — the sidecar does implicit TLS (`tls: terminate`) or pass-through (`tls: raw`) only; an app wanting STARTTLS owns its own TLS behind `raw`.
+- Internet-public (no-VPN) mail — Funnel can't carry raw IMAP; that stays the operator's own edge.
 
 ## Cross-references
 

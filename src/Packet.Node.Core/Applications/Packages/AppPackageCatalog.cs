@@ -27,6 +27,15 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
 
     private const string StateRootDir = "/var/lib/packetnet/apps";
 
+    /// <summary>The tailnet listen port reserved for the web reverse-proxy (the sidecar's own
+    /// <c>ListenTLS(":443")</c>) — an app's <c>forward.listen</c> may not claim it.</summary>
+    private const int ReservedWebPort = 443;
+
+    /// <summary>The loopback hosts a forward target may name — pdn proxies the tailnet only to
+    /// the local host, never to an arbitrary one.</summary>
+    private static readonly HashSet<string> LoopbackHosts =
+        new(["127.0.0.1", "::1", "localhost"], StringComparer.OrdinalIgnoreCase);
+
     private readonly ILogger<AppPackageCatalog> log = loggerFactory.CreateLogger<AppPackageCatalog>();
 
     /// <inheritdoc/>
@@ -54,6 +63,28 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
                 draft.Problems.Add(
                     $"session verb '{draft.EffectiveVerb}' collides with package(s) {others} — " +
                     "override apps[].match to disambiguate.");
+            }
+        }
+
+        // Cross-package rule (same pattern as the session-verb collision): a tailnet listen
+        // port can be exposed by only one node — two packages claiming the same forward.listen
+        // can't both go live, so mark BOTH. Only forwards whose listen passed the per-package
+        // range/reserved checks participate (a draft already flagged for a bad listen is broken
+        // regardless, and we don't want a second confusing message on top).
+        foreach (var group in drafts
+                     .SelectMany(d => d.ValidForwardListens().Select(port => (Draft: d, Port: port)))
+                     .GroupBy(x => x.Port)
+                     .Where(g => g.Select(x => x.Draft).Distinct().Count() > 1))
+        {
+            var port = group.Key;
+            var ids = group.Select(x => x.Draft).Distinct().ToList();
+            foreach (var draft in ids)
+            {
+                var others = string.Join(", ", ids.Where(o => !ReferenceEquals(o, draft))
+                    .Select(o => $"'{o.Id}'"));
+                draft.Problems.Add(
+                    $"forward listen port {port} collides with package(s) {others} — " +
+                    "a tailnet port can be exposed by only one app.");
             }
         }
 
@@ -219,6 +250,36 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
             problems.Add($"ui.upstream: '{ui.Upstream}' must be an absolute http(s) URL (e.g. http://127.0.0.1:9090).");
         }
 
+        // The forward: block (docs/network-access.md § App-declared port forwarding). pdn must
+        // not proxy the tailnet to arbitrary hosts, so the target is loopback-only; 443 is the
+        // web reverse-proxy's, so a listen of 443 is reserved. Each forward validates
+        // independently. The Tls enum is closed at parse time, so an out-of-set value never
+        // reaches here — but a default(ForwardTls) (e.g. a programmatically-built spec) still
+        // checks below for completeness.
+        for (var i = 0; i < manifest.Forward.Count; i++)
+        {
+            var fwd = manifest.Forward[i];
+            if (fwd.Listen is < 1 or > 65535)
+            {
+                problems.Add($"forward[{i}].listen: {fwd.Listen} must be in 1..65535.");
+            }
+            else if (fwd.Listen == ReservedWebPort)
+            {
+                problems.Add($"forward[{i}].listen: {ReservedWebPort} is reserved for the web reverse-proxy — pick another port.");
+            }
+
+            if (!IsLoopbackHostPort(fwd.Target))
+            {
+                problems.Add($"forward[{i}].target: '{fwd.Target}' must be a loopback host:port " +
+                    "(127.0.0.1 / ::1 / localhost, port 1..65535) — pdn never proxies the tailnet to a non-loopback host.");
+            }
+
+            if (!Enum.IsDefined(fwd.Tls))
+            {
+                problems.Add($"forward[{i}].tls: '{fwd.Tls}' is not a valid value (terminate | raw).");
+            }
+        }
+
         // Identity collision across the two sources — the contract makes this an error
         // (docs/app-packages.md § Owner state): pdn can't serve two apps under one id.
         var inlineIdClash = config.Applications.FirstOrDefault(a =>
@@ -257,6 +318,27 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
         && Uri.TryCreate(url, UriKind.Absolute, out var u)
         && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
+    /// <summary>True when <paramref name="target"/> is a <c>host:port</c> with a loopback host
+    /// (127.0.0.1 / ::1 / localhost) and a 1..65535 port. The host:port split is on the LAST
+    /// colon so an IPv6 loopback (<c>::1:993</c>) parses correctly.</summary>
+    private static bool IsLoopbackHostPort(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return false;
+        }
+        var lastColon = target.LastIndexOf(':');
+        if (lastColon <= 0 || lastColon == target.Length - 1)
+        {
+            return false;   // no port, or an empty host/port half.
+        }
+        var host = target[..lastColon];
+        var portText = target[(lastColon + 1)..];
+        return LoopbackHosts.Contains(host)
+            && int.TryParse(portText, out var port)
+            && port is >= 1 and <= 65535;
+    }
+
     [GeneratedRegex("^[a-z0-9-]+$")]
     private static partial Regex IdPattern();
 
@@ -283,6 +365,15 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
         public AppOverrideConfig? Override { get; init; }
         public string? EffectiveVerb { get; set; }
         public List<string> Problems { get; } = [];
+
+        /// <summary>The forward listen ports that passed the per-package range/reserved checks —
+        /// the candidates the cross-package dup-listen pass groups on (a listen already flagged
+        /// for being out of range or reserved is broken regardless, so it is excluded here to
+        /// avoid a confusing second message).</summary>
+        public IEnumerable<int> ValidForwardListens() =>
+            (Manifest?.Forward ?? [])
+                .Select(f => f.Listen)
+                .Where(p => p is >= 1 and <= 65535 && p != ReservedWebPort);
 
         public DiscoveredAppPackage Build()
         {
