@@ -12,7 +12,7 @@ public class AppCatalogYamlTests
         var doc = AppCatalogYaml.Parse(CatalogTestSupport.RealCatalogYaml());
 
         doc.Catalog.Should().Be(1);
-        doc.Apps.Should().HaveCount(3);
+        doc.Apps.Should().HaveCount(4);
 
         // dapps — assets kind.
         var dapps = doc.Apps.Single(a => a.Id == "dapps");
@@ -40,6 +40,11 @@ public class AppCatalogYamlTests
         var convers = doc.Apps.Single(a => a.Id == "convers");
         convers.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
         convers.Version.Should().Be("0.1.2");
+
+        var bbs = doc.Apps.Single(a => a.Id == "bbs");
+        bbs.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
+        bbs.Version.Should().Be("0.2.0");
+        bbs.Artifact.Deb!.Debs.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
     }
 
     [Fact]
