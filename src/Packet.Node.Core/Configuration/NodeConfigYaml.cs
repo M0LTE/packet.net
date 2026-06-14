@@ -21,8 +21,9 @@ public static class NodeConfigYaml
         .WithTypeMapping<IReadOnlyList<PortConfig>, List<PortConfig>>()
         // Same for the applications: registry — the interface needs a concrete List to bind.
         .WithTypeMapping<IReadOnlyList<ApplicationConfig>, List<ApplicationConfig>>()
-        // Same for management.auth.webAuthn.allowedOrigins (an IReadOnlyList<string>) and
-        // each application's args / capabilities lists.
+        // Same for management.auth.webAuthn.allowedOrigins, tailscale.tags (both
+        // IReadOnlyList<string>) and each application's args / capabilities lists — the
+        // one IReadOnlyList<string> mapping covers every string list in the tree.
         .WithTypeMapping<IReadOnlyList<string>, List<string>>()
         // The apps: package-override list (docs/app-packages.md) + its environment map.
         .WithTypeMapping<IReadOnlyList<AppOverrideConfig>, List<AppOverrideConfig>>()

@@ -540,4 +540,113 @@ public class NodeConfigValidatorTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.ErrorMessage.StartsWith("traffic.", StringComparison.Ordinal));
     }
+
+    // ---- tailscale: (network-access.md S1 — parsed/validated, inert) ----------------
+
+    [Fact]
+    public void Tailscale_absent_block_is_valid_and_disabled()
+    {
+        // The default (no tailscale: key) is an inert, disabled block — fully valid.
+        var config = Valid();
+        config.Tailscale.Enabled.Should().BeFalse();
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Tailscale_disabled_block_is_unconstrained()
+    {
+        // When disabled, the shape rules (hostname/target/stateDir) don't apply — the
+        // block is inert. (Junk that would be rejected when enabled is tolerated here.)
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig
+            {
+                Enabled = false,
+                Hostname = "Not A Valid Host!",
+                Target = "nonsense",
+                StateDir = "",
+            },
+        };
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Tailscale_enabled_default_shape_is_valid()
+    {
+        var config = Valid() with { Tailscale = new TailscaleConfig { Enabled = true } };
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("pdn", true)]
+    [InlineData("pdn-node-1", true)]
+    [InlineData("node99", true)]
+    [InlineData("", false)]              // required when enabled
+    [InlineData("PDN", false)]           // uppercase rejected by ^[a-z0-9-]+$
+    [InlineData("pdn.node", false)]      // a dot is not in the label set
+    [InlineData("pdn_node", false)]      // underscore not allowed
+    [InlineData("pdn node", false)]      // space not allowed
+    public void Tailscale_hostname_must_match_pattern_when_enabled(string hostname, bool expectValid)
+    {
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig { Enabled = true, Hostname = hostname },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1:8080", true)]
+    [InlineData("localhost:8080", true)]
+    [InlineData("127.0.0.1", false)]     // no port
+    [InlineData("127.0.0.1:", false)]    // empty port
+    [InlineData(":8080", false)]         // empty host
+    [InlineData("127.0.0.1:70000", false)] // port out of range
+    [InlineData("127.0.0.1:abc", false)] // non-numeric port
+    [InlineData("", false)]
+    public void Tailscale_target_must_be_host_port_when_enabled(string target, bool expectValid)
+    {
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig { Enabled = true, Target = target },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Tailscale_stateDir_required_when_enabled()
+    {
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig { Enabled = true, StateDir = "" },
+        };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(null, null, true)]                  // neither — interactive login, fine
+    [InlineData("tskey-abc", null, true)]           // inline key only
+    [InlineData(null, "/etc/packetnet/ts.key", true)] // key file only (preferred)
+    [InlineData("tskey-abc", "/etc/packetnet/ts.key", false)] // both — ambiguous
+    public void Tailscale_authKey_and_authKeyFile_are_mutually_exclusive(string? authKey, string? authKeyFile, bool expectValid)
+    {
+        // Enforced ALWAYS (even disabled) — a both-set block is ambiguous regardless.
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig { Enabled = false, AuthKey = authKey, AuthKeyFile = authKeyFile },
+        };
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Tailscale_funnel_true_with_disabled_is_a_noop_not_an_error()
+    {
+        // funnel is inert until the sidecar runs; a funnel:true / enabled:false block is
+        // a deliberate no-op, kept total rather than rejected.
+        var config = Valid() with
+        {
+            Tailscale = new TailscaleConfig { Enabled = false, Funnel = true },
+        };
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
 }

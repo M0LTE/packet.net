@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Packet.Node.Api;
 using Packet.Node.Core.Auth;
 using Packet.Node.Core.Beacons;
@@ -412,7 +413,31 @@ builder.WebHost.ConfigureKestrel(options =>
     }
 });
 
+// Forwarded headers — for the loopback TLS edge (the embedded Tailscale tsnet sidecar,
+// network-access.md). The sidecar terminates HTTPS and reverse-proxies to pdn's loopback
+// HTTP; honouring X-Forwarded-Proto/Host/For makes Request.IsHttps/Scheme/Host reflect the
+// PUBLIC https origin, so PdnAppGateway's pdn_at cookie Secure flag and any request-derived
+// WebAuthn origin are correct. Trust the headers ONLY from a loopback proxy: clear the
+// default known proxies/networks then add the two loopback addresses, so an arbitrary remote
+// client cannot spoof its scheme/host (anti-spoof). With no proxy in front there are no such
+// headers to read → this is a no-op, safe to always enable.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+    o.KnownProxies.Clear();
+    o.KnownIPNetworks.Clear();
+    o.KnownProxies.Add(IPAddress.Loopback);
+    o.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
+
 var app = builder.Build();
+
+// UseForwardedHeaders runs FIRST — before auth, static files, and every endpoint — so the
+// rewritten scheme/host is in place for the whole pipeline. Trusted from loopback only
+// (configured above); a no-op when no proxy sends the headers.
+app.UseForwardedHeaders();
 
 // Authentication + authorization run for every request. With auth disabled they are
 // effectively inert (no [Authorize] challenges, and the scope policies pass through via

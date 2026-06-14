@@ -114,12 +114,36 @@ public static class NodeConfigArbitraries
             from maxMb in Gen.Choose(1, 4096)
             select new TrafficConfig { Enabled = enabled, Path = path, RetentionDays = days, MaxMb = maxMb });
 
+    private static Gen<TailscaleConfig> TailscaleGen() =>
+        Gen.OneOf(
+            Gen.Constant(new TailscaleConfig()),
+            // Only VALID blocks (the round-trip property generates configs that must pass
+            // the validator): a legal ^[a-z0-9-]+$ hostname, a host:port target, a
+            // non-empty stateDir, and at most one of authKey/authKeyFile.
+            from enabled in Gen.Elements(false, true)
+            from hostname in Gen.Elements("pdn", "rdg-pdn", "node1")
+            from tags in Gen.Elements<IReadOnlyList<string>>([], ["tag:server"], ["tag:server", "tag:packetnet"])
+            from key in Gen.Elements<(string?, string?)>((null, null), ("tskey-abc", null), (null, "/etc/packetnet/ts.key"))
+            from funnel in Gen.Elements(false, true)
+            select new TailscaleConfig
+            {
+                Enabled = enabled,
+                Hostname = hostname,
+                Tags = tags,
+                AuthKey = key.Item1,
+                AuthKeyFile = key.Item2,
+                StateDir = "/var/lib/packetnet/tsnet",
+                Target = "127.0.0.1:8080",
+                Funnel = funnel,
+            });
+
     private static Gen<NodeConfig> NodeConfigGen() =>
         from call in CallsignGen()
         from nPorts in Gen.Choose(0, 4)
         from ports in Gen.CollectToList(Enumerable.Range(0, nPorts).Select(PortGen))
         from netrom in NetRomGen()
         from traffic in TrafficGen()
+        from tailscale in TailscaleGen()
         select new NodeConfig
         {
             SchemaVersion = 1,
@@ -127,6 +151,7 @@ public static class NodeConfigArbitraries
             Ports = ports.ToList(),
             NetRom = netrom,
             Traffic = traffic,
+            Tailscale = tailscale,
         };
 
     public static Arbitrary<NodeConfig> NodeConfig() => Arb.From(NodeConfigGen());

@@ -585,4 +585,81 @@ public class NodeConfigYamlTests
 
         config.Ports[0].Kiss!.AckMode.Should().BeFalse();
     }
+
+    // ---- tailscale: (network-access.md S1 — parsed/validated, inert) ----------------
+
+    [Fact]
+    public void Parses_a_full_tailscale_block()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            tailscale:
+              enabled: true
+              authKeyFile: /etc/packetnet/tailscale.authkey
+              hostname: rdg-pdn
+              tags:
+                - tag:server
+                - tag:packetnet
+              stateDir: /var/lib/packetnet/tsnet
+              target: 127.0.0.1:8080
+              funnel: true
+            """;
+
+        var ts = NodeConfigYaml.Parse(yaml).Tailscale;
+
+        ts.Enabled.Should().BeTrue();
+        ts.AuthKey.Should().BeNull();
+        ts.AuthKeyFile.Should().Be("/etc/packetnet/tailscale.authkey");
+        ts.Hostname.Should().Be("rdg-pdn");
+        ts.Tags.Should().Equal("tag:server", "tag:packetnet");
+        ts.StateDir.Should().Be("/var/lib/packetnet/tsnet");
+        ts.Target.Should().Be("127.0.0.1:8080");
+        ts.Funnel.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_absent_tailscale_block_means_the_disabled_default_record()
+    {
+        // Existing configs have no tailscale: key — they must come up disabled (HTTP-only)
+        // with the documented defaults.
+        var config = NodeConfigYaml.Parse("identity:\n  callsign: M0LTE-1\n");
+
+        config.Tailscale.Should().Be(new TailscaleConfig());
+        config.Tailscale.Enabled.Should().BeFalse();
+        config.Tailscale.Hostname.Should().Be("pdn");
+        config.Tailscale.Tags.Should().BeEmpty();
+        config.Tailscale.StateDir.Should().Be("/var/lib/packetnet/tsnet");
+        config.Tailscale.Target.Should().Be("127.0.0.1:8080");
+        config.Tailscale.Funnel.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Round_trips_a_tailscale_block_with_tags_through_serialise_then_parse()
+    {
+        // The list-aware Equals/GetHashCode (mirroring WebAuthnConfig.AllowedOrigins)
+        // makes the round-trip value-equal even though serialise→parse yields a fresh
+        // Tags list.
+        var original = new NodeConfig
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            Tailscale = new TailscaleConfig
+            {
+                Enabled = true,
+                AuthKey = "tskey-abc123",
+                Hostname = "rdg-pdn",
+                Tags = ["tag:server"],
+                StateDir = "/var/lib/packetnet/tsnet",
+                Target = "127.0.0.1:8080",
+                Funnel = false,
+            },
+        };
+
+        var yaml = NodeConfigYaml.Serialize(original);
+        var reparsed = NodeConfigYaml.Parse(yaml);
+
+        reparsed.Tailscale.Should().Be(original.Tailscale,
+            "the whole tailscale block should round-trip\nYAML:\n{0}", yaml);
+    }
 }

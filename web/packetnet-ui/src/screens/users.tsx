@@ -19,6 +19,7 @@ import { Button, Badge, Card, Label, Input, Select, Field, Modal } from "@/compo
 import { Icon, type IconName } from "@/components/icon";
 import { cn } from "@/lib/utils";
 import { api, useQuery } from "@/lib/api";
+import { passkeysAvailable } from "@/lib/secureContext";
 import { useAuth, type Scope } from "@/app/auth";
 import type { UserSummary, WebAuthnCredential } from "@/lib/types";
 
@@ -201,7 +202,10 @@ function Passkeys({ isSelf }: { isSelf: boolean }) {
   const [loading, setLoading] = useState(isSelf);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const supported = api.webauthnSupported();
+  // Passkey enrolment runs only in a secure context (HTTPS / localhost); on plain-HTTP
+  // LAN the "Add passkey" affordance is hidden (network-access.md S1). lib/secureContext
+  // is the single probe; api.passkeyRegister still no-ops in mock mode.
+  const supported = passkeysAvailable();
 
   const reload = useCallback(() => {
     if (!isSelf) return;
@@ -250,18 +254,25 @@ function Passkeys({ isSelf }: { isSelf: boolean }) {
   }
 
   const enrolled = creds.length > 0;
-  const sub = !supported ? "needs HTTPS or localhost"
+  const sub = !supported ? "needs HTTPS — Tailscale or localhost"
     : loading ? "loading…"
     : enrolled ? `${creds.length} passkey${creds.length === 1 ? "" : "s"}`
     : "no passkeys yet";
 
   return (
     <div className="rounded-lg border border-border">
+      {/* The "Add passkey" enrolment affordance is offered ONLY in a secure context
+          (HTTPS / localhost). On plain-HTTP LAN the ceremony can't run, so we HIDE the
+          button and show a hint instead of presenting a control that errors on tap. */}
       <AuthMethod icon="fingerprint" title="Passkeys" sub={sub} enabled={enrolled}
-        action={<Button size="xs" disabled={!supported || busy} onClick={add}
-          title={supported ? "Enrol a passkey on this device" : "Passkeys need a secure context (HTTPS or localhost)"}>
-          <Icon name="plus" size={12} /> {busy ? "Working…" : "Add passkey"}
-        </Button>} />
+        action={supported
+          ? <Button size="xs" disabled={busy} onClick={add} title="Enrol a passkey on this device">
+              <Icon name="plus" size={12} /> {busy ? "Working…" : "Add passkey"}
+            </Button>
+          : <span className="text-[10px] text-muted-foreground">needs HTTPS</span>} />
+      {!supported && (
+        <p className="px-3 pb-2 text-[11px] text-muted-foreground">Passkeys need HTTPS — reach this node over Tailscale or localhost.</p>
+      )}
       {error && <p className="px-3 pb-2 text-xs text-danger">{error}</p>}
       {enrolled && (
         <ul className="space-y-1 px-3 pb-3">

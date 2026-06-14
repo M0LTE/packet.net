@@ -18,6 +18,7 @@ import type {
   AvailableApp, InstallOutcome,
 } from "./types";
 import * as mock from "./mock";
+import { passkeysAvailable } from "./secureContext";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import type {
   PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON,
@@ -810,9 +811,9 @@ async function userDelete(username: string): Promise<void> {
 // false (we never fake a ceremony — see CLAUDE-task scope).
 function webauthnSupported(): boolean {
   if (MODE === "mock") return false;
-  return typeof window !== "undefined"
-    && window.isSecureContext === true
-    && typeof window.PublicKeyCredential !== "undefined";
+  // The platform secure-context probe (lib/secureContext) is the single source of
+  // truth for "could a ceremony run?"; mock mode layers on top (no node to talk to).
+  return passkeysAvailable();
 }
 
 // Passwordless sign-in. assert/begin (always open) hands back a session id + the
