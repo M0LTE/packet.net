@@ -6,6 +6,8 @@
 artifacts/
 # staged per-arch app trees for the docker build (scripts/docker-image.sh)
 pdn-app/
+# local build output of the embedded Tailscale sidecar (built/staged by build-deb.sh)
+/sidecar/tsnet/packetnet-tsnet
 *.user
 *.suo
 .vs/

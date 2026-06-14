@@ -15,7 +15,7 @@ import type {
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
   WebAuthnCredential, AssertBeginResponse, RegisterCompleteResponse,
   TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp, AppPackage,
-  AvailableApp, InstallOutcome,
+  AvailableApp, InstallOutcome, TailscaleStatus,
 } from "./types";
 import * as mock from "./mock";
 import { passkeysAvailable } from "./secureContext";
@@ -228,6 +228,10 @@ export const api = {
   sessions: () => get<SessionInfo[]>("/sessions", () => mock.SESSIONS),
   routes: () => get<NetRomRoutingSnapshot>("/netrom/routes", () => mock.NETROM),
   config: () => get<NodeConfig>("/config", () => mock.NODE_CONFIG),
+  // The embedded Tailscale sidecar's live status (read-gated). The "Remote access"
+  // config panel polls this while open: state, the assigned .ts.net FQDN, and any
+  // pending interactive-login URL.
+  tailscaleStatus: () => get<TailscaleStatus>("/system/tailscale", () => mock.TAILSCALE_STATUS),
   linkStats: () => get<LinkStats[]>("/links", () => mock.LINK_STATS),
   // Recent frames (oldest→newest) the monitor seeds with so it isn't empty on open.
   recentFrames: (limit = 250) => get<MonitorEvent[]>(`/monitor/recent?limit=${limit}`, () => mock.seedFrames(limit)),
@@ -278,6 +282,14 @@ export const api = {
   },
   putConfigRaw: (yaml: string, opts: { dryRun?: boolean } = {}) =>
     writeConfig("/config/raw", "PUT", yaml, "text/plain", opts.dryRun ?? false),
+
+  // Operator-initiated (admin) RP-id adoption: point WebAuthn at the Tailscale FQDN so
+  // passkeys work remotely over the .ts.net cert. Reads the LIVE config, sets
+  // management.auth.webAuthn.relyingPartyId = fqdn and adds https://<fqdn> to
+  // allowedOrigins (idempotent), then PUTs it through the same config-write reconcile path
+  // (a 422 throws ConfigRejected). NEVER automatic — only this explicit action writes it
+  // (changing the RP id invalidates existing passkeys, so it must be deliberate).
+  useFqdnForPasskeys: (fqdn: string) => useFqdnForPasskeys(fqdn),
 
   // ---- port management (Slice-3 step 3) ----
   // Each mutation flows through the same config-write reconcile path as putConfig:
@@ -590,6 +602,37 @@ async function writeConfig(
   }
   if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`);
   return (await res.json()) as ReconcileResult;
+}
+
+// Adopt the Tailscale FQDN as the WebAuthn relying-party id: read the live config, set
+// management.auth.webAuthn.relyingPartyId = fqdn and add https://<fqdn> to allowedOrigins
+// (idempotent — a re-run is a no-op), then PUT it. Returns the ReconcileResult; a 422 throws
+// ConfigRejected.
+async function useFqdnForPasskeys(fqdn: string): Promise<ReconcileResult> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 80));
+    return mockReconcile(true);
+  }
+  const live = await get<NodeConfig>("/config", () => mock.NODE_CONFIG);
+  const origin = `https://${fqdn}`;
+  const webAuthn = live.management.auth.webAuthn;
+  const next: NodeConfig = {
+    ...live,
+    management: {
+      ...live.management,
+      auth: {
+        ...live.management.auth,
+        webAuthn: {
+          ...webAuthn,
+          relyingPartyId: fqdn,
+          allowedOrigins: webAuthn.allowedOrigins.includes(origin)
+            ? webAuthn.allowedOrigins
+            : [...webAuthn.allowedOrigins, origin],
+        },
+      },
+    },
+  };
+  return writeConfig("/config", "PUT", JSON.stringify(next), "application/json", false);
 }
 
 // A lifecycle action the node can't perform right now (a `restart` while the node is still
