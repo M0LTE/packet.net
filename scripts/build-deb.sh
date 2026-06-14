@@ -73,6 +73,26 @@ install -m 0644 "$root/packaging/install-channel"          "$stage/usr/lib/packe
 install -m 0755 "$root/packaging/packetnet-apt-update"     "$stage/usr/lib/packetnet/packetnet-apt-update"
 install -m 0644 "$root/packaging/packetnet-update.service" "$stage/lib/systemd/system/packetnet-update.service"
 install -m 0644 "$root/packaging/49-packetnet-update.rules" "$stage/usr/share/polkit-1/rules.d/49-packetnet-update.rules"
+
+# The embedded Tailscale sidecar (docs/network-access.md §"The sidecar"): a
+# static, CGO-free Go binary (tailscale.com/tsnet) that pdn supervises to join a
+# tailnet, terminate TLS for pdn.<tailnet>.ts.net, and reverse-proxy to pdn's
+# loopback HTTP — so passkeys work remotely with no public DNS/cert plumbing.
+# Cross-compiled for the target arch and staged beside the self-update helpers.
+case "$arch" in
+  amd64) goarch=amd64 ;;
+  arm64) goarch=arm64 ;;
+  armhf) goarch=arm ;;
+  *) echo "no GOARCH mapping for arch: $arch" >&2; exit 2 ;;
+esac
+command -v go >/dev/null 2>&1 || { echo "go not found (need Go to build the tsnet sidecar; runner has it at /usr/bin/go)" >&2; exit 2; }
+echo "==> build tailscale sidecar (GOARCH=$goarch)"
+goarm=""                                  # armv7 (hard-float) for 32-bit ARM
+[ "$goarch" = arm ] && goarm=7
+( cd "$root/sidecar/tsnet" \
+  && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" \
+     go build -trimpath -ldflags="-s -w" -o "$stage/usr/lib/packetnet/packetnet-tsnet" . )
+chmod 0755 "$stage/usr/lib/packetnet/packetnet-tsnet"
 # The bundled app PACKAGES (docs/app-packages.md): each directory under
 # /usr/share/packetnet/apps carries a pdn-app.yaml manifest authored by the app; pdn
 # discovers them at startup/reload and the owner enables them with an `apps:` entry (or
@@ -123,6 +143,8 @@ echo "--- bundled app packages ---"
 dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/usr/share/packetnet/apps/'
 echo "--- app catalog (the Available-apps index) ---"
 dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/usr/share/packetnet/catalog/'
+echo "--- tailscale sidecar ---"
+dpkg-deb --contents "$out" | awk '{print $1, $6}' | grep '/usr/lib/packetnet/packetnet-tsnet'
 if command -v lintian >/dev/null 2>&1; then
   lintian "$out" || true
 else

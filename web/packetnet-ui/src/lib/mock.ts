@@ -9,6 +9,7 @@ import type {
   LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
   User, LogLine, ToggleHelp, FieldHelp, NodeApp, AppPackage, AvailableApp,
+  TailscaleStatus,
 } from "./types";
 
 // 6.1 NodeConfig tree ----------------------------------------
@@ -26,6 +27,7 @@ export const NODE_CONFIG: NodeConfig = {
     telnet: { enabled: true, bind: "127.0.0.1", port: 8011 },
     http: { bind: "0.0.0.0", port: 8080 },
     https: { enabled: false, bind: "0.0.0.0", port: 8443, certificatePath: null, certificatePassword: null, generateSelfSignedOnMissing: true },
+    auth: { enabled: false, accessTokenMinutes: null, refreshTokenMinutes: null, sysopElevationMinutes: null, webAuthn: { relyingPartyId: "localhost", relyingPartyName: "pdn node", allowedOrigins: [] } },
   },
   netRom: {
     enabled: true, broadcast: true, connect: true, forward: true, forwardMode: "PerFlow",
@@ -35,6 +37,14 @@ export const NODE_CONFIG: NodeConfig = {
     inp3: { enabled: true, preferInp3Routes: true, l3RttInterval: 3600, l3RttResetWindow: 5, rifInterval: 60, positiveDebounce: 3 },
   },
   beacon: { enabled: true, intervalMinutes: 30, text: "{node}:{call} pdn node — Reading & District ARS" },
+  tailscale: { enabled: false, authKey: null, authKeyFile: null, hostname: "pdn", tags: [], stateDir: "/var/lib/packetnet/tsnet", target: "127.0.0.1:8080", funnel: false },
+};
+
+// The embedded Tailscale sidecar's status — the mock shows a connected node so the
+// "Remote access" panel demos with no node. A live node returns this from
+// GET /api/v1/system/tailscale.
+export const TAILSCALE_STATUS: TailscaleStatus = {
+  enabled: true, state: "running", fqdn: "pdn.tail-scale.ts.net", authUrl: null, funnel: false,
 };
 
 // field apply-impact map (hot vs disruptive) → per-field badges + reconcile

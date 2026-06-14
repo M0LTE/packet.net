@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Packet.Node.Core.Audit;
 using Packet.Node.Core.SelfUpdate;
+using Packet.Node.Core.Tailscale;
 
 namespace Packet.Node.Api;
 
@@ -48,6 +49,23 @@ public static class PdnSystemApi
                 Channel: ChannelName(channel.Channel),
                 UpdateMechanism: MechanismName(channel.Channel))))
             .RequireAuthorization(PdnAuthPolicies.Read);
+
+        // The embedded Tailscale sidecar's live status (network-access.md § Status readback):
+        // state, the assigned FQDN, any pending interactive-login URL, and the configured
+        // Funnel exposure. Read scope (no-op when auth is off). The web control panel polls
+        // this while its "Remote access (Tailscale)" panel is open. The status holder is a
+        // singleton the TailscaleSidecarHostedService updates; default = disabled (a default
+        // node never runs the sidecar).
+        system.MapGet("/tailscale", (ITailscaleStatus status) =>
+        {
+            var s = status.Current;
+            return Results.Ok(new TailscaleStatusResponse(
+                Enabled: s.Enabled,
+                State: s.State,
+                Fqdn: s.Fqdn,
+                AuthUrl: s.AuthUrl,
+                Funnel: s.Funnel));
+        }).RequireAuthorization(PdnAuthPolicies.Read);
 
         // Trigger an update — channel-aware. Admin scope, audited.
         system.MapPost("/update", async (
@@ -160,3 +178,11 @@ public sealed record SystemInfoResponse(string Version, string Channel, string U
 /// <param name="Via">The mechanism used (<c>apt</c>).</param>
 /// <param name="Message">Operator-facing note on how to observe completion.</param>
 public sealed record UpdateStartedResponse(string Status, string Via, string Message);
+
+/// <summary>The embedded Tailscale sidecar's status, as the control panel sees it.</summary>
+/// <param name="Enabled">Whether the sidecar is configured to run (<c>tailscale.enabled</c>).</param>
+/// <param name="State"><c>disabled</c> / <c>starting</c> / <c>needs-login</c> / <c>running</c> / <c>error</c>.</param>
+/// <param name="Fqdn">The assigned MagicDNS FQDN (<c>pdn.&lt;tailnet&gt;.ts.net</c>) once joined, else null.</param>
+/// <param name="AuthUrl">The interactive <c>login.tailscale.com</c> URL when first-join needs authorising, else null.</param>
+/// <param name="Funnel">Whether public exposure via Tailscale Funnel is configured on.</param>
+public sealed record TailscaleStatusResponse(bool Enabled, string State, string? Fqdn, string? AuthUrl, bool Funnel);

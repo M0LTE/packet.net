@@ -70,7 +70,39 @@ export interface HttpsConfig {
   certificatePassword: string | null;
   generateSelfSignedOnMissing: boolean;
 }
-export interface ManagementConfig { telnet: TelnetConfig; http: HttpConfig; https: HttpsConfig }
+// WebAuthn / passkey relying-party config (server: Packet.Node.Core.Configuration.WebAuthnConfig).
+// The RP id + allowed origins the "Use <fqdn> for passkeys" action writes.
+export interface WebAuthnConfig {
+  relyingPartyId: string;
+  relyingPartyName: string;
+  allowedOrigins: string[];
+}
+// Web control-API auth (server: AuthConfig). Only the fields the UI touches are typed; the
+// rest round-trip untouched through the structured PUT.
+export interface AuthConfig {
+  enabled: boolean;
+  accessTokenMinutes?: number | null;
+  refreshTokenMinutes?: number | null;
+  webAuthn: WebAuthnConfig;
+  sysopElevationMinutes?: number | null;
+}
+export interface ManagementConfig {
+  telnet: TelnetConfig;
+  http: HttpConfig;
+  https: HttpsConfig;
+  auth: AuthConfig;
+}
+// The embedded Tailscale tsnet sidecar config (server: TailscaleConfig). Default-off.
+export interface TailscaleConfig {
+  enabled: boolean;
+  authKey?: string | null;
+  authKeyFile?: string | null;
+  hostname: string;
+  tags: string[];
+  stateDir: string;
+  target: string;
+  funnel: boolean;
+}
 export interface Inp3Config {
   enabled: boolean; preferInp3Routes: boolean;
   l3RttInterval: number; l3RttResetWindow: number;
@@ -94,6 +126,18 @@ export interface NodeConfig {
   management: ManagementConfig;
   netRom: NetRomConfig;
   beacon: BeaconConfig;
+  tailscale: TailscaleConfig;
+}
+
+// ---- Tailscale sidecar status (server: PdnSystemApi.TailscaleStatusResponse) ----
+// GET /api/v1/system/tailscale. state: disabled | starting | needs-login | running | error.
+export type TailscaleState = "disabled" | "starting" | "needs-login" | "running" | "error";
+export interface TailscaleStatus {
+  enabled: boolean;
+  state: TailscaleState;
+  fqdn: string | null;
+  authUrl: string | null;
+  funnel: boolean;
 }
 
 // which edits are hot vs disruptive

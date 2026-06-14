@@ -363,6 +363,25 @@ builder.Services.AddSingleton<Packet.Rhp2.Server.IRhpGateway, Packet.Node.Rhp.Su
 builder.Services.AddSingleton<Packet.Rhp2.Server.RhpServerHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Packet.Rhp2.Server.RhpServerHostedService>());
 
+// The embedded Tailscale tsnet sidecar (network-access.md § The sidecar, default-off behind
+// tailscale.enabled): INFRA, not an app. The status holder is a singleton the read API
+// (GET /api/v1/system/tailscale) projects and the web panel polls; the hosted service launches
+// + supervises the packetnet-tsnet child when enabled (same spawn/teardown/backoff discipline
+// as the app-service supervisor), parses its JSON status lines into the holder, and reconciles
+// on every config change. A default node enables nothing, so the child never runs (and a host
+// without the binary is fine — the default config is disabled). The binary path comes from
+// PDN_TSNET_BIN or the packaged default; tuning knobs (backoff/grace) keep production defaults.
+builder.Services.AddSingleton<Packet.Node.Core.Tailscale.ITailscaleStatus,
+    Packet.Node.Core.Tailscale.TailscaleStatusHolder>();
+builder.Services.AddSingleton(sp =>
+    new Packet.Node.Core.Tailscale.TailscaleSidecarHostedService(
+        sp.GetRequiredService<IConfigProvider>(),
+        sp.GetRequiredService<Packet.Node.Core.Tailscale.ITailscaleStatus>(),
+        sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<Packet.Node.Core.Tailscale.TailscaleSidecarHostedService>());
+
 // Phase 8: the in-process MCP tool surface + live backend. The HTTP transport is
 // mounted below (MapPdnMcp) only when mcp.sse.enabled; stdio is the `pdn mcp`
 // subcommand. Registering the services is harmless when unused. See docs/mcp-design.md.

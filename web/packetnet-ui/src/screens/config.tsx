@@ -13,7 +13,7 @@ import {
   Button, Badge, Card, Input, Label, Field, InfoHint, Switch, ImpactBadge, Tabs, Modal, Icon,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange, PortBeacon } from "@/lib/types";
+import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange, PortBeacon, TailscaleStatus } from "@/lib/types";
 import { api, useQuery, ConfigRejected } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import {
@@ -231,6 +231,7 @@ export function Config() {
                     <Field label="Port"><Input type="number" value={cfg.management.telnet.port} onChange={(e) => set("management.telnet.port", +e.target.value, "port-restart")} className="font-mono" /></Field>
                   </div>
                 </div>
+                <RemoteAccessSection cfg={cfg} canAdmin={canApply} onAdopted={reload} />
               </section>
             )}
 
@@ -252,6 +253,110 @@ export function Config() {
         onApply={doApply}
       />
     </Page>
+  );
+}
+
+// ---------- Remote access (Tailscale) -----------------------
+// The embedded tsnet sidecar's live status (network-access.md § Status surfacing). Polls
+// GET /api/v1/system/tailscale while the panel is mounted (the Management tab is open):
+//   - needs-login → a prominent "Authorize this node →" link (the operator's interactive
+//     first-join, S3).
+//   - running with an FQDN → "Reachable at https://<fqdn>".
+//   - fqdn set AND ≠ the current WebAuthn RP id → an admin-gated "Use <fqdn> for passkeys"
+//     button that writes relyingPartyId = fqdn + adds https://<fqdn> to allowedOrigins.
+//     Operator-initiated only — never automatic (it invalidates existing passkeys).
+function RemoteAccessSection({ cfg, canAdmin, onAdopted }: { cfg: NodeConfig; canAdmin: boolean; onAdopted: () => void }) {
+  const [status, setStatus] = useState<TailscaleStatus | null>(null);
+  const [adopting, setAdopting] = useState(false);
+  const [adoptError, setAdoptError] = useState<string | null>(null);
+
+  // Poll while mounted. Cleared on unmount (tab change / screen leave).
+  useEffect(() => {
+    let alive = true;
+    const tick = () => api.tailscaleStatus().then((s) => { if (alive) setStatus(s); }).catch(() => { /* transient */ });
+    tick();
+    const t = setInterval(tick, 1500);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  const rpId = cfg.management.auth.webAuthn.relyingPartyId;
+  const fqdn = status?.fqdn ?? null;
+  const showAdopt = fqdn != null && fqdn !== rpId;
+
+  const adopt = async () => {
+    if (fqdn == null) return;
+    setAdopting(true);
+    setAdoptError(null);
+    try {
+      await api.useFqdnForPasskeys(fqdn);
+      onAdopted();   // refetch /config → the RP id now matches; the button hides
+    } catch (e) {
+      setAdoptError(e instanceof ConfigRejected ? e.problem.errors.map((x) => x.message).join("; ") : String((e as Error)?.message ?? e));
+    } finally {
+      setAdopting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border p-3" data-testid="tailscale-panel">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5">
+          <Label className="text-foreground">Remote access (Tailscale)</Label>
+          <InfoHint text="An embedded Tailscale node that joins your tailnet and gets a real Let's Encrypt cert for pdn.<tailnet>.ts.net — so passkeys work remotely with no public DNS, port-forward, or cert management. Off by default; enable it in the tailscale: config block." />
+        </span>
+        <Badge variant={status?.state === "running" ? "secondary" : "muted"}>{status?.state ?? "…"}</Badge>
+      </div>
+
+      {status == null ? (
+        <p className="text-xs text-muted-foreground">Checking…</p>
+      ) : status.state === "disabled" || !status.enabled ? (
+        <p className="text-xs text-muted-foreground">
+          Disabled — pdn stays HTTP-only. Enable the embedded Tailscale node in the <span className="font-mono">tailscale:</span> config block to reach this node remotely (and use passkeys over the network).
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {status.state === "needs-login" && status.authUrl && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+              <p className="text-xs text-muted-foreground">This node needs to be authorised on your tailnet.</p>
+              <a href={status.authUrl} target="_blank" rel="noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
+                Authorize this node <Icon name="external" size={13} />
+              </a>
+            </div>
+          )}
+
+          {status.state === "running" && fqdn && (
+            <p className="text-xs text-muted-foreground">
+              Reachable at{" "}
+              <a href={`https://${fqdn}`} target="_blank" rel="noreferrer" className="font-mono font-semibold text-primary hover:underline">
+                https://{fqdn}
+              </a>
+              {status.funnel && <Badge variant="muted" className="ml-2">funnel (public)</Badge>}
+            </p>
+          )}
+
+          {status.state === "error" && (
+            <p className="text-xs text-danger">The Tailscale sidecar reported an error — see the node log.</p>
+          )}
+
+          {showAdopt && (
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">
+                Passkeys are currently scoped to <span className="font-mono text-foreground/80">{rpId}</span>. Adopt the Tailscale hostname so passkeys work over the network.
+              </p>
+              <Button size="xs" className="mt-2" disabled={!canAdmin || adopting} onClick={adopt}
+                title={canAdmin ? undefined : "Changing the passkey hostname requires the admin scope"}>
+                {adopting ? "Applying…" : <>Use <span className="font-mono">{fqdn}</span> for passkeys</>}
+              </Button>
+              {adoptError && <p className="mt-1.5 text-[11px] text-danger">{adoptError}</p>}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Changing the passkey hostname invalidates existing passkeys — they&apos;ll need re-enrolling.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
