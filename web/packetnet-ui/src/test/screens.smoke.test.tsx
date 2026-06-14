@@ -85,9 +85,31 @@ describe("screens render without crashing", () => {
     await waitFor(() => expect(screen.getAllByText(/Users/i).length).toBeGreaterThan(0));
   });
 
-  it("Login is passkey-first", () => {
+  it("Login is passkey-first in a secure context", () => {
+    // The passkey affordance is gated on lib/secureContext.passkeysAvailable()
+    // (window.isSecureContext + the WebAuthn API). jsdom defaults both falsy, so
+    // simulate a secure context to exercise the passkey-first path.
+    const prevSecure = window.isSecureContext;
+    const prevPkc = (window as { PublicKeyCredential?: unknown }).PublicKeyCredential;
+    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+    (window as { PublicKeyCredential?: unknown }).PublicKeyCredential = function () {};
+    try {
+      mount(<Login />, "/login");
+      expect(screen.getByText(/Continue with passkey/i)).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "isSecureContext", { value: prevSecure, configurable: true });
+      (window as { PublicKeyCredential?: unknown }).PublicKeyCredential = prevPkc;
+    }
+  });
+
+  it("Login degrades to password-only on plain HTTP (no secure context)", () => {
+    // jsdom default: isSecureContext is falsy → no passkey button, password remains.
     mount(<Login />, "/login");
-    expect(screen.getByText(/Continue with passkey/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Continue with passkey/i)).toBeNull();
+    expect(screen.getByText(/Passkeys need HTTPS/i)).toBeInTheDocument();
+    // Password login stays fully available (the LAN flow).
+    expect(screen.getByText(/Username/i)).toBeInTheDocument();
+    expect(screen.getByText(/Password/i)).toBeInTheDocument();
   });
 
   it("Setup wizard renders", () => {

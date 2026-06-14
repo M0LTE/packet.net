@@ -13,6 +13,7 @@ import { Button, Card, Field, Input, Icon } from "@/components/ui";
 import { Logo, ThemeToggle } from "@/components/layout/shell";
 import { useAuth } from "@/app/auth";
 import { api, Unauthorized } from "@/lib/api";
+import { passkeysAvailable } from "@/lib/secureContext";
 
 function AuthFrame({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
@@ -47,9 +48,10 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
 
   // Passkeys only run in a secure context (HTTPS or localhost) with the WebAuthn API
-  // present; otherwise the button stays disabled rather than failing on tap. Mock mode
-  // reports false too (no ceremony to run — we don't fake one).
-  const passkeySupported = api.webauthnSupported();
+  // present; on a plain-HTTP LAN node the affordance is HIDDEN (not just disabled) and
+  // password login carries the flow. lib/secureContext is the single secure-context
+  // probe (network-access.md S1); api.passkeyAssert still no-ops/throws in mock mode.
+  const passkeySupported = passkeysAvailable();
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -99,19 +101,25 @@ export function Login() {
         <h1 className="text-lg font-semibold">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">Authenticate to manage this node.</p>
 
-        {/* Passwordless WebAuthn. Enabled only in a secure context (HTTPS / localhost). */}
-        <Button className="mt-5 w-full" onClick={passkey}
-          disabled={!passkeySupported || passkeyBusy}
-          title={passkeySupported ? "Sign in with a passkey" : "Passkeys need a secure context (HTTPS or localhost)"}>
-          <Icon name="fingerprint" size={16} /> {passkeyBusy ? "Waiting for passkey…" : "Continue with passkey"}
-        </Button>
-        {!passkeySupported && (
-          <p className="mt-1 text-center text-[10px] text-muted-foreground">passkeys need HTTPS or localhost</p>
-        )}
+        {/* Passwordless WebAuthn — offered ONLY in a secure context (HTTPS / localhost).
+            On plain-HTTP LAN the ceremony can't run, so we HIDE the affordance entirely
+            and show a short hint; password (+ over-RF TOTP) login below stays the path. */}
+        {passkeySupported ? (
+          <>
+            <Button className="mt-5 w-full" onClick={passkey} disabled={passkeyBusy}
+              title="Sign in with a passkey">
+              <Icon name="fingerprint" size={16} /> {passkeyBusy ? "Waiting for passkey…" : "Continue with passkey"}
+            </Button>
 
-        <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-muted-foreground">
-          <div className="h-px flex-1 bg-border" />or password<div className="h-px flex-1 bg-border" />
-        </div>
+            <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />or password<div className="h-px flex-1 bg-border" />
+            </div>
+          </>
+        ) : (
+          <p className="mb-4 mt-5 text-center text-[11px] text-muted-foreground">
+            Passkeys need HTTPS — reach this node over Tailscale or localhost.
+          </p>
+        )}
 
         <form className="space-y-3" onSubmit={submit}>
           <Field label="Username">

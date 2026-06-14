@@ -12,6 +12,7 @@ import { Button, Card, Field, Input, Select, Switch, Icon } from "@/components/u
 import { Logo, ThemeToggle } from "@/components/layout/shell";
 import { cn } from "@/lib/utils";
 import { api, ConfigRejected } from "@/lib/api";
+import { passkeysAvailable } from "@/lib/secureContext";
 import type { PortConfig, SetupRequest, TransportConfig, TransportKind } from "@/lib/types";
 
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -142,7 +143,14 @@ export function Setup() {
               <Field label="Confirm password" hint={data.confirm && data.password !== data.confirm ? "Passwords don't match." : undefined}>
                 <Input type="password" value={data.confirm} onChange={(e) => set("confirm", e.target.value)} placeholder="••••••••" autoComplete="new-password" />
               </Field>
-              <p className="text-[11px] text-muted-foreground">Passkeys (WebAuthn) can be enrolled later — coming soon.</p>
+              {/* Only mention passkeys when this origin is a secure context — on a
+                  plain-HTTP LAN node the ceremony can't run, so password + over-RF
+                  TOTP are the auth methods (see network-access.md). */}
+              <p className="text-[11px] text-muted-foreground">
+                {passkeysAvailable()
+                  ? "Passkeys (WebAuthn) can be enrolled later — coming soon."
+                  : "Passkeys need HTTPS — reach this node over Tailscale or localhost to enrol them. Password login works here."}
+              </p>
             </div>
           )}
 
