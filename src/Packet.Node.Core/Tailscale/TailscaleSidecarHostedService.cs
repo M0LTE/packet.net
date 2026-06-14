@@ -186,7 +186,13 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var ts = config.Current.Tailscale;
+            // Resolve the effective node hostname once (explicit, else <callsign>-pdn) so the
+            // fingerprint + the spawn args both see it — a callsign change renames the node.
+            var ts = config.Current.Tailscale with
+            {
+                Hostname = TailscaleHostname.Resolve(
+                    config.Current.Tailscale.Hostname, config.Current.Identity?.Callsign),
+            };
 
             if (!ts.Enabled)
             {
@@ -569,6 +575,12 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                 {
                     status.Update(snapshot);
                     LogStatus(snapshot.State, snapshot.Fqdn, snapshot.AuthUrl);
+                    if (snapshot.Error is not null)
+                    {
+                        // Surface the sidecar's own reason (e.g. a sandboxed AF_NETLINK
+                        // failure) so an error state is diagnosable without digging stderr.
+                        LogStatusError(snapshot.Error);
+                    }
                 }
                 else
                 {
@@ -700,6 +712,9 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Tailscale status: state={State} fqdn={Fqdn} authUrl={AuthUrl}.")]
     private partial void LogStatus(string state, string? fqdn, string? authUrl);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Tailscale sidecar error: {Error}")]
+    private partial void LogStatusError(string error);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Tailscale sidecar emitted an unparseable status line: {Line}")]
     private partial void LogUnparseableStatus(string line);

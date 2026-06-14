@@ -96,7 +96,8 @@ management:
 #   # authKey: tskey-...                             # or inline (first-join only) — not both;
 #   #                                                # omit both to log in interactively (a
 #   #                                                # login.tailscale.com URL is surfaced).
-#   hostname: pdn                                    # → pdn.<tailnet>.ts.net (actual name read back)
+#   # hostname:                                      # omit to derive <callsign>-pdn (e.g. gb7rdg-pdn) so
+#   #                                                # multiple nodes don't collide; set to override.
 #   tags: [ "tag:server" ]                           # a tailnet-owned, always-on node
 #   stateDir: /var/lib/packetnet/tsnet               # PERSISTENT — stable node/cert/passkeys
 #   target: 127.0.0.1:8080                           # pdn's loopback HTTP (the http: bind above)

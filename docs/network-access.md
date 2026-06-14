@@ -45,7 +45,7 @@ tailscale:
   enabled: false              # default off — pdn stays HTTP-only until opted in
   authKey: null               # a tailnet pre-auth key (first-join only); or:
   authKeyFile: null           # path to a 0600 file holding the key (preferred for secrets)
-  hostname: pdn               # desired node name → pdn.<tailnet>.ts.net (actual name read back)
+  hostname: ""                # empty ⇒ derive <callsign>-pdn (e.g. gb7rdg-pdn) so multiple nodes don't collide; or set explicitly
   tags: []                    # e.g. [tag:server] — a tailnet-owned node, right for an always-on box
   stateDir: /var/lib/packetnet/tsnet   # PERSISTENT — rejoin as the same node/cert across restarts
   target: 127.0.0.1:8080      # the loopback HTTP pdn serves

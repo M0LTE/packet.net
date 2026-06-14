@@ -628,7 +628,7 @@ public class NodeConfigYamlTests
 
         config.Tailscale.Should().Be(new TailscaleConfig());
         config.Tailscale.Enabled.Should().BeFalse();
-        config.Tailscale.Hostname.Should().Be("pdn");
+        config.Tailscale.Hostname.Should().Be("", "an empty hostname derives <callsign>-pdn");
         config.Tailscale.Tags.Should().BeEmpty();
         config.Tailscale.StateDir.Should().Be("/var/lib/packetnet/tsnet");
         config.Tailscale.Target.Should().Be("127.0.0.1:8080");

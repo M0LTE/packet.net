@@ -581,7 +581,7 @@ public class NodeConfigValidatorTests
     [InlineData("pdn", true)]
     [InlineData("pdn-node-1", true)]
     [InlineData("node99", true)]
-    [InlineData("", false)]              // required when enabled
+    [InlineData("", true)]               // empty is allowed — derives <callsign>-pdn
     [InlineData("PDN", false)]           // uppercase rejected by ^[a-z0-9-]+$
     [InlineData("pdn.node", false)]      // a dot is not in the label set
     [InlineData("pdn_node", false)]      // underscore not allowed

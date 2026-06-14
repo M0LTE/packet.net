@@ -638,10 +638,11 @@ public sealed class TailscaleConfigValidator : AbstractValidator<TailscaleConfig
 {
     public TailscaleConfigValidator()
     {
+        // Empty is allowed — it derives <callsign>-pdn (TailscaleHostname.Resolve). Only a
+        // non-empty value is constrained to the legal label charset.
         RuleFor(t => t.Hostname)
-            .NotEmpty().WithMessage("tailscale.hostname is required when tailscale is enabled.")
-            .Must(BeALegalTailnetHostname)
-            .WithMessage("tailscale.hostname must match ^[a-z0-9-]+$ (lowercase letters, digits, hyphens).")
+            .Must(BeEmptyOrLegalTailnetHostname)
+            .WithMessage("tailscale.hostname, when set, must match ^[a-z0-9-]+$ (lowercase letters, digits, hyphens) — leave it empty to derive <callsign>-pdn.")
             .When(t => t.Enabled);
 
         RuleFor(t => t.Target)
@@ -663,10 +664,11 @@ public sealed class TailscaleConfigValidator : AbstractValidator<TailscaleConfig
     private static bool HasValue(string? s) => !string.IsNullOrWhiteSpace(s);
 
     // A tailnet hostname label: lowercase letters, digits, and hyphens (the safe subset
-    // that maps to pdn.<tailnet>.ts.net). Empty is reported by the NotEmpty rule above.
-    private static bool BeALegalTailnetHostname(string? hostname) =>
-        !string.IsNullOrEmpty(hostname)
-        && System.Text.RegularExpressions.Regex.IsMatch(hostname, "^[a-z0-9-]+$");
+    // that maps to <hostname>.<tailnet>.ts.net). Empty is legal here — it means "derive
+    // <callsign>-pdn" (TailscaleHostname.Resolve), so only a non-empty value is checked.
+    private static bool BeEmptyOrLegalTailnetHostname(string? hostname) =>
+        string.IsNullOrEmpty(hostname)
+        || System.Text.RegularExpressions.Regex.IsMatch(hostname, "^[a-z0-9-]+$");
 
     // The proxy target is host:port — a non-empty host and a port in 1..65535. We split on
     // the LAST colon so an IPv6 literal target (rare, but legal) still parses its port.
