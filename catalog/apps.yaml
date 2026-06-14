@@ -91,3 +91,23 @@ apps:
         linux-arm:
           url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.2/pdn-convers_0.1.2_armhf.deb
           sha256: d4d1e081016c82c5f5d463f6685f42712d702f662d01777dae3e0454dcdc7223
+
+  - id: bbs
+    name: BBS
+    version: "0.2.0"
+    description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale."
+    icon: mail
+    capabilities: [network, web]
+    homepage: https://github.com/packet-net/pdn-bbs
+    artifact:
+      kind: deb
+      debs:
+        linux-x64:
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.0/pdn-bbs_0.2.0_amd64.deb
+          sha256: 69392401859587f44e8f8c218736ebe676ac77870024d21b5fced934e63addd3
+        linux-arm64:
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.0/pdn-bbs_0.2.0_arm64.deb
+          sha256: 9b00de5a97acd859298a3144079f0dfb207cc805ce4f044ec9ec23bf1aa109e5
+        linux-arm:
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.0/pdn-bbs_0.2.0_armhf.deb
+          sha256: c79f54c0895a82b75b5375802e8baa0ea4610c0a767a6c69e6f2151d8c0d9c84
