@@ -790,10 +790,13 @@ public sealed record TailscaleConfig
     /// (the default) = none.</summary>
     public string? AuthKeyFile { get; init; }
 
-    /// <summary>The desired node name → <c>pdn.&lt;tailnet&gt;.ts.net</c> (the actual name
-    /// is read back from the sidecar). Default <c>pdn</c>; must match
-    /// <c>^[a-z0-9-]+$</c> when <see cref="Enabled"/>.</summary>
-    public string Hostname { get; init; } = "pdn";
+    /// <summary>The desired node name → <c>&lt;hostname&gt;.&lt;tailnet&gt;.ts.net</c> (the
+    /// actual name is read back from the sidecar). <b>Empty (the default) ⇒ derive
+    /// <c>&lt;callsign&gt;-pdn</c></b> (the lowercased base callsign) so multiple nodes on
+    /// one tailnet don't collide on a bare <c>pdn</c> — see
+    /// <see cref="Tailscale.TailscaleHostname"/>. When set explicitly it must match
+    /// <c>^[a-z0-9-]+$</c>.</summary>
+    public string Hostname { get; init; } = "";
 
     /// <summary>Tailnet tags applied to the node (e.g. <c>tag:server</c> — a
     /// tailnet-owned node, right for an always-on box). Default empty.</summary>

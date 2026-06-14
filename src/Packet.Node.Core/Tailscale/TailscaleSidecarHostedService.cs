@@ -186,7 +186,13 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var ts = config.Current.Tailscale;
+            // Resolve the effective node hostname once (explicit, else <callsign>-pdn) so the
+            // fingerprint + the spawn args both see it — a callsign change renames the node.
+            var ts = config.Current.Tailscale with
+            {
+                Hostname = TailscaleHostname.Resolve(
+                    config.Current.Tailscale.Hostname, config.Current.Identity?.Callsign),
+            };
 
             if (!ts.Enabled)
             {
