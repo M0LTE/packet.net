@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Node.Core.Applications.Packages;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Tailscale;
 using Packet.Node.Tests.Support;
@@ -93,14 +94,47 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
         ITailscaleStatus status,
         string binaryPath,
         TimeSpan? backoffBase = null,
-        TimeSpan? stopGrace = null) => new(
+        TimeSpan? stopGrace = null,
+        IAppPackageCatalog? packages = null) => new(
             config,
             status,
             TimeProvider.System,
             NullLoggerFactory.Instance,
             binaryPath,
             backoffBase ?? TimeSpan.FromMilliseconds(25),
-            stopGrace ?? TimeSpan.FromSeconds(2));
+            stopGrace ?? TimeSpan.FromSeconds(2),
+            packages);
+
+    /// <summary>Write a package under <paramref name="root"/> declaring one tailnet forward, so a
+    /// real <see cref="AppPackageCatalog"/> surfaces it. The state/package dirs live under the
+    /// test temp dir (overridden roots).</summary>
+    private static string WritePackageWithForward(string root, string id, int listen, string target)
+    {
+        var dir = Path.Combine(root, id);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, AppPackageCatalog.ManifestFileName), $"""
+            manifest: 1
+            id: {id}
+            service:
+              command: /bin/{id}
+            forward:
+              - listen: {listen}
+                target: {target}
+                tls: terminate
+            """);
+        return dir;
+    }
+
+    /// <summary>A NodeConfig with tailscale enabled, an app-package root, and (optionally) the
+    /// apps: overrides that enable the discovered packages.</summary>
+    private static NodeConfig NodeWithApps(
+        TailscaleConfig tailscale, string appRoot, params AppOverrideConfig[] apps) => new()
+    {
+        Identity = new Identity { Callsign = "M0LTE-1" },
+        Tailscale = tailscale,
+        AppPackageRoots = [appRoot],
+        Apps = apps,
+    };
 
     [Fact]
     public async Task Enabled_launches_the_child_and_status_transitions_to_running_with_the_fqdn()
@@ -342,5 +376,105 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
 
         await svc.StopAsync(CancellationToken.None);
         Assert.True(File.Exists(marker), "the child must see SIGTERM before any kill");
+    }
+
+    // ---- app-declared tailnet forwards (docs/network-access.md) ----------------------
+
+    [Fact]
+    public async Task An_enabled_package_forward_writes_the_forwards_file_and_passes_the_flag()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var argsLog = Path.Combine(dir, "args.txt");
+        var bin = WriteFakeSidecar("ts-fwd", [
+            "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
+        ], argsLog: argsLog);
+        var appRoot = Path.Combine(dir, "apps");
+        Directory.CreateDirectory(appRoot);
+        WritePackageWithForward(appRoot, "mail", 993, "127.0.0.1:1430");
+
+        var status = new TailscaleStatusHolder();
+        var stateDir = Path.Combine(dir, "state");
+        var catalog = new AppPackageCatalog(NullLoggerFactory.Instance);
+        var config = new TestConfigProvider(NodeWithApps(
+            Enabled(stateDir), appRoot, new AppOverrideConfig { Id = "mail", Enabled = true }));
+        await using var svc = NewService(config, status, bin, packages: catalog);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Wait.ForAsync(
+            () => File.Exists(argsLog) && File.ReadAllLines(argsLog).Length >= 1, "launched");
+
+        // The flag points at the forwards file in the state dir, and the file holds the pinned JSON.
+        var forwardsFile = Path.Combine(stateDir, TailscaleSidecarHostedService.ForwardsFileName);
+        var argv = File.ReadAllLines(argsLog)[0];
+        Assert.Contains($"--forwards-file {forwardsFile}", argv, StringComparison.Ordinal);
+        Assert.True(File.Exists(forwardsFile));
+        var json = File.ReadAllText(forwardsFile);
+        Assert.Equal(
+            "[{\"listen\":993,\"target\":\"127.0.0.1:1430\",\"tls\":\"terminate\"}]", json);
+
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_disabled_forward_package_contributes_no_forwards_and_no_flag()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var argsLog = Path.Combine(dir, "args.txt");
+        var bin = WriteFakeSidecar("ts-nofwd", [
+            "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
+        ], argsLog: argsLog);
+        var appRoot = Path.Combine(dir, "apps");
+        Directory.CreateDirectory(appRoot);
+        // Present but NOT enabled (no apps: override) → its forward must not be exposed.
+        WritePackageWithForward(appRoot, "mail", 993, "127.0.0.1:1430");
+
+        var status = new TailscaleStatusHolder();
+        var stateDir = Path.Combine(dir, "state");
+        var catalog = new AppPackageCatalog(NullLoggerFactory.Instance);
+        var config = new TestConfigProvider(NodeWithApps(Enabled(stateDir), appRoot));
+        await using var svc = NewService(config, status, bin, packages: catalog);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Wait.ForAsync(
+            () => File.Exists(argsLog) && File.ReadAllLines(argsLog).Length >= 1, "launched");
+
+        var argv = File.ReadAllLines(argsLog)[0];
+        Assert.DoesNotContain("--forwards-file", argv, StringComparison.Ordinal);
+
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Enabling_a_forward_package_restarts_the_sidecar_via_the_fingerprint()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var argsLog = Path.Combine(dir, "args.txt");
+        var bin = WriteFakeSidecar("ts-fwd-toggle", [
+            "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
+        ], argsLog: argsLog);
+        var appRoot = Path.Combine(dir, "apps");
+        Directory.CreateDirectory(appRoot);
+        WritePackageWithForward(appRoot, "mail", 993, "127.0.0.1:1430");
+
+        var status = new TailscaleStatusHolder();
+        var stateDir = Path.Combine(dir, "state");
+        var catalog = new AppPackageCatalog(NullLoggerFactory.Instance);
+        // First launch: tailscale on, the forward package still disabled → no --forwards-file.
+        var config = new TestConfigProvider(NodeWithApps(Enabled(stateDir), appRoot));
+        await using var svc = NewService(config, status, bin, packages: catalog);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Wait.ForAsync(
+            () => File.Exists(argsLog) && File.ReadAllLines(argsLog).Length >= 1, "first launch");
+        Assert.DoesNotContain("--forwards-file", File.ReadAllLines(argsLog)[0], StringComparison.Ordinal);
+
+        // Enable the forward-declaring app → the collected-forwards change must restart the child.
+        config.Apply(NodeWithApps(
+            Enabled(stateDir), appRoot, new AppOverrideConfig { Id = "mail", Enabled = true }));
+        await Wait.ForAsync(
+            () => File.ReadAllLines(argsLog).Length >= 2, "relaunched after the forward was enabled");
+        Assert.Contains("--forwards-file", File.ReadAllLines(argsLog)[1], StringComparison.Ordinal);
+
+        await svc.StopAsync(CancellationToken.None);
     }
 }

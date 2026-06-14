@@ -178,6 +178,87 @@ public class AppPackageManifestYamlTests
     }
 
     [Fact]
+    public void Parses_the_forward_block_with_defaults_and_kebab_tls()
+    {
+        var m = AppPackageManifestYaml.Parse("""
+            manifest: 1
+            id: mail
+            service:
+              command: /bin/mail
+            forward:
+              - listen: 993
+                target: 127.0.0.1:1430
+                tls: terminate
+              - listen: 465
+                target: 127.0.0.1:1465
+              - listen: 4000
+                target: localhost:4001
+                tls: raw
+            """);
+
+        m.Forward.Should().HaveCount(3);
+        m.Forward[0].Listen.Should().Be(993);
+        m.Forward[0].Target.Should().Be("127.0.0.1:1430");
+        m.Forward[0].Tls.Should().Be(ForwardTls.Terminate);
+        m.Forward[1].Tls.Should().Be(ForwardTls.Terminate, "terminate is the default when tls is omitted");
+        m.Forward[2].Tls.Should().Be(ForwardTls.Raw);
+    }
+
+    [Fact]
+    public void The_forward_block_round_trips_through_serialize_and_parse()
+    {
+        var manifest = new AppPackageManifest
+        {
+            Manifest = 1,
+            Id = "mail",
+            Service = new AppServiceSpec { Command = "/bin/mail" },
+            Forward =
+            [
+                new AppForwardSpec { Listen = 993, Target = "127.0.0.1:1430", Tls = ForwardTls.Terminate },
+                new AppForwardSpec { Listen = 4000, Target = "::1:4001", Tls = ForwardTls.Raw },
+            ],
+        };
+
+        var yaml = AppPackageManifestYaml.Serialize(manifest);
+        yaml.Should().Contain("terminate").And.Contain("raw");
+
+        var back = AppPackageManifestYaml.Parse(yaml);
+        back.Should().BeEquivalentTo(manifest);
+    }
+
+    [Fact]
+    public void An_unknown_tls_value_throws_naming_the_closed_set()
+    {
+        var act = () => AppPackageManifestYaml.Parse("""
+            manifest: 1
+            id: mail
+            service:
+              command: /bin/mail
+            forward:
+              - listen: 993
+                target: 127.0.0.1:1430
+                tls: passthrough
+            """);
+
+        act.Should().Throw<InvalidDataException>()
+            .WithMessage("*'passthrough'*")
+            .WithMessage("*terminate*");
+    }
+
+    [Fact]
+    public void A_manifest_without_a_forward_block_defaults_to_empty()
+    {
+        var m = AppPackageManifestYaml.Parse("""
+            manifest: 1
+            id: x
+            service:
+              command: /bin/x
+            """);
+
+        m.Forward.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Malformed_yaml_throws_a_descriptive_exception()
     {
         var act = () => AppPackageManifestYaml.Parse("id: [unclosed");

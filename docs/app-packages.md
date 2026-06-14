@@ -50,6 +50,11 @@ ui:                          # OPTIONAL — human plane (the existing app-gatewa
   upstream: http://127.0.0.1:9090
   name: LOBBY
   icon: users
+
+forward:                     # OPTIONAL — tailnet port forwarding (see below)
+  - listen: 993              # the tailnet-facing port on the node's tsnet node
+    target: 127.0.0.1:1430   # the app's plaintext loopback listener
+    tls: terminate           # terminate (default) | raw — see the rules below
 ```
 
 At least one of `session` / `service` / `ui` must be present. Examples of the shapes:
@@ -62,6 +67,25 @@ At least one of `session` / `service` / `ui` must be present. Examples of the sh
 Path resolution: a relative `command`/`args` element that names an existing file in the package dir resolves to it; everything else passes through untouched. `workingDirectory` defaults to the state dir.
 
 Environment given to a supervised service: the node's own environment, plus `PDN_APP_ID`, `PDN_APP_DIR` (the package dir), `PDN_APP_STATE` (the state dir), `PDN_NODE_CALLSIGN` (the node's own callsign, so an app can derive its identity per the an-app-lives-at-an-SSID-of-the-node-callsign convention) and `PDN_NODE_ALIAS` when set, and — when the RHP server is enabled — `PDN_RHP_HOST`/`PDN_RHP_PORT`, then the manifest `environment` map, then the owner's override map (last wins).
+
+### The `forward:` block — tailnet port forwarding (built S4)
+
+An app may ask pdn's embedded Tailscale node ([`network-access.md`](network-access.md)) to expose one or more ports **on the tailnet** and reverse-proxy each to one of the app's loopback listeners. This is how a packaged BBS gets IMAPS/SMTPS to the operator's phone without running its own TLS or owning a public DNS name: the app stays **plaintext on loopback** and pdn owns the TLS edge with the node's `.ts.net` cert.
+
+```yaml
+forward:
+  - listen: 993            # tailnet-facing port on the node's tsnet node
+    target: 127.0.0.1:1430 # the app's plaintext loopback listener
+    tls: terminate         # terminate (default) | raw
+```
+
+Each forward is a **capability** — it appears in the enable confirm ("Exposes on your tailnet: IMAPS :993 → 127.0.0.1:1430") so the owner sees the exposure they are granting before they flip the switch. The contract and its rules:
+
+- **`listen`** — the tailnet-facing port, `1..65535`, and **never `443`** (reserved for the web reverse-proxy the sidecar already runs). Two *discovered* packages can't claim the same `listen` port — pdn flags **both** as broken (the same disambiguation pattern as a session-verb collision), so the owner picks one.
+- **`target`** — the app's listener as `host:port`, and the host **must be loopback** (`127.0.0.1` / `::1` / `localhost`). pdn will not proxy the tailnet to an arbitrary host — a non-loopback target is a validation error.
+- **`tls`** — `terminate` (the default): the sidecar terminates TLS with the node's tailnet cert and proxies plaintext to `target` (the everyday IMAPS/SMTPS shape — the app never sees TLS). `raw`: the sidecar passes the TCP stream through unterminated, relying on WireGuard for transport encryption (for an app that speaks its own TLS or a plaintext tailnet protocol).
+
+Forwards are **tailnet-only** and apply **only when `tailscale.enabled`** — no Tailscale, no forwards. A broken or duplicate forward makes the whole package an error entry (hence never enabled, hence its forwards are never collected). The supervisor writes the collected forwards from every enabled, error-free package to the sidecar's `--forwards-file`; enabling/disabling a forward-declaring app (or any forward change) restarts the sidecar. The flow is documented in [`network-access.md`](network-access.md) § App-declared port forwarding.
 
 ## Owner state — `packetnet.yaml`
 
@@ -96,7 +120,7 @@ Session attachment (`session:` block) and the web tile (`ui:` block) follow the 
 ## Surfaces
 
 - `GET /api/v1/apps` — unchanged (launcher tiles for enabled apps with a `ui`).
-- `GET /api/v1/apps/packages` — the admin inventory: every discovered package + every inline entry, with `{id, name, version, description, icon, capabilities, enabled, source: package|inline, service: none|managed|external, state: Stopped|Starting|Running|Backoff|Faulted|External, pid?, detail?}`. Read scope to view; **admin scope to mutate**.
+- `GET /api/v1/apps/packages` — the admin inventory: every discovered package + every inline entry, with `{id, name, version, description, icon, capabilities, enabled, source: package|inline, service: none|managed|external, state: Stopped|Starting|Running|Backoff|Faulted|External, pid?, detail?, forwards: [{listen, target, tls}]}`. Read scope to view; **admin scope to mutate**.
 - `POST /api/v1/apps/packages/{id}/enable` · `/disable` — writes the `apps:` override via the config-write seam (admin).
 - `POST /api/v1/apps/packages/{id}/restart` — supervisor action for a managed service (admin); also the way out of `Faulted`.
 - **UI**: the Apps screen grows a management section — every package with its toggle, status pill, version; enabling shows the declared `capabilities` in the confirm step (the owner sees what they are trusting before the switch flips).

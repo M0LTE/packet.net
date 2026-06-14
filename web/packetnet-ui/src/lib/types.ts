@@ -332,6 +332,12 @@ export interface NodeApp { id: string; name: string; icon?: string | null; url: 
 export type AppPackageSource = "package" | "inline";
 export type AppPackageService = "none" | "managed" | "external";
 export type AppPackageState = "Stopped" | "Starting" | "Running" | "Backoff" | "Faulted" | "External";
+// One declared tailnet port forward (mirrors PdnAppPackagesApi.AppForwardEntry). `listen` is
+// the tailnet-facing port the node's tsnet node exposes; `target` is the app's loopback
+// listener (host:port); `tls` is how the sidecar handles TLS. A capability the owner sees in
+// the enable confirm. See docs/network-access.md § App-declared port forwarding.
+export type AppForwardTls = "terminate" | "raw";
+export interface AppForward { listen: number; target: string; tls: AppForwardTls }
 export interface AppPackage {
   id: string;
   name: string;
@@ -348,6 +354,8 @@ export interface AppPackage {
   state: AppPackageState | null;
   pid: number | null;
   detail: string | null;
+  /** Declared tailnet port forwards — a capability shown in the enable confirm. */
+  forwards: AppForward[];
 }
 // ---- app catalog: available apps (GET /api/v1/apps/available) ----
 // One catalog entry projected with this node's view (mirrors

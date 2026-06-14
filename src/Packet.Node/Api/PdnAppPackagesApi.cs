@@ -275,7 +275,7 @@ public static class PdnAppPackagesApi
         return new AppPackageEntry(
             Id: id, Name: id, Version: null, Description: null, Icon: null,
             Capabilities: [], Enabled: enabled, Source: "package",
-            Error: null, Service: "none", State: null, Pid: null, Detail: null);
+            Error: null, Service: "none", State: null, Pid: null, Detail: null, Forwards: []);
     }
 
     private static AppPackageEntry ProjectPackage(DiscoveredAppPackage package, IAppServiceSupervisor? supervisor)
@@ -331,7 +331,9 @@ public static class PdnAppPackagesApi
             Service: service,
             State: state,
             Pid: pid,
-            Detail: detail);
+            Detail: detail,
+            Forwards: [.. package.Forwards.Select(f => new AppForwardEntry(
+                f.Listen, f.Target, f.Tls == ForwardTls.Raw ? "raw" : "terminate"))]);
     }
 
     private static AppPackageEntry ProjectInline(ApplicationConfig inline) => new(
@@ -347,7 +349,10 @@ public static class PdnAppPackagesApi
         Service: "none",
         State: null,
         Pid: null,
-        Detail: null);
+        Detail: null,
+        // Inline applications: entries have no forward: block (it lives only in a package
+        // manifest); always empty.
+        Forwards: []);
 
     private static DiscoveredAppPackage? FindPackage(IReadOnlyList<DiscoveredAppPackage> packages, string id) =>
         packages.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -355,7 +360,9 @@ public static class PdnAppPackagesApi
     /// <summary>One inventory row (the <c>/api/v1/apps/packages</c> shape — camelCase on the
     /// wire). <c>Source</c> is <c>package</c>|<c>inline</c>; <c>Service</c> is
     /// <c>none</c>|<c>managed</c>|<c>external</c>; <c>State</c> is an
-    /// <see cref="AppServiceState"/> name, or null when there is no service.</summary>
+    /// <see cref="AppServiceState"/> name, or null when there is no service. <c>Forwards</c> is
+    /// the manifest's declared tailnet port forwards (empty for inline entries / no
+    /// <c>forward:</c> block) — a capability the owner sees in the enable confirm.</summary>
     public sealed record AppPackageEntry(
         string Id,
         string Name,
@@ -369,5 +376,12 @@ public static class PdnAppPackagesApi
         string Service,
         string? State,
         int? Pid,
-        string? Detail);
+        string? Detail,
+        IReadOnlyList<AppForwardEntry> Forwards);
+
+    /// <summary>One declared tailnet forward on the wire (camelCase): the tailnet-facing
+    /// <c>listen</c> port, the app's loopback <c>target</c> (host:port), and <c>tls</c>
+    /// (<c>terminate</c> | <c>raw</c>). See <c>docs/network-access.md</c> § App-declared port
+    /// forwarding.</summary>
+    public sealed record AppForwardEntry(int Listen, string Target, string Tls);
 }

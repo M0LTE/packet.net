@@ -52,6 +52,12 @@ public sealed record DiscoveredAppPackage
     public string? EffectiveMatch =>
         string.IsNullOrWhiteSpace(Override?.Match) ? Manifest?.Session?.Match : Override!.Match;
 
+    /// <summary>The declared tailnet port forwards (the manifest's <c>forward:</c> block) — the
+    /// capabilities the API/UI surface and the supervisor collects for an enabled, error-free
+    /// package. Empty when the manifest declares none (or failed to parse). Computed from the
+    /// manifest, not stored.</summary>
+    public IReadOnlyList<AppForwardSpec> Forwards => Manifest?.Forward ?? [];
+
     /// <summary>The effective service environment: the manifest's <c>environment</c> map with
     /// the owner's override merged over it key-by-key (owner wins) — the order the contract
     /// pins for the supervised child (after the <c>PDN_APP_*</c> injections, which are the

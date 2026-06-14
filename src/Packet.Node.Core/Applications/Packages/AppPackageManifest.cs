@@ -44,6 +44,51 @@ public sealed record AppPackageManifest
 
     /// <summary>Human-plane web UI (the existing app-gateway contract) — optional.</summary>
     public AppUiConfig? Ui { get; init; }
+
+    /// <summary>Declared tailnet port forwards (<c>docs/network-access.md</c> § App-declared
+    /// port forwarding) — the app asks pdn's embedded Tailscale node to expose a port on the
+    /// tailnet and proxy it to the app's loopback listener. Each forward is a capability the
+    /// owner sees at enable time. Default empty; tailnet-only (applied only when
+    /// <c>tailscale.enabled</c>).</summary>
+    public IReadOnlyList<AppForwardSpec> Forward { get; init; } = [];
+}
+
+/// <summary>How the sidecar terminates TLS for a forwarded port.</summary>
+public enum ForwardTls
+{
+    /// <summary>The sidecar terminates TLS with the node's tailnet cert and proxies plaintext
+    /// to the app's loopback <see cref="AppForwardSpec.Target"/> (the default — pdn owns the
+    /// TLS edge; the app stays plaintext-on-loopback). The everyday IMAPS/SMTPS shape.</summary>
+    Terminate,
+
+    /// <summary>The sidecar passes the TCP stream through unterminated, relying on WireGuard for
+    /// transport encryption — for an app that speaks its own TLS (or a plaintext tailnet
+    /// protocol).</summary>
+    Raw,
+}
+
+/// <summary>
+/// One entry in the manifest's <c>forward:</c> block — a tailnet-facing port the embedded
+/// Tailscale node exposes and reverse-proxies to one of the app's loopback listeners. The Go
+/// sidecar consumes these (the supervisor writes them to <c>--forwards-file</c> as a JSON
+/// array). Validated by <see cref="AppPackageCatalog"/>: <see cref="Listen"/> in 1..65535 and
+/// not 443 (reserved for the web reverse-proxy), <see cref="Target"/> a loopback host:port,
+/// and a <see cref="Listen"/> port may be claimed by only one discovered package.
+/// </summary>
+public sealed record AppForwardSpec
+{
+    /// <summary>The tailnet-facing port the node's tsnet node listens on (e.g. <c>993</c> for
+    /// IMAPS). 1..65535, never 443 (the web reverse-proxy owns that).</summary>
+    public int Listen { get; init; }
+
+    /// <summary>The app's plaintext loopback listener as <c>host:port</c> — host ∈
+    /// {127.0.0.1, ::1, localhost}, port 1..65535. pdn refuses to proxy the tailnet to a
+    /// non-loopback host.</summary>
+    public required string Target { get; init; }
+
+    /// <summary>TLS handling. Default <see cref="ForwardTls.Terminate"/> (the sidecar adds TLS
+    /// with the node cert).</summary>
+    public ForwardTls Tls { get; init; } = ForwardTls.Terminate;
 }
 
 /// <summary>The manifest's <c>session:</c> block — how a console verb attaches a user session

@@ -129,6 +129,24 @@ describe("Apps — package management section", () => {
     expect(screen.getByText(/No declared capabilities/)).toBeInTheDocument();
   });
 
+  it("lists declared tailnet forwards in the enable confirm — the exposure is a capability", async () => {
+    await mountApps();
+    fireEvent.click(within(row("mail")).getByRole("switch"));
+
+    expect(screen.getByText(/Enable Mail\?/)).toBeInTheDocument();
+    expect(screen.getByText(/Exposes on your tailnet:/)).toBeInTheDocument();
+    // The well-known port name + the loopback target the sidecar proxies to.
+    expect(screen.getByText(/IMAPS :993 → 127\.0\.0\.1:1430/)).toBeInTheDocument();
+    expect(screen.getByText(/SMTPS :465 → 127\.0\.0\.1:1465/)).toBeInTheDocument();
+  });
+
+  it("shows no forwards line for an app that declares none", async () => {
+    await mountApps();
+    fireEvent.click(within(row("lobby")).getByRole("switch"));
+    expect(screen.getByText(/Enable LOBBY\?/)).toBeInTheDocument();
+    expect(screen.queryByText(/Exposes on your tailnet:/)).not.toBeInTheDocument();
+  });
+
   it("disable POSTs immediately — no confirm step", async () => {
     const disable = vi
       .spyOn(api, "appPackageDisable")

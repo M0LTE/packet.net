@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Packet.Node.Core.Applications.Packages;
 using Packet.Node.Core.Configuration;
 
 namespace Packet.Node.Core.Tailscale;
@@ -79,7 +80,20 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         return null;
     });
 
+    /// <summary>The file name (under the sidecar's state dir) the supervisor writes the collected
+    /// forwards JSON to and hands the child via <c>--forwards-file</c>.</summary>
+    public const string ForwardsFileName = "forwards.json";
+
+    private static readonly JsonSerializerOptions ForwardsJson = new()
+    {
+        // The pinned --forwards-file contract is a compact camelCase array
+        // ([{"listen":993,"target":"127.0.0.1:1430","tls":"terminate"}]).
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false,
+    };
+
     private readonly IConfigProvider config;
+    private readonly IAppPackageCatalog? packages;
     private readonly ITailscaleStatus status;
     private readonly TimeProvider timeProvider;
     private readonly ILoggerFactory loggerFactory;
@@ -107,9 +121,11 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         ILoggerFactory? loggerFactory = null,
         string? binaryPath = null,
         TimeSpan? backoffBase = null,
-        TimeSpan? stopGrace = null)
+        TimeSpan? stopGrace = null,
+        IAppPackageCatalog? packages = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
+        this.packages = packages;
         this.status = status ?? throw new ArgumentNullException(nameof(status));
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
@@ -205,7 +221,12 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                 return;
             }
 
-            var fingerprint = FingerprintOf(ts);
+            // The app-declared tailnet forwards from every enabled, error-free package — applied
+            // only when tailscale is enabled (no tailscale → no forwards). They ride the spawn
+            // fingerprint, so enabling/disabling a forward-declaring app (or any forward change)
+            // restarts the sidecar with a freshly-written --forwards-file.
+            var forwards = CollectForwards();
+            var fingerprint = FingerprintOf(ts, forwards);
             if (runStopping is not null && string.Equals(runFingerprint, fingerprint, StringComparison.Ordinal))
             {
                 // Running with the same spawn-relevant config — leave it alone.
@@ -217,7 +238,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                 await StopChildLockedAsync().ConfigureAwait(false);
             }
 
-            StartChildLocked(ts, fingerprint, ct);
+            StartChildLocked(ts, forwards, fingerprint, ct);
         }
         finally
         {
@@ -226,27 +247,39 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
     }
 
     /// <summary>The spawn-relevant config (everything passed to the child as a flag or file).
-    /// An edit that changes this restarts the child; an irrelevant edit leaves it alone.</summary>
-    private static string FingerprintOf(TailscaleConfig ts) =>
+    /// An edit that changes this restarts the child; an irrelevant edit leaves it alone. The
+    /// collected forwards are part of it (the JSON the child reads via <c>--forwards-file</c>) so
+    /// enabling/disabling a forward-declaring app — or any forward change — restarts the sidecar.</summary>
+    private static string FingerprintOf(TailscaleConfig ts, IReadOnlyList<ForwardEntry> forwards) =>
         string.Join(' ',
             ts.Hostname,
             ts.StateDir,
             ts.Target,
             ts.Funnel ? "funnel" : "",
             ts.AuthKey ?? "",
-            ts.AuthKeyFile ?? "");
+            ts.AuthKeyFile ?? "",
+            // The forwards are part of the spawn — fold their JSON into the fingerprint.
+            FingerprintForwards(forwards));
+
+    /// <summary>A stable string for the collected forwards set (already in a deterministic order,
+    /// since the catalog scans roots/dirs deterministically).</summary>
+    private static string FingerprintForwards(IReadOnlyList<ForwardEntry> forwards) =>
+        forwards.Count == 0
+            ? ""
+            : string.Join(',', forwards.Select(f => $"{f.Listen}>{f.Target}:{f.Tls}"));
 
     // ---- lifecycle ------------------------------------------------------------------------
 
     /// <summary>Launch the child run loop for the given config. Caller holds the gate.</summary>
-    private void StartChildLocked(TailscaleConfig ts, string fingerprint, CancellationToken parentCt)
+    private void StartChildLocked(
+        TailscaleConfig ts, IReadOnlyList<ForwardEntry> forwards, string fingerprint, CancellationToken parentCt)
     {
         var stopping = CancellationTokenSource.CreateLinkedTokenSource(parentCt);
         runStopping = stopping;
         runFingerprint = fingerprint;
         status.Update(new TailscaleStatusSnapshot(
             Enabled: true, State: "starting", Fqdn: null, AuthUrl: null, Error: null, Funnel: ts.Funnel));
-        runLoop = Task.Run(() => RunChildAsync(ts, stopping.Token), CancellationToken.None);
+        runLoop = Task.Run(() => RunChildAsync(ts, forwards, stopping.Token), CancellationToken.None);
     }
 
     /// <summary>Signal the live child to stop, await its run loop, untrack it. Caller holds the
@@ -291,7 +324,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
 
     /// <summary>The child's whole supervised life: spawn → pump status/logs → exit → backoff →
     /// respawn, until stopped. Total — a defect faults the status, never the node.</summary>
-    private async Task RunChildAsync(TailscaleConfig ts, CancellationToken ct)
+    private async Task RunChildAsync(TailscaleConfig ts, IReadOnlyList<ForwardEntry> forwards, CancellationToken ct)
     {
         var delay = backoffBase;
         var childLogger = loggerFactory.CreateLogger("tailscale");
@@ -309,7 +342,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                 var groupLeader = false;
                 try
                 {
-                    var (args, keyFile) = BuildArgs(ts);
+                    var (args, keyFile) = BuildArgs(ts, forwards);
                     tempKeyFile = keyFile;
                     (process, groupLeader) = Spawn(binaryPath, args);
                 }
@@ -394,8 +427,11 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
     // ---- the spawn ------------------------------------------------------------------------
 
     /// <summary>Build the child's argument list from config, returning the temp auth-key file
-    /// path to delete after the child exits (null when none was written).</summary>
-    private static (List<string> Args, string? TempKeyFile) BuildArgs(TailscaleConfig ts)
+    /// path to delete after the child exits (null when none was written). When the manifest set
+    /// declares forwards, writes them to <c>&lt;stateDir&gt;/forwards.json</c> and passes
+    /// <c>--forwards-file</c>.</summary>
+    private (List<string> Args, string? TempKeyFile) BuildArgs(
+        TailscaleConfig ts, IReadOnlyList<ForwardEntry> forwards)
     {
         var args = new List<string>
         {
@@ -403,6 +439,22 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
             "--state-dir", ts.StateDir,
             "--target", ts.Target,
         };
+
+        // The app-declared tailnet forwards: write the JSON array the sidecar reads, and hand it
+        // the path. Only when there is at least one forward — no forwards → no --forwards-file
+        // (the sidecar just web-proxies), and a previous run's lingering forwards.json is harmless
+        // because the child is never pointed at it. The file lives in the persistent state dir
+        // beside the node identity. A drop from N forwards to 0 changes the fingerprint, so the
+        // sidecar restarts without the flag.
+        if (forwards.Count > 0)
+        {
+            var path = WriteForwardsFile(ts.StateDir, forwards);
+            if (path is not null)
+            {
+                args.Add("--forwards-file");
+                args.Add(path);
+            }
+        }
 
         string? tempKeyFile = null;
         if (!string.IsNullOrWhiteSpace(ts.AuthKeyFile))
@@ -425,6 +477,53 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
             args.Add("--funnel");
         }
         return (args, tempKeyFile);
+    }
+
+    /// <summary>Collect the app-declared tailnet forwards from every enabled, error-free package
+    /// (a broken or duplicate forward is already an <c>Error</c> entry, hence not enabled, hence
+    /// excluded). Empty when no catalog is wired or no enabled package declares one.</summary>
+    private List<ForwardEntry> CollectForwards()
+    {
+        if (packages is null)
+        {
+            return [];
+        }
+
+        List<ForwardEntry>? collected = null;
+        foreach (var package in packages.Discover(config.Current))
+        {
+            if (!package.Enabled || package.Error is not null)
+            {
+                continue;   // disabled or broken → never exposed.
+            }
+            foreach (var fwd in package.Forwards)
+            {
+                (collected ??= []).Add(new ForwardEntry(
+                    fwd.Listen,
+                    fwd.Target,
+                    fwd.Tls == ForwardTls.Raw ? "raw" : "terminate"));
+            }
+        }
+        return collected ?? [];
+    }
+
+    /// <summary>Write the collected forwards as the pinned <c>--forwards-file</c> JSON array into
+    /// the (persistent) state dir, returning the path — or null if the write failed (the surface
+    /// is total: a write fault logs and degrades to no forwards rather than faulting the node).</summary>
+    private string? WriteForwardsFile(string stateDir, IReadOnlyList<ForwardEntry> forwards)
+    {
+        try
+        {
+            Directory.CreateDirectory(stateDir);
+            var path = Path.Combine(stateDir, ForwardsFileName);
+            File.WriteAllText(path, JsonSerializer.Serialize(forwards, ForwardsJson), Utf8NoBom);
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LogForwardsFileFailed(stateDir, ex.Message);
+            return null;
+        }
     }
 
     private static string WriteTempKeyFile(string key)
@@ -688,6 +787,11 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
     private static extern int SysKill(int pid, int signal);
 #pragma warning restore SYSLIB1054
 
+    /// <summary>One entry in the <c>--forwards-file</c> JSON array (the pinned sidecar contract:
+    /// <c>[{"listen":993,"target":"127.0.0.1:1430","tls":"terminate"}]</c>). Serialised camelCase;
+    /// <see cref="Tls"/> is the lowercase string (<c>terminate</c> | <c>raw</c>) the Go side reads.</summary>
+    private sealed record ForwardEntry(int Listen, string Target, string Tls);
+
     /// <summary>The sidecar's stderr, logged at Warning under the <c>tailscale</c> category.</summary>
     private static partial class SidecarLog
     {
@@ -730,4 +834,8 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Tailscale sidecar run loop faulted.")]
     private partial void LogRunLoopFault(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Could not write the Tailscale forwards file in {StateDir}; the sidecar will run without app forwards: {Reason}")]
+    private partial void LogForwardsFileFailed(string stateDir, string reason);
 }
