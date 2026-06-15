@@ -630,8 +630,26 @@ app.Map("/api/{**rest}", () => Results.NotFound());
 // any other unmatched, non-file route returns index.html so the React router
 // can handle it (deep links like /monitor, /ports).
 app.UseDefaultFiles();
-app.UseStaticFiles();
-app.MapFallbackToFile("index.html");
+// SPA caching: index.html must always be revalidated so a deploy's new asset hashes are picked
+// up immediately (the recurring "updated but UI unchanged until a hard-refresh" trap — a stale
+// cached index.html keeps pointing at the previous hashed bundle). The hashed /assets/* are
+// content-addressed, so they're safe to cache immutably forever.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+            ctx.Context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        else if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
+            ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    },
+});
+// Deep-link fallback (e.g. /monitor, /apps) also returns index.html — keep it no-cache too.
+app.MapFallbackToFile("index.html", new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+        ctx.Context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate",
+});
 
 app.Run();
 
