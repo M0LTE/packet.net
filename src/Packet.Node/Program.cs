@@ -244,6 +244,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             // endpoint carries WWW-Authenticate pointing at the protected-resource metadata, so
             // an unconfigured MCP client (claude.ai) can discover how to get a token. Only for
             // /mcp + only when mcp.oauth.enabled — every other 401 keeps the default challenge.
+            //
+            // App-gateway human-plane recovery: a browser navigation / slot iframe to a gated
+            // /apps/{id}/* path can't carry an Authorization header (it relies on the pdn_at
+            // cookie), and when that cookie's token is expired/absent the bare Bearer 401 is
+            // UNRENDERABLE in a browser frame — iOS Safari saves the empty body as a file. So
+            // for a /apps/* request that is a real browser navigation (not an XHR/API call) we
+            // swap the bare 401 for a login redirect on the human plane: a top-level navigation
+            // gets a 302 to the SPA login; a sub-frame (iframe/frame) can't 302 its parent, so
+            // it gets a tiny 200 HTML page that breaks the SLOT out to the top-level login. This
+            // does NOT weaken auth — the request is still rejected and re-login is still
+            // required; it only replaces an undownloadable 401 with a renderable re-auth on
+            // navigations a human (not a fetch) made. XHR/API 401s (Accept: application/json,
+            // empty/fetch Sec-Fetch-Dest) are left EXACTLY as before — the SPA's on401 handler
+            // owns those (silent refresh, else logout).
             OnChallenge = context =>
             {
                 var http = context.HttpContext;
@@ -257,6 +271,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     http.Response.Headers.Append(
                         "WWW-Authenticate",
                         $"Bearer resource_metadata=\"{b}/.well-known/oauth-protected-resource\"");
+                    return Task.CompletedTask;
+                }
+
+                if (http.Request.Path.StartsWithSegments("/apps")
+                    && AppGatewayChallenge.IsBrowserNavigation(http.Request))
+                {
+                    // Suppress the bare-401 challenge and emit the renderable re-auth response
+                    // (302 for a top-level nav, break-out HTML for a sub-frame). Returned as the
+                    // event's task so the body write completes before the pipeline moves on.
+                    context.HandleResponse();
+                    return AppGatewayChallenge.WriteLoginRedirect(http);
                 }
                 return Task.CompletedTask;
             },

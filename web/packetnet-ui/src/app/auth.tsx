@@ -23,7 +23,7 @@
 // window "pdn:unauthorized" event. The provider listens and runs logout() →
 // token cleared, gate falls back to /login. (An event keeps api.ts free of a
 // React-context import — it's plain TS.)
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 /** The granted scope on a token, lowest→highest privilege. */
 export type Scope = "read" | "operate" | "admin";
@@ -67,6 +67,13 @@ const EMPTY_SESSION: Session = { token: null, refreshToken: null, username: null
 /** The event lib/api.ts dispatches when any call comes back 401. */
 export const UNAUTHORIZED_EVENT = "pdn:unauthorized";
 
+/** Dispatched after a successful PROACTIVE (tab-focus) token refresh — the pdn_at gateway
+ *  cookie has just been re-issued, so a slot iframe whose earlier cookie-authed /apps/* load
+ *  may have 401'd/blanked can reload to re-request with the fresh cookie. Consumed by the
+ *  AppFrame (screens/app-frame). Carries no payload — it's purely a "the cookie is fresh now"
+ *  signal, fired only on an actual rotation so it can't drive a reload loop. */
+export const SESSION_REFRESHED_EVENT = "pdn:session-refreshed";
+
 // lib/api.ts registers a best-effort server-side revoke here (POST /auth/logout with
 // the stored refresh token). A registration hook — rather than a static import of
 // api.ts — keeps auth.tsx free of an import cycle (api.ts already imports from here).
@@ -74,6 +81,19 @@ let revokeOnLogout: (() => void) | null = null;
 /** Called once by lib/api.ts at module load to wire the logout revoke. */
 export function setLogoutRevoker(fn: () => void): void {
   revokeOnLogout = fn;
+}
+
+// lib/api.ts also registers its proactive (tab-focus) refresh here — same registration-hook
+// pattern, same no-import-cycle reason. The provider calls it when the tab regains focus; the
+// function renews the access token IFF it's near/at expiry (and a refresh token is held),
+// reusing api.ts's single locked/deduped rotation, and resolves the freshly-persisted token
+// pair (or null when no renew happened). It NEVER throws and NEVER logs out on its own.
+let refreshIfExpiringSoon: (() => Promise<{ token: string; refreshToken: string | null } | null>) | null = null;
+/** Called once by lib/api.ts at module load to wire the proactive focus-refresh. */
+export function setFocusRefresher(
+  fn: () => Promise<{ token: string; refreshToken: string | null } | null>,
+): void {
+  refreshIfExpiringSoon = fn;
 }
 
 function load(): Session {
@@ -107,6 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session>(load);
   const [authed, setAuthed] = useState(false);
 
+  // Latest session for the focus-refresh effect to read WITHOUT re-binding the listener on
+  // every token rotation (the listener attaches once; the ref keeps it current).
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
   const logout = () => {
     // Best-effort server-side revoke of the refresh-token family (POST /auth/logout
     // via the registered revoker), then clear local state. The revoke reads the token
@@ -122,6 +147,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onUnauthorized = () => logout();
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
+  // Proactive refresh on tab-focus (Tom's "flip back to the tab after a while" trigger).
+  // When the tab becomes visible (or the window regains focus), silently renew the access
+  // token IFF it's near/at expiry, so the next navigation — including a slot iframe's
+  // cookie-authed /apps/* load — rides a fresh token instead of 401'ing. Guards:
+  //   - only when we hold a token-backed session (a real refresh token to rotate);
+  //   - debounced so a burst of focus/visibility events fires at most one check per window;
+  //   - the renew itself is api.ts's single locked/deduped rotation, so it can't double-spend
+  //     the one-time-use refresh token even alongside an in-flight 401 refresh;
+  //   - on success we adopt the rotated pair into React state (localStorage is already updated
+  //     by api.ts); a failed/again-unneeded refresh is a silent no-op — we NEVER log out here
+  //     (the next real request's 401 path owns that decision).
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
+    const maybeRefresh = () => {
+      if (document.visibilityState === "hidden") return;   // focus without visibility — skip
+      if (!sessionRef.current.token || !sessionRef.current.refreshToken) return;
+      if (!refreshIfExpiringSoon) return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        void refreshIfExpiringSoon!().then((next) => {
+          if (disposed || !next) return;
+          const s: Session = { ...sessionRef.current, token: next.token, refreshToken: next.refreshToken };
+          setSession(s);
+          // The pdn_at gateway cookie was re-issued by the same /auth/refresh — tell any open
+          // slot iframe to reload so it re-requests /apps/* with the fresh cookie. Fired ONLY
+          // on an actual rotation (next != null), so it can never loop on a no-op focus.
+          window.dispatchEvent(new Event(SESSION_REFRESHED_EVENT));
+        });
+      }, 250);
+    };
+
+    window.addEventListener("focus", maybeRefresh);
+    document.addEventListener("visibilitychange", maybeRefresh);
+    return () => {
+      disposed = true;
+      if (debounce) clearTimeout(debounce);
+      window.removeEventListener("focus", maybeRefresh);
+      document.removeEventListener("visibilitychange", maybeRefresh);
+    };
   }, []);
 
   const value: AuthState = {

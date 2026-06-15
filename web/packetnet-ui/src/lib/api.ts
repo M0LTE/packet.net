@@ -23,7 +23,7 @@ import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import type {
   PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
-import { UNAUTHORIZED_EVENT, setLogoutRevoker } from "@/app/auth";
+import { UNAUTHORIZED_EVENT, setLogoutRevoker, setFocusRefresher } from "@/app/auth";
 
 const MODE: "mock" | "live" =
   (import.meta.env.VITE_API_MODE as "mock" | "live") ?? "mock";
@@ -175,6 +175,60 @@ function rotateRefreshTokenAcrossTabs(): Promise<boolean> {
     return locks.request("pdn-auth-refresh", rotate) as unknown as Promise<boolean>;
   }
   return rotate();
+}
+
+// --- proactive (tab-focus) refresh ---------------------------------------------
+// Tom's exact trigger: flip back to the panel tab after a while and the access token may
+// have expired (or be about to). Rather than wait for the next request to 401 (which on a
+// slot iframe yields an unrenderable response — see Program.cs OnChallenge), the auth
+// provider refreshes ON FOCUS when the token is near/at expiry. The decode is local
+// (read the JWT `exp` claim); the refresh reuses the SAME shared, locked, deduped
+// refreshAccessToken() the 401 path uses, so a focus-refresh and an in-flight 401-refresh
+// can never double-rotate the one-time-use token.
+
+/** Decode a JWT's `exp` (epoch seconds) without verifying the signature — we only read it to
+ *  decide whether to PROACTIVELY refresh; the server is still the authority on validity.
+ *  Returns null for a non-JWT / unparseable token (mock tokens, auth-off). */
+function jwtExpEpochSeconds(jwt: string | null): number | null {
+  if (!jwt) return null;
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return null;            // not a JWS — mock token / opaque
+  try {
+    // base64url → base64, then decode the payload and read `exp`.
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const payload = JSON.parse(atob(b64 + pad)) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the stored access token is at/near expiry — within `skewSeconds` of now, or already
+ *  past. A token with no readable `exp` (mock / opaque / auth-off) returns false: there is
+ *  nothing to proactively renew. */
+export function accessTokenExpiringSoon(skewSeconds = 60): boolean {
+  const exp = jwtExpEpochSeconds(token());
+  if (exp === null) return false;
+  return exp * 1000 - Date.now() <= skewSeconds * 1000;
+}
+
+/** Proactively renew the access token IF it's near/at expiry and we hold a refresh token.
+ *  Shares the single in-flight, cross-tab-locked rotation with the 401 path. Resolves the
+ *  freshly-persisted { token, refreshToken } pair on a successful renew, or null when no
+ *  renew happened (not near expiry, no refresh token, or the rotation failed). NEVER throws
+ *  and NEVER logs out on its own — a failed proactive refresh just resolves null; the next
+ *  real request's 401 path makes the logout decision. */
+export async function refreshIfExpiringSoon(
+  skewSeconds = 60,
+): Promise<{ token: string; refreshToken: string | null } | null> {
+  if (MODE === "mock") return null;               // no real token lifetime to track
+  if (!refreshToken()) return null;               // auth off / pre-login — nothing to renew with
+  if (!accessTokenExpiringSoon(skewSeconds)) return null;
+  const ok = await refreshAccessToken();
+  if (!ok) return null;
+  const s = readSession();
+  return s.token ? { token: s.token, refreshToken: s.refreshToken ?? null } : null;
 }
 
 /** Auth-aware fetch — attaches the bearer token; on a 401 it tries ONE silent refresh
@@ -842,6 +896,12 @@ async function logoutServerSide(): Promise<void> {
 // token from localStorage + POST /auth/logout). A registration hook avoids an
 // auth.tsx → api.ts import cycle. Fired-and-forgotten so logout never blocks on it.
 setLogoutRevoker(() => { void logoutServerSide(); });
+
+// Wire the AuthProvider's tab-focus proactive refresh to api.ts's near-expiry renew (same
+// registration-hook pattern, same no-import-cycle reason). The provider calls this when the
+// tab regains focus; it renews the access token only when it's near/at expiry, reusing the
+// single locked/deduped rotation, and resolves the freshly-persisted pair (or null).
+setFocusRefresher(() => refreshIfExpiringSoon());
 
 // First-run bootstrap. Always open; one-shot (403 once a user exists). Returns the
 // created admin summary (no token — the caller sends the operator to login).
