@@ -5,11 +5,11 @@
 // real <Shell> against the mock API backend; the launcher feed is spied + stubbed so each test
 // controls the app states it exercises without touching the shared mock fixtures.
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/auth";
 import { Shell } from "@/components/layout/shell";
-import { api } from "@/lib/api";
+import { api, APPS_CHANGED_EVENT } from "@/lib/api";
 import type { NodeApp } from "@/lib/types";
 
 function seedScope(scope: "read" | "admin" = "admin") {
@@ -122,5 +122,36 @@ describe("Shell — Apps nav group", () => {
     // The core nav is present; the dynamic group is not.
     expect(screen.getByRole("link", { name: /Dashboard/ })).toBeInTheDocument();
     expect(document.querySelector('[data-testid="app-nav"]')).toBeNull();
+  });
+
+  it("re-fetches the nav on APPS_CHANGED — a newly-enabled app appears without a browser refresh", async () => {
+    // The Apps manager lives on a different route, so AppNav doesn't re-mount on an enable; it
+    // listens for APPS_CHANGED and reloads. Enable an app there → it appears in the nav live.
+    const appsSpy = vi.spyOn(api, "apps").mockResolvedValue([
+      { id: "wall", name: "WALL", icon: "message-square", url: "/apps/wall/", uiMode: "standalone", state: "Running" },
+    ]);
+    seedScope();
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Shell />}>
+              <Route index element={<div>home</div>} />
+            </Route>
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(document.querySelector('[data-app-nav="wall"]')).not.toBeNull());
+    expect(document.querySelector('[data-app-nav="lobby"]')).toBeNull();
+
+    // An app is enabled on the Apps screen: the feed now includes it + the manager fires the event.
+    appsSpy.mockResolvedValue([
+      { id: "wall", name: "WALL", icon: "message-square", url: "/apps/wall/", uiMode: "standalone", state: "Running" },
+      { id: "lobby", name: "LOBBY", icon: "users", url: "/apps/lobby/", uiMode: "standalone", state: "Running" },
+    ]);
+    act(() => { window.dispatchEvent(new Event(APPS_CHANGED_EVENT)); });
+
+    await waitFor(() => expect(document.querySelector('[data-app-nav="lobby"]')).not.toBeNull());
   });
 });

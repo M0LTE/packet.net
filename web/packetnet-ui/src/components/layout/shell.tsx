@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Icon, AppIcon, type IconName } from "@/components/icon";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/app/auth";
-import { api, useQuery } from "@/lib/api";
+import { api, useQuery, APPS_CHANGED_EVENT } from "@/lib/api";
 import { fmtUptime } from "@/lib/mock";
 import { isAppNotRunning } from "@/lib/types";
 
@@ -93,7 +93,15 @@ const APP_NAV_CLASS =
   "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
 function AppNav({ onNavigate }: { onNavigate: () => void }) {
-  const { data } = useQuery(api.apps, []);
+  const { data, reload } = useQuery(api.apps, []);
+  // Re-fetch the nav's app list when an app is enabled/disabled/installed on the Apps screen
+  // (a different route, so this component doesn't re-mount). The manager fires APPS_CHANGED after
+  // each mutation — without this, a newly-enabled app wouldn't appear until a full browser refresh.
+  useEffect(() => {
+    const onChanged = () => reload();
+    window.addEventListener(APPS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(APPS_CHANGED_EVENT, onChanged);
+  }, [reload]);
   const apps = data ?? [];
   if (apps.length === 0) return null;
   return (

@@ -455,6 +455,12 @@ export const api = {
  *  Apps launcher imports this directly. */
 export const listApps = (): Promise<NodeApp[]> => api.apps();
 
+/** Fired (on window) after any app mutation (enable/disable/install/uninstall) so the
+ *  left-nav app list re-fetches without a full browser refresh — the nav fetches
+ *  api.apps once on mount, and the Apps manager lives on a different route, so it
+ *  signals the nav this way (mirrors SESSION_REFRESHED_EVENT). */
+export const APPS_CHANGED_EVENT = "pdn:apps-changed";
+
 // The connectionless-ping result shape lives in ./types (PingResult); re-exported here so
 // callers importing from the API surface keep working.
 export type { PingResult } from "./types";

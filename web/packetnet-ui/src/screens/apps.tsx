@@ -32,7 +32,7 @@ import { useEffect, useRef, useState } from "react";
 import { Page, PageHeader } from "@/components/layout/shell";
 import { Badge, Button, Card, EmptyState, Icon, Modal, Tooltip, type BadgeVariant } from "@/components/ui";
 import { AppIcon } from "@/components/icon";
-import { api, useQuery, type Query } from "@/lib/api";
+import { api, useQuery, APPS_CHANGED_EVENT, type Query } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/lib/utils";
 import { isAppNotRunning, displayCapability } from "@/lib/types";
@@ -65,9 +65,11 @@ export function Apps() {
   const available = useQuery(api.availableApps, []);
   const packages = useQuery(api.appPackages, []);
   // reloadAll = manager state (enable/disable/restart); reloadBoth = available + manager
-  // (install/upload — the app moves from the catalog list into the manager).
-  const reloadAll = () => { packages.reload(); };
-  const reloadBoth = () => { available.reload(); packages.reload(); };
+  // (install/upload — the app moves from the catalog list into the manager). Both also fire
+  // APPS_CHANGED so the left-nav app list re-fetches live (the nav is on a different route and
+  // fetched api.apps once on mount, so it wouldn't otherwise update until a browser refresh).
+  const reloadAll = () => { packages.reload(); window.dispatchEvent(new Event(APPS_CHANGED_EVENT)); };
+  const reloadBoth = () => { available.reload(); packages.reload(); window.dispatchEvent(new Event(APPS_CHANGED_EVENT)); };
 
   return (
     <Page>
