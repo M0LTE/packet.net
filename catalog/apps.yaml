@@ -102,8 +102,8 @@ apps:
 
   - id: bbs
     name: BBS
-    version: "0.2.8"
-    description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale. Renders inside the pdn panel (slot UI mode), styled to match and following the panel's theme. Binds <node>-<ssid> + the BBS alias; mail addresses are SSID-less."
+    version: "0.2.9"
+    description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale. Renders inside the pdn panel (slot UI mode), styled to match and following the panel's theme. Binds <node>-<ssid> + the BBS alias; mail addresses are SSID-less. Sysop forwarding dashboard."
     icon: mail
     capabilities: [packet, web]
     homepage: https://github.com/packet-net/pdn-bbs
@@ -111,11 +111,11 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.8/pdn-bbs_0.2.8_amd64.deb
-          sha256: fe5b9c03da8457678efa5db96fda3f143749bd272922668af4802ec86ae42720
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.9/pdn-bbs_0.2.9_amd64.deb
+          sha256: ed2b4473edf81f88f84af00f0fcb69cb02443f12b77549c7fdfd1a1b39d2da34
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.8/pdn-bbs_0.2.8_arm64.deb
-          sha256: 855d19ed21b0d117820bf8848de7f35ceca1ba868d50c6c3ebfdac756862fb6f
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.9/pdn-bbs_0.2.9_arm64.deb
+          sha256: ba4a787373e5a3efc12bab87569bfff877a7c69d1ff9087431abdc4802fea790
         linux-arm:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.8/pdn-bbs_0.2.8_armhf.deb
-          sha256: 60edb7eb82a5c95d0e87151b0a18c96a11b30fabc8da55226e5dd9950d294200
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.9/pdn-bbs_0.2.9_armhf.deb
+          sha256: 1d495b3091d9e093e8abfeafd2a22b00322c91e50d1b02cfc4baccee3be5371b
