@@ -18,12 +18,13 @@
 // feed reports as standalone (not meant to embed), renders an EmptyState with a plain link to
 // the app's own page rather than forcing it into a frame.
 // ============================================================
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page, PageHeader } from "@/components/layout/shell";
 import { EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icon";
 import { api, useQuery } from "@/lib/api";
+import { SESSION_REFRESHED_EVENT } from "@/app/auth";
 
 // The panel's active theme — the manual toggle (<ThemeToggle> in shell.tsx) flips a `.dark`
 // class on <html>. An iframe is a separate document that can't see that class, so it falls back
@@ -50,6 +51,22 @@ export function AppFrame() {
     // Re-sync in case the class changed between the initial render and the observer attaching.
     setTheme(readPanelTheme());
     return () => observer.disconnect();
+  }, []);
+
+  // Slot-recovery reload: the framed app authenticates via the pdn_at cookie, so if this
+  // frame loaded while the cookie was expired its content may have 401'd/blanked. When a
+  // PROACTIVE (tab-focus) refresh re-issues the cookie (the auth provider fires
+  // SESSION_REFRESHED_EVENT), bump the frame's key so React fully remounts the <iframe> and
+  // it re-requests /apps/{id}/ with the fresh cookie. Driven ONLY by that event (which fires
+  // only on an actual rotation), so it can't loop: a no-op focus emits no event, and the
+  // theme-change reload path is independent.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const reloadRef = useRef(setReloadNonce);
+  reloadRef.current = setReloadNonce;
+  useEffect(() => {
+    const onRefreshed = () => reloadRef.current((n) => n + 1);
+    window.addEventListener(SESSION_REFRESHED_EVENT, onRefreshed);
+    return () => window.removeEventListener(SESSION_REFRESHED_EVENT, onRefreshed);
   }, []);
 
   // Still fetching the feed — say so rather than flashing the not-found state.
@@ -126,6 +143,9 @@ export function AppFrame() {
           topbar (h-14 = 3.5rem) and the Page gutter + PageHeader, so the app gets the whole
           content area. A real browser context — the app's links/forms/navigation work natively. */}
       <iframe
+        // key carries the slot-recovery reload nonce: bumping it remounts the frame so it
+        // re-requests /apps/{id}/ with the freshly-refreshed pdn_at cookie (see the effect above).
+        key={reloadNonce}
         src={src}
         title={app.name}
         data-app-frame={app.id}

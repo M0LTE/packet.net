@@ -38,6 +38,20 @@ function AuthFrame({ children, footer }: { children: ReactNode; footer?: ReactNo
   );
 }
 
+// Where to land after a successful sign-in: the `?next=` the server's app-gateway re-auth
+// redirect set (a same-site SPA route like /apps/bbs), else the dashboard. Open-redirect
+// guard: only a single-leading-slash relative path is honoured — reject `//host`
+// (protocol-relative), any scheme, and backslashes; everything else falls back to "/".
+function safeNext(): string {
+  try {
+    const n = new URLSearchParams(window.location.search).get("next");
+    if (n && n.startsWith("/") && !n.startsWith("//") && !n.includes("\\") && !n.includes(":")) {
+      return n;
+    }
+  } catch { /* malformed URL — fall through */ }
+  return "/";
+}
+
 export function Login() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -61,7 +75,7 @@ export function Login() {
     try {
       const res = await api.login(username, pw);
       auth.login(res.token, res.scopes, res.username, res.refreshToken);
-      navigate("/", { replace: true });
+      navigate(safeNext(), { replace: true });
     } catch (err) {
       setError(err instanceof Unauthorized
         ? "Invalid username or password."
@@ -81,7 +95,7 @@ export function Login() {
       // Use the server-resolved username, NOT the typed box: a discoverable passkey
       // sign-in leaves the box empty, and the identity comes from the signed credential.
       auth.login(res.token, res.scopes, res.username, res.refreshToken);
-      navigate("/", { replace: true });
+      navigate(safeNext(), { replace: true });
     } catch (err) {
       // A user-cancelled / aborted ceremony (NotAllowedError) is not an error to shout
       // about — just stop. Anything else surfaces inline.

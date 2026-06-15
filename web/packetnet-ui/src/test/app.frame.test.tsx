@@ -6,9 +6,9 @@
 // A standalone app (not meant to embed) and an unknown id fall back to a link/empty state
 // rather than a frame. The launcher feed (api.apps) is spied so each test controls its app.
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "@/app/auth";
+import { AuthProvider, SESSION_REFRESHED_EVENT } from "@/app/auth";
 import { AppFrame } from "@/screens/app-frame";
 import { api } from "@/lib/api";
 import type { NodeApp } from "@/lib/types";
@@ -114,5 +114,26 @@ describe("AppFrame — in-panel app frame", () => {
 
     await waitFor(() => expect(screen.getByText(/No app/i)).toBeInTheDocument());
     expect(frame("ghost")).toBeNull();
+  });
+
+  it("reloads (remounts) the slot iframe when a tab-focus refresh re-issues the cookie", async () => {
+    // After a PROACTIVE refresh the auth provider fires SESSION_REFRESHED_EVENT (the pdn_at
+    // cookie is fresh); the frame must remount so it re-requests /apps/{id}/ with that cookie.
+    await mountFrame(
+      [{ id: "bbs", name: "BBS", icon: "mail", url: "/apps/bbs/", uiMode: "slot", state: "Running" }],
+      "bbs",
+    );
+
+    await waitFor(() => expect(frame("bbs")).not.toBeNull());
+    const before = frame("bbs")!;
+
+    // A no-op focus emits no event → no reload (the key only bumps on an actual rotation).
+    expect(frame("bbs")).toBe(before);
+
+    // The auth provider's successful focus-refresh signal → the frame remounts (new DOM node).
+    act(() => { window.dispatchEvent(new Event(SESSION_REFRESHED_EVENT)); });
+    await waitFor(() => expect(frame("bbs")).not.toBe(before));
+    // Still a slot frame at the same src (a fresh load of the same page, not a URL change).
+    expect(frame("bbs")!).toHaveAttribute("src", "/apps/bbs/?pdn_embed=1&theme=light");
   });
 });
