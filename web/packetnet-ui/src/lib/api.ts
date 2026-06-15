@@ -392,6 +392,16 @@ export const api = {
   pingTarget: (station: string, portId: string, count?: number) =>
     pingTarget(station, portId, count),
 
+  // ---- node command console (browser sysop shell) ----
+  // Open a NEW node command console session (the telnet-equivalent sysop shell). Admin-scope;
+  // returns the minted id the stream/input/close calls address. 401 → relogin.
+  openConsole: () => openConsole(),
+  // Feed raw input to a console (forwarded verbatim; the node's line discipline splits it).
+  // Resolves on 202; 404 (closed / unknown id) throws Error.
+  consoleInput: (id: string, data: string) => consoleInput(id, data),
+  // Close + dispose a console session (tears down the running NodeCommandService). 204.
+  closeConsole: (id: string) => closeConsole(id),
+
   // ---- auth + setup + user management (node-auth-ui) ----
   // Whether first-run setup is still required (zero users). Always open (no token).
   setupState: () => setupState(),
@@ -523,6 +533,46 @@ async function sendSessionLine(id: string, line: string): Promise<void> {
   });
   if (res.status === 202) return;
   throw new Error(await errorMessage(res, `Send failed (${res.status}).`));
+}
+
+// ---- node command console -----------------------------------
+// Open a node command console session. Live mode POSTs /console and returns the minted id; mock
+// mode synthesises one so the screen demos with no node (the stream is faked in
+// subscribeConsoleOutput). A 401 → relogin via authFetch; any other failure surfaces as Error.
+async function openConsole(): Promise<string> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 120));
+    return "console:mock";
+  }
+  const res = await authFetch("/console", {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Could not open the console (${res.status}).`));
+  return ((await res.json()) as { id: string }).id;
+}
+
+// Feed raw input to a console. Resolves on 202; 404 (closed / unknown) or other surfaces as Error.
+async function consoleInput(id: string, data: string): Promise<void> {
+  if (MODE === "mock") { await new Promise((r) => setTimeout(r, 20)); return; }
+  const res = await authFetch(`/console/${encodeURIComponent(id)}/input`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (res.status === 202) return;
+  throw new Error(await errorMessage(res, `Console input failed (${res.status}).`));
+}
+
+// Close + dispose a console session. Resolves on 204 (the node tears the NodeCommandService down).
+// Best-effort from the caller's view (a failed close still happens server-side on disconnect).
+async function closeConsole(id: string): Promise<void> {
+  if (MODE === "mock") { await new Promise((r) => setTimeout(r, 20)); return; }
+  try {
+    await authFetch(`/console/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch {
+    /* close is best-effort — the server also tears the session down on SSE disconnect */
+  }
 }
 
 // Connectionless TEST ping. Live mode POSTs /ping and returns the node's PingResult; a 501
@@ -1168,6 +1218,35 @@ export function subscribeSessionOutput(id: string, onChunk: (text: string) => vo
     try { onChunk(JSON.parse(e.data) as string); } catch { /* ignore malformed */ }
   };
   es.addEventListener("output", handler as EventListener);
+  return () => { es.removeEventListener("output", handler as EventListener); es.close(); };
+}
+
+// ---- the live node-command-console output stream (SSE `output`) --
+// Subscribes to a node command console session's output (same SSE contract as the session stream:
+// JSON-encoded chunks, replayed-backlog-then-live, `output` events). onChunk is called per decoded
+// chunk; onError fires once if the stream errors/closes (so the screen can show a "closed" state).
+// Returns an unsubscribe. Mock mode synthesises a banner + prompt + an echo on input so the
+// terminal demos with no node (input is fed via the returned `feed` for the mock echo).
+export function subscribeConsoleOutput(
+  id: string,
+  onChunk: (text: string) => void,
+  onError?: () => void,
+): () => void {
+  if (MODE === "mock") {
+    onChunk("Welcome to LONDON (M0LTE-1)  [Packet.NET mock]\r\nM0LTE-1> ");
+    return () => {};
+  }
+  // Token as a query param (see subscribeFrames) — EventSource has no header API.
+  const es = new EventSource(withTokenParam(`${BASE}/console/${encodeURIComponent(id)}/stream`));
+  const handler = (e: MessageEvent) => {
+    try { onChunk(JSON.parse(e.data) as string); } catch { /* ignore malformed */ }
+  };
+  es.addEventListener("output", handler as EventListener);
+  // EventSource fires `error` on a transient drop (it auto-reconnects) AND on a terminal close.
+  // The node ends the response when the console exits (Bye) or is closed; surface that to the UI.
+  es.addEventListener("error", () => {
+    if (es.readyState === EventSource.CLOSED) onError?.();
+  });
   return () => { es.removeEventListener("output", handler as EventListener); es.close(); };
 }
 

@@ -1,0 +1,180 @@
+// ============================================================
+// pdn — Console: a browser xterm.js terminal wired to the node's OWN sysop command
+// console (NodeCommandService) — the telnet-equivalent shell where you type node
+// commands (ports, nodes, connect, …). This is NOT the per-AX.25-session console the
+// Sessions screen exposes; it's the node's command processor, admin-gated.
+//
+// Lifecycle: on mount POST /api/v1/console → id; create an xterm Terminal (FitAddon,
+// dark theme); subscribe GET /console/{id}/stream (EventSource) → write output into the
+// terminal; on terminal onData → POST /console/{id}/input. On unmount: DELETE the
+// console + close the stream + dispose the terminal. A closed stream shows a reconnect state.
+// ============================================================
+import { useEffect, useRef, useState } from "react";
+import "@xterm/xterm/css/xterm.css";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { Page, PageHeader } from "@/components/layout/shell";
+import { Button, Card, Icon } from "@/components/ui";
+import { api, subscribeConsoleOutput } from "@/lib/api";
+import { useAuth } from "@/app/auth";
+
+// xterm wants concrete colours (not CSS hsl() vars), so mirror the app's dark theme
+// (src/index.css .dark) as hex. Kept deliberately close to the panel chrome so the
+// terminal reads as part of the surface, not a foreign black box.
+const TERMINAL_THEME = {
+  background: "#0d121c", // --card 220 23% 9.5%
+  foreground: "#dce4ee", // --foreground 210 22% 92%
+  cursor: "#38bdf8", // --primary 199 89% 52%
+  cursorAccent: "#0d121c",
+  selectionBackground: "#1d2735",
+  black: "#0d121c",
+  brightBlack: "#5a6678",
+  red: "#e15252",
+  brightRed: "#f08a8a",
+  green: "#3fc77f",
+  brightGreen: "#6fdca0",
+  yellow: "#f0a92e",
+  brightYellow: "#f7c668",
+  blue: "#38bdf8",
+  brightBlue: "#7dd3fc",
+  magenta: "#c084fc",
+  brightMagenta: "#d8b4fe",
+  cyan: "#22d3ee",
+  brightCyan: "#67e8f9",
+  white: "#dce4ee",
+  brightWhite: "#ffffff",
+} as const;
+
+type Phase = "connecting" | "open" | "closed" | "error";
+
+export function Console() {
+  const { has } = useAuth();
+  const canOpen = has("admin"); // the node command console is admin-gated server-side
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [phase, setPhase] = useState<Phase>("connecting");
+  const [error, setError] = useState<string | null>(null);
+  // Bumped to force a fresh session (the Reconnect button), re-running the effect.
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!canOpen) { setPhase("error"); setError("The node command console requires the admin scope."); return; }
+    const host = containerRef.current;
+    if (!host) return;
+
+    setPhase("connecting");
+    setError(null);
+
+    // Build the terminal up front so output can flow the instant the stream opens.
+    const term = new Terminal({
+      convertEol: false, // the node emits CR-LF (telnet transport) — let xterm handle it natively
+      cursorBlink: true,
+      fontFamily:
+        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      fontSize: 13,
+      theme: TERMINAL_THEME,
+      scrollback: 5000,
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(host);
+    try { fit.fit(); } catch { /* zero-size container (not yet laid out) — refit on resize below */ }
+
+    // Refit on container resize so the terminal tracks the panel width.
+    const ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* mid-teardown */ } });
+    ro.observe(host);
+
+    let id: string | null = null;
+    let unsubscribe: (() => void) | null = null;
+    let disposed = false;
+
+    void (async () => {
+      try {
+        id = await api.openConsole();
+        if (disposed) { void api.closeConsole(id); return; }
+        setPhase("open");
+        term.focus();
+
+        // Stream the console's output (banner/prompt/responses) into the terminal. The
+        // node JSON-encodes each chunk so embedded CR/LF survive — subscribeConsoleOutput
+        // hands us the decoded text; write it verbatim (xterm renders the CR-LF).
+        unsubscribe = subscribeConsoleOutput(
+          id,
+          (chunk) => term.write(chunk),
+          () => { if (!disposed) setPhase("closed"); },
+        );
+
+        // Forward every keystroke to the node verbatim (the node echoes + line-edits,
+        // and its LineAssembler splits on the CR xterm sends on Enter). A failed send
+        // (the session was closed) flips to the closed state.
+        term.onData((data) => {
+          if (!id) return;
+          api.consoleInput(id, data).catch(() => { if (!disposed) setPhase("closed"); });
+        });
+      } catch (e) {
+        if (disposed) return;
+        setPhase("error");
+        setError(String((e as Error)?.message ?? e) || "Could not open the console.");
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      ro.disconnect();
+      unsubscribe?.();
+      if (id) void api.closeConsole(id);
+      term.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt, canOpen]);
+
+  return (
+    <Page>
+      <PageHeader
+        title="Console"
+        subtitle="The node's sysop command console — type node commands (ports, nodes, connect, …)"
+        actions={
+          (phase === "closed" || phase === "error") && (
+            <Button size="sm" onClick={() => setAttempt((a) => a + 1)} disabled={!canOpen}>
+              <Icon name="restart" size={14} /> Reconnect
+            </Button>
+          )
+        }
+      />
+
+      {error && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <Icon name="alert" size={15} className="mt-px shrink-0" />
+          <span className="flex-1">{error}</span>
+        </div>
+      )}
+
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-1.5">
+          <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+            <Icon name="console" size={13} />
+            node command console
+          </span>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {phase === "connecting" && "connecting…"}
+            {phase === "open" && <span className="text-success">connected</span>}
+            {phase === "closed" && <span className="text-warning">console closed — Reconnect to start a new session</span>}
+            {phase === "error" && <span className="text-danger">unavailable</span>}
+          </span>
+        </div>
+        {/* The xterm host. Fixed height so the FitAddon has a stable box to size into; the
+            terminal owns its own scrollback. data-testid lets the smoke test assert the mount. */}
+        <div
+          ref={containerRef}
+          data-testid="console-terminal"
+          className="h-[28rem] w-full bg-[#0d121c] p-2"
+        />
+      </Card>
+
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        This is the node's own command shell (the same one telnet/RF sysops reach), running in-process.
+        Privileged commands still require <span className="font-mono">SYSOP</span> elevation. The session
+        is torn down when you leave this screen.
+      </p>
+    </Page>
+  );
+}

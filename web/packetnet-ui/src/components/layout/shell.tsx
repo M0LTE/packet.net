@@ -15,6 +15,7 @@ export const NAV: { id: string; to: string; label: string; icon: IconName }[] = 
   { id: "dashboard", to: "/", label: "Dashboard", icon: "dashboard" },
   { id: "monitor", to: "/monitor", label: "Monitor", icon: "monitor" },
   { id: "sessions", to: "/sessions", label: "Sessions", icon: "sessions" },
+  { id: "console", to: "/console", label: "Console", icon: "console" },
   { id: "apps", to: "/apps", label: "Apps", icon: "apps" },
   { id: "routes", to: "/routes", label: "Routes", icon: "routes" },
   { id: "ports", to: "/ports", label: "Ports", icon: "ports" },

@@ -13,6 +13,7 @@ import type { ReactElement } from "react";
 import { Dashboard } from "@/screens/dashboard";
 import { Monitor } from "@/screens/monitor";
 import { Sessions } from "@/screens/sessions";
+import { Console } from "@/screens/console";
 import { Apps } from "@/screens/apps";
 import { Routes } from "@/screens/routes";
 import { Ports } from "@/screens/ports";
@@ -47,6 +48,23 @@ describe("screens render without crashing", () => {
     const { container } = mount(<Sessions />);
     expect(container.firstChild).toBeTruthy();
     await waitFor(() => expect(screen.getAllByText(/Sessions/i).length).toBeGreaterThan(0));
+  });
+
+  it("Console renders the node command console terminal", async () => {
+    // Admin-gated screen; seed an admin session so it exercises the open path (mock api
+    // returns a synthetic id + a banner). The terminal host always mounts.
+    localStorage.setItem(
+      "pdn.session",
+      JSON.stringify({ token: "test.jwt", refreshToken: null, username: "tom", scope: "admin" }),
+    );
+    try {
+      const { container } = mount(<Console />, "/console");
+      expect(container.firstChild).toBeTruthy();
+      await waitFor(() => expect(screen.getByTestId("console-terminal")).toBeInTheDocument());
+      expect(screen.getAllByText(/Console/i).length).toBeGreaterThan(0);
+    } finally {
+      localStorage.clear();
+    }
   });
 
   it("Apps renders the management surface (no launcher grid — apps live in the nav now)", async () => {

@@ -8,6 +8,7 @@ import { Setup } from "@/screens/setup";
 import { Dashboard } from "@/screens/dashboard";
 import { Monitor } from "@/screens/monitor";
 import { Sessions } from "@/screens/sessions";
+import { Console } from "@/screens/console";
 import { Apps } from "@/screens/apps";
 import { AppFrame } from "@/screens/app-frame";
 import { Routes } from "@/screens/routes";
@@ -104,6 +105,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "monitor", element: <Monitor /> },
       { path: "sessions", element: <Sessions /> },
+      { path: "console", element: <Console /> },
       { path: "apps", element: <Apps /> },
       // The in-panel app frame: an embedded/slot app's nav <Link> lands here (a standalone app is
       // a full navigation to /apps/{id}/ — the reverse-proxied server route — and never matches

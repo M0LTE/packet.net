@@ -355,18 +355,79 @@ public sealed partial class NodeHostedService : BackgroundService
     }
 
     private Func<INodeConnection, NodeCommandService> BuildTelnetServiceFactory()
+        => _ => CreateConsoleService();
+
+    /// <summary>
+    /// Build a fresh <see cref="NodeCommandService"/> wired to the live node exactly the way the
+    /// telnet console (and the per-connection AX.25/NET-ROM consoles) build it: the default
+    /// outbound connector + connect router resolved against the running port set, the live config,
+    /// NET/ROM view, sysop context and application host. Resolved per call so it reflects the live
+    /// port set. The connection it runs over is supplied by the caller.
+    /// </summary>
+    private NodeCommandService CreateConsoleService()
     {
-        return _ =>
+        // Connect-out is same-port-only in spirit: it dials on a running AX.25 port (the first
+        // one, deterministically). If no port is up, Connect reports "not available".
+        var connector = supervisor?.ResolveDefaultConnector();
+        var router = supervisor?.CreateConnectRouter(connector);
+        var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, router);
+        return new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
+    }
+
+    /// <summary>
+    /// Open a NEW browser-driven node command console: build an in-process
+    /// <see cref="LoopbackNodeConnection"/> pair, run a freshly-wired
+    /// <see cref="NodeCommandService"/> (the same one the telnet console runs) over the app-end,
+    /// and adopt the user-end into <paramref name="console"/> so the existing SSE fan-out + input
+    /// plumbing the web Sessions screen already uses is reused unchanged. Returns the minted
+    /// session id the stream/input/close endpoints address it by — a <c>console:&lt;guid&gt;</c>
+    /// string, distinct from the <c>{portId}:{peer}</c> ids the AX.25 connect-out sessions use.
+    /// </summary>
+    /// <remarks>
+    /// The service task runs detached; it ends when the user-end is disposed (the manager's
+    /// <see cref="SysopConsoleManager.CloseAsync"/> / peer-gone path disposes the user-end, which
+    /// shares one completion with the app-end, so the service's read returns EOF and its loop
+    /// exits — then the app-end is disposed too). The connection carries the
+    /// <see cref="NodeTransportKind.Telnet"/> transport so the console uses local line-discipline
+    /// and CR-LF output (a browser terminal, not a packet link).
+    /// </remarks>
+    public string OpenConsoleSession(SysopConsoleManager console)
+    {
+        ArgumentNullException.ThrowIfNull(console);
+
+        var id = "console:" + Guid.NewGuid().ToString("N");
+        var (appEnd, userEnd) = LoopbackNodeConnection.CreatePair(
+            appPeerId: "console", appKind: NodeTransportKind.Telnet,
+            userPeerId: "console", userKind: NodeTransportKind.Telnet);
+
+        var service = CreateConsoleService();
+
+        // Run the command service over the app-end, detached. Its lifetime is bounded by the
+        // loopback's shared completion: when the user-end is disposed (CloseAsync / peer-gone /
+        // SSE teardown via the manager) the app-end reads EOF and RunAsync returns; we then
+        // dispose the app-end so neither half is left running. A fault is logged, never thrown
+        // onto a pool thread.
+        _ = Task.Run(async () =>
         {
-            // Telnet's connect-out is same-port-only in spirit: it dials on a
-            // running AX.25 port (the first one, deterministically). If no port is
-            // up, Connect reports "not available". Resolved per session so it
-            // reflects the live port set.
-            var connector = supervisor?.ResolveDefaultConnector();
-            var router = supervisor?.CreateConnectRouter(connector);
-            var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, router);
-            return new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
-        };
+            try
+            {
+                await service.RunAsync(appEnd, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogConsoleSessionFaulted(ex, id);
+            }
+            finally
+            {
+                await appEnd.DisposeAsync().ConfigureAwait(false);
+            }
+        });
+
+        // Adopt the user-end into the manager: it starts a read pump capturing the console's
+        // banner/prompt/output into a backlog and fanning it out to SSE subscribers, and owns the
+        // user-end's lifetime from here (CloseAsync disposes it → app-end sees EOF → service exits).
+        console.Open(id, userEnd);
+        return id;
     }
 
     // Assemble the over-RF sysop dependencies once at start: the user store + TOTP verifier
@@ -406,4 +467,7 @@ public sealed partial class NodeHostedService : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Telnet console failed to bind {Bind}:{Port}; running without it.")]
     private partial void LogTelnetFaulted(Exception ex, string bind, int port);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Browser console session {Id} ended on an error.")]
+    private partial void LogConsoleSessionFaulted(Exception ex, string id);
 }

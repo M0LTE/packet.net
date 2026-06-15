@@ -216,7 +216,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 {
                     var path = context.HttpContext.Request.Path;
                     bool isSse = path.StartsWithSegments("/api/v1/events")
-                        || (path.StartsWithSegments("/api/v1/sessions") && path.Value?.EndsWith("/stream", StringComparison.Ordinal) == true);
+                        || (path.StartsWithSegments("/api/v1/sessions") && path.Value?.EndsWith("/stream", StringComparison.Ordinal) == true)
+                        || (path.StartsWithSegments("/api/v1/console") && path.Value?.EndsWith("/stream", StringComparison.Ordinal) == true);
                     if (isSse)
                     {
                         var queryToken = context.Request.Query["access_token"];
@@ -600,6 +601,14 @@ app.MapPdnPortsApi();
 // win over /api/{**rest} regardless of order. (Auth is a later step — unauthenticated,
 // node binds 127.0.0.1.)
 app.MapPdnSessionsApi();
+
+// The browser node command console (admin-gated): POST /api/v1/console opens a new node
+// command shell over an in-process loopback bridge (the same NodeCommandService the telnet
+// console runs), adopted into the SysopConsoleManager so the existing SSE fan-out + input
+// plumbing is reused; GET /console/{id}/stream is the SSE output, POST /console/{id}/input
+// feeds keystrokes, DELETE /console/{id} closes it. Mapped before the catch-all; specific
+// routes win. The open is audited. See PdnConsoleApi.
+app.MapPdnConsoleApi();
 
 // App-gateway (the human plane, app platform Slice 3): the launcher feed
 // (GET /api/v1/apps) + the reverse proxy (/apps/{id}/* → a registered app's loopback web
