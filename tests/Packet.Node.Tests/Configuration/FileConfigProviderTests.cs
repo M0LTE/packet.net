@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Packet.Node.Core.Configuration;
 
@@ -108,9 +109,72 @@ public class FileConfigProviderTests : IDisposable
         provider.Current.Should().BeSameAs(before);
     }
 
+    [Fact]
+    public void Surfaces_the_netrom_routing_backcompat_warning_at_load()
+    {
+        // The inert legacy combo (forward:true without connect) parses + validates but is a
+        // no-op the operator should know about — it must be surfaced on the boot log.
+        File.WriteAllText(path, """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            netRom:
+              enabled: true
+              forward: true
+            """);
+        var captured = new CapturingLogger<FileConfigProvider>();
+        using var provider = new FileConfigProvider(path, new FakeTimeProvider(), captured, watch: false);
+
+        provider.Current.NetRom.EffectiveRouting.Should().Be(NetRomRouting.None);
+        captured.Warnings.Should().ContainSingle(w => w.Contains("forward") && w.Contains("none"));
+    }
+
+    [Fact]
+    public void No_warning_for_a_clean_routing_config_at_load()
+    {
+        File.WriteAllText(path, """
+            schemaVersion: 1
+            identity:
+              callsign: M0LTE-1
+            netRom:
+              enabled: true
+              routing: transit
+            """);
+        var captured = new CapturingLogger<FileConfigProvider>();
+        using var provider = new FileConfigProvider(path, new FakeTimeProvider(), captured, watch: false);
+
+        provider.Current.NetRom.EffectiveRouting.Should().Be(NetRomRouting.Transit);
+        captured.Warnings.Should().NotContain(w => w.Contains("forward") || w.Contains("routing"));
+    }
+
     public void Dispose()
     {
         GC.SuppressFinalize(this);
         try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+    }
+
+    // A minimal in-memory ILogger that records the rendered Warning-level messages, so a
+    // test can assert the back-compat note reaches the boot log.
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = new();
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }

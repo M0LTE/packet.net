@@ -9,7 +9,7 @@ import type {
   LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
   User, LogLine, ToggleHelp, FieldHelp, NodeApp, AppPackage, AvailableApp,
-  TailscaleStatus, SystemInfo,
+  TailscaleStatus, SystemInfo, NetRomRouting,
 } from "./types";
 
 // 6.1 NodeConfig tree ----------------------------------------
@@ -30,7 +30,7 @@ export const NODE_CONFIG: NodeConfig = {
     auth: { enabled: false, accessTokenMinutes: null, refreshTokenMinutes: null, sysopElevationMinutes: null, webAuthn: { relyingPartyId: "localhost", relyingPartyName: "pdn node", allowedOrigins: [] } },
   },
   netRom: {
-    enabled: true, broadcast: true, connect: true, forward: true, forwardMode: "PerFlow",
+    enabled: true, broadcast: true, routing: "Transit", forwardMode: "PerFlow",
     alias: "RDGGW", defaultNeighbourQuality: 192, minQuality: 40,
     obsoleteInitial: 6, obsoleteMinimum: 4, sweepIntervalSeconds: 300,
     window: 4, transportTimeoutSeconds: 60, transportRetries: 3, timeToLive: 25,
@@ -319,8 +319,18 @@ export const NINO_TEST: NinoTest = {
 export const NETROM_TOGGLE_HELP: Record<string, ToggleHelp> = {
   enabled: { label: "NET/ROM networking", desc: "The layer that lets your node route across the wider packet network, not just direct AX.25 links. Turn this off and the node only handles point-to-point connections." },
   broadcast: { label: "Advertise my routes", desc: "Tell neighbours which destinations your node can reach, so they'll route through you. Turn off to be a silent leaf that uses the network but doesn't carry others' traffic." },
-  connect: { label: "Accept connects through me", desc: "Let other stations connect through your node to onward destinations. Off means your node won't relay connections for anyone else." },
-  forward: { label: "Forward transit traffic", desc: "Relay other stations' traffic onward toward its destination. This is what makes you a useful relay rather than just an endpoint." },
+};
+// The single routing-role control (replaces the old connect + forward toggles, which
+// had an inert combination). Each option is a clean escalation of how much routing work
+// the node does. `routing` is the picker's own label/help; the rest are the per-option copy.
+export const NETROM_ROUTING_HELP: { label: string; help: string; options: { value: NetRomRouting; label: string; desc: string }[] } = {
+  label: "Routing role",
+  help: "How much your node takes part in routing across the network. Hearing routes (above) is always on; this controls whether your node opens links to other nodes and relays traffic.",
+  options: [
+    { value: "None", label: "Listen only", desc: "Passive — your node learns the network's routes but opens no links to other nodes and carries no traffic. The safe default." },
+    { value: "Endpoint", label: "Connect out", desc: "Your node may open links so you can connect <alias> to a distant node across the network — but it won't relay other stations' traffic." },
+    { value: "Transit", label: "Full router", desc: "Your node opens links AND relays other stations' traffic onward toward its destination. This is what makes you a useful relay rather than just an endpoint." },
+  ],
 };
 export const NETROM_FIELD_HELP: Record<string, FieldHelp> = {
   alias: { label: "Node alias", unit: "", help: "A short friendly name for your node on the network (e.g. RDGGW), shown alongside your callsign." },

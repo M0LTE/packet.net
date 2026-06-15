@@ -513,6 +513,43 @@ public class NodeConfigValidatorTests
     }
 
     [Fact]
+    public void Routing_knob_endpoint_or_transit_requires_netrom_enabled()
+    {
+        // The new single knob is validated through the same resolved-routing gate the
+        // legacy connect bool was: a routing role that opens interlinks needs the service on.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = false, Routing = NetRomRouting.Endpoint },
+        }).IsValid.Should().BeFalse("routing: endpoint requires netrom.enabled");
+
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = false, Routing = NetRomRouting.Transit },
+        }).IsValid.Should().BeFalse("routing: transit requires netrom.enabled");
+
+        // routing: none on a disabled node is fine (passive + off — no contradiction).
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = false, Routing = NetRomRouting.None },
+        }).IsValid.Should().BeTrue("routing: none on a disabled node is consistent");
+    }
+
+    [Fact]
+    public void Inp3_enabled_requires_an_interlink_routing_mode_via_the_knob()
+    {
+        // routing: none ⇒ no interlinks ⇒ INP3 can't ride them ⇒ rejected.
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Routing = NetRomRouting.None, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeFalse("inp3.enabled requires routing endpoint/transit");
+
+        Validator.Validate(Valid() with
+        {
+            NetRom = new NetRomConfig { Enabled = true, Routing = NetRomRouting.Endpoint, Inp3 = new NetRomInp3Options { Enabled = true } },
+        }).IsValid.Should().BeTrue("inp3.enabled with routing: endpoint is fine");
+    }
+
+    [Fact]
     public void Accepts_the_default_traffic_block_and_an_explicit_path()
     {
         Validator.Validate(Valid()).IsValid.Should().BeTrue("the default traffic block (enabled, 14 days, 512 MB) is valid");

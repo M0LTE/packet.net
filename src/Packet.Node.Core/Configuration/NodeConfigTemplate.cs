@@ -144,16 +144,21 @@ public static class NodeConfigTemplate
         # The TX-bearing features are OPT-IN:
         #   broadcast: true  -> also originate your own NODES broadcast (advertise
         #                       your node + learned routes to neighbours).
-        #   connect:   true  -> `connect <alias>` may route across the network via
-        #                       NET/ROM L4 circuits (open an interlink to the best
-        #                       neighbour + establish an end-to-end circuit).
+        #   routing:         -> how much your node routes across the network:
+        #       none     (default) passive — listen + maintain the table only.
+        #       endpoint           open interlinks so `connect <alias>` can route
+        #                          across the network, but don't relay transit.
+        #       transit            full router — interlinks + relay other stations'
+        #                          transit traffic onward (the network-layer role).
+        # (The old `connect:`/`forward:` bools are still accepted for back-compat,
+        #  but prefer `routing:` — `forward` was inert without `connect`.)
         # NET/ROM has no single normative standard (BPQ is the de-facto reference),
         # so the knobs default to the canonical values; override only to match a
         # specific network's conventions.
         netRom:
           enabled: true
           # broadcast: false              # originate NODES (TX is opt-in)
-          # connect: false                # allow connect <alias> across the network (opt-in)
+          # routing: none                 # none | endpoint | transit (routing role; TX/interlinks are opt-in)
           # alias: NODE                   # your NET/ROM alias in broadcasts (defaults to the identity alias)
           # defaultNeighbourQuality: 192  # assumed quality of a directly-heard link
           # minQuality: 0                 # drop routes below this (raise to reject mislabelled qualities)

@@ -131,6 +131,7 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
             lastText = text;
             applied = candidate;
         }
+        WarnOnConfigQuirks(applied);
         RaiseOnChange(applied);
         return true;
     }
@@ -167,6 +168,7 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
             current = candidate;
         }
         LogApplied(path, candidate.Identity.Callsign, candidate.Ports.Count);
+        WarnOnConfigQuirks(candidate);
         RaiseOnChange(candidate);
         return true;
     }
@@ -205,7 +207,23 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
         }
         lastText = text;
         LogLoaded(path, candidate.Identity.Callsign, candidate.Ports.Count);
+        WarnOnConfigQuirks(candidate);
         return candidate;
+    }
+
+    // Surface non-fatal config warnings (things that parse + validate but are worth the
+    // operator's attention) at load/apply, on the boot log — the existing channel for
+    // config concerns (cf. the LogValidationFailed/LogWroteTemplate warnings). Currently
+    // the NET/ROM routing back-compat resolver: a legacy connect/forward combo that maps
+    // onto the new routing knob with a caveat (e.g. the always-inert forward:true without
+    // connect). Pure read of the already-resolved config; never throws.
+    private void WarnOnConfigQuirks(NodeConfig config)
+    {
+        var (_, warnings) = config.NetRom.ResolveRouting();
+        foreach (var warning in warnings)
+        {
+            LogConfigWarning(warning);
+        }
     }
 
     private void WriteTemplate()
@@ -332,6 +350,9 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Config at {Path} is invalid; keeping the running config:\n{Errors}")]
     private partial void LogValidationFailed(string path, string errors);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Config note: {Warning}")]
+    private partial void LogConfigWarning(string warning);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "A config-change subscriber threw; continuing.")]
     private partial void LogSubscriberThrew(Exception ex);

@@ -109,9 +109,17 @@ export interface Inp3Config {
   rifInterval: number; positiveDebounce: number;
 }
 export type NetRomForwardMode = "PerFlow" | "Single";
+// The node's NET/ROM routing role — the single 3-state successor to the old
+// connect+forward bools (server: Packet.Node.Core.Configuration.NetRomRouting):
+//   None     — passive: hear + maintain the table only (no interlinks, no transit).
+//   Endpoint — open interlinks for our own connect <alias>, but don't relay transit.
+//   Transit  — full router: interlinks + relay third-party transit.
+// The legacy connect/forward keys are still accepted by the server for back-compat,
+// but the UI edits only this knob.
+export type NetRomRouting = "None" | "Endpoint" | "Transit";
 export interface NetRomConfig {
-  enabled: boolean; broadcast: boolean; connect: boolean;
-  forward: boolean; forwardMode: NetRomForwardMode;
+  enabled: boolean; broadcast: boolean;
+  routing: NetRomRouting; forwardMode: NetRomForwardMode;
   alias?: string | null;
   defaultNeighbourQuality?: number; minQuality?: number;
   obsoleteInitial?: number; obsoleteMinimum?: number; sweepIntervalSeconds?: number;

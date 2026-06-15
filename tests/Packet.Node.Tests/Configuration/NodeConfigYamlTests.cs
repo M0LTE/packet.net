@@ -109,7 +109,10 @@ public class NodeConfigYamlTests
 
         config.NetRom.Enabled.Should().BeTrue();
         config.NetRom.Broadcast.Should().BeTrue();
+        // Legacy connect: key still parses (back-compat) and resolves to Transit
+        // (connect:true with forward defaulting on).
         config.NetRom.Connect.Should().BeTrue();
+        config.NetRom.EffectiveRouting.Should().Be(NetRomRouting.Transit);
         config.NetRom.Alias.Should().Be("NODE");
         config.NetRom.DefaultNeighbourQuality.Should().Be(203);
         config.NetRom.MinQuality.Should().Be(150);
@@ -123,13 +126,47 @@ public class NodeConfigYamlTests
     }
 
     [Fact]
-    public void Netrom_broadcast_and_connect_default_off()
+    public void Netrom_broadcast_off_and_routing_none_by_default()
     {
         // TX-bearing NET/ROM is opt-in: a stock node hears but does not transmit
-        // NODES or open circuits until the operator turns them on.
+        // NODES or open circuits until the operator turns them on. With no keys set,
+        // broadcast is off and the routing role resolves to None (passive).
         var config = NodeConfigYaml.Parse("identity:\n  callsign: M0LTE-1\n");
         config.NetRom.Broadcast.Should().BeFalse();
-        config.NetRom.Connect.Should().BeFalse();
+        config.NetRom.Routing.Should().BeNull("the routing: key is absent");
+        config.NetRom.Connect.Should().BeNull("the legacy connect: key is absent");
+        config.NetRom.Forward.Should().BeNull("the legacy forward: key is absent");
+        config.NetRom.EffectiveRouting.Should().Be(NetRomRouting.None);
+    }
+
+    [Fact]
+    public void Netrom_parses_the_new_routing_knob_and_round_trips()
+    {
+        const string yaml = """
+            identity:
+              callsign: M0LTE-1
+            netRom:
+              enabled: true
+              routing: transit
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+        config.NetRom.Routing.Should().Be(NetRomRouting.Transit);
+        config.NetRom.EffectiveRouting.Should().Be(NetRomRouting.Transit);
+
+        // Round-trips: serialise → parse preserves the explicit routing knob.
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(config));
+        reparsed.NetRom.Routing.Should().Be(NetRomRouting.Transit);
+    }
+
+    [Theory]
+    [InlineData("endpoint", NetRomRouting.Endpoint)]
+    [InlineData("transit", NetRomRouting.Transit)]
+    [InlineData("none", NetRomRouting.None)]
+    public void Netrom_routing_knob_parses_each_mode_case_insensitively(string text, NetRomRouting expected)
+    {
+        var yaml = $"identity:\n  callsign: M0LTE-1\nnetRom:\n  enabled: true\n  routing: {text}\n";
+        NodeConfigYaml.Parse(yaml).NetRom.Routing.Should().Be(expected);
     }
 
     [Fact]

@@ -470,8 +470,16 @@ components:
       properties:
         enabled: { type: boolean }
         broadcast: { type: boolean }
-        connect: { type: boolean }
-        forward: { type: boolean }
+        # The node's routing role — the single 3-state successor to the old
+        # connect + forward bools (None = passive listen-only; Endpoint = open
+        # interlinks for our own connect <alias> but no transit; Transit = full
+        # router: interlinks + relay third-party transit).
+        routing: { type: string, enum: [None, Endpoint, Transit] }
+        # Legacy back-compat inputs (deprecated — prefer `routing`). Still accepted
+        # so existing configs keep parsing + behaving identically; ignored (with a
+        # config-load warning) when `routing` is also set. Nullable: absent = unset.
+        connect: { type: [boolean, "null"], deprecated: true }
+        forward: { type: [boolean, "null"], deprecated: true }
         forwardMode: { type: string, enum: [PerFlow, Single] }
         alias: { type: [string, "null"] }
         defaultNeighbourQuality: { type: integer }

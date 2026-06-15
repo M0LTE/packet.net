@@ -91,18 +91,30 @@ public static class NodeConfigArbitraries
     private static Gen<NetRomConfig> NetRomGen() =>
         Gen.OneOf(
             Gen.Constant(new NetRomConfig()),
-            from enabled in Gen.Elements(false, true)
+            // Enabled with an explicit routing knob (endpoint/transit need enabled, which
+            // this branch guarantees) — exercises the new knob's serialise↔parse round-trip.
+            from routing in Gen.Elements(NetRomRouting.None, NetRomRouting.Endpoint, NetRomRouting.Transit)
             from defQ in Gen.Choose(0, 255)
             from minQ in Gen.Choose(0, 255)
             from obs in Gen.Choose(1, 12)
             from sweep in Gen.Choose(1, 7200)
             select new NetRomConfig
             {
-                Enabled = enabled,
+                Enabled = true,
+                Routing = routing,
                 DefaultNeighbourQuality = defQ,
                 MinQuality = minQ,
                 ObsoleteInitial = obs,
                 SweepIntervalSeconds = sweep,
+            },
+            // A disabled, passive node (no routing knob) — the other valid axis.
+            from defQ in Gen.Choose(0, 255)
+            from minQ in Gen.Choose(0, 255)
+            select new NetRomConfig
+            {
+                Enabled = false,
+                DefaultNeighbourQuality = defQ,
+                MinQuality = minQ,
             });
 
     private static Gen<TrafficConfig> TrafficGen() =>

@@ -471,9 +471,11 @@ public sealed class NetRomValidator : AbstractValidator<NetRomConfig>
         RuleFor(c => c)
             .Must(c => !(c.Broadcast && !c.Enabled))
             .WithMessage("netrom.broadcast requires netrom.enabled.");
+        // A routing role that opens interlinks (endpoint/transit — resolved from the new
+        // routing knob or the legacy connect/forward keys) requires the service enabled.
         RuleFor(c => c)
-            .Must(c => !(c.Connect && !c.Enabled))
-            .WithMessage("netrom.connect requires netrom.enabled.");
+            .Must(c => !(c.EffectiveRouting != NetRomRouting.None && !c.Enabled))
+            .WithMessage("netrom.routing (endpoint/transit) requires netrom.enabled.");
 
         // INP3 overlay: delegate the range + cross-field checks to the record's own
         // Validate() (one source of truth for the knob ranges — the same "one
@@ -491,14 +493,16 @@ public sealed class NetRomValidator : AbstractValidator<NetRomConfig>
             .Must(c => !(c.Inp3.Enabled && !c.Enabled))
             .WithMessage("netrom.inp3.enabled requires netrom.enabled.");
 
-        // inp3.enabled requires netrom.connect — INP3 rides on the connected-mode interlink
-        // machinery (L3RTT / RIF are 0xCF I-frames on the same sessions L4 uses), so the host
-        // constructs the overlay only under Connect. Without this rule, inp3.enabled + connect:false
-        // would pass validation and then silently no-op (the overlay never built) — reject it
+        // inp3.enabled requires an interlink-opening routing role — INP3 rides on the
+        // connected-mode interlink machinery (L3RTT / RIF are 0xCF I-frames on the same
+        // sessions L4 uses), so the host constructs the overlay only when interlinks are
+        // enabled (routing endpoint/transit, resolved from the new knob or the legacy
+        // connect/forward keys). Without this rule, inp3.enabled + routing:none would pass
+        // validation and then silently no-op (the overlay never built) — reject it
         // explicitly rather than accept-then-ignore (the named-flag discipline).
         RuleFor(c => c)
-            .Must(c => !(c.Inp3.Enabled && !c.Connect))
-            .WithMessage("netrom.inp3.enabled requires netrom.connect.");
+            .Must(c => !(c.Inp3.Enabled && c.EffectiveRouting == NetRomRouting.None))
+            .WithMessage("netrom.inp3.enabled requires netrom.routing: endpoint or transit.");
     }
 
     private static bool BeValidInp3Options(NetRomInp3Options o)

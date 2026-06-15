@@ -217,11 +217,14 @@ Construction stays strict — we always emit the canonical 15-octet form.
 
 ### TX-bearing behaviours are opt-in (safe-by-default, not pragmatism)
 
-NODES origination (`netRom.broadcast`) and L4 connect-routing
-(`netRom.connect`) default **off**. This is not a spec accommodation — a
-stock node *hears* NET/ROM (the read-only table, on by default, harmless)
-but does not *transmit* NODES or open interlinks/circuits until the
-operator opts in. Transmitting on a shared RF channel and opening
+NODES origination (`netRom.broadcast`) and the routing role
+(`netRom.routing`, the single 3-state successor to the old `connect` +
+`forward` bools) default **off** / `none`. This is not a spec
+accommodation — a stock node *hears* NET/ROM (the read-only table, on by
+default, harmless) but does not *transmit* NODES or open
+interlinks/circuits until the operator opts in (`routing: endpoint` for
+our own circuits, `routing: transit` for the full router). Transmitting
+on a shared RF channel and opening
 sessions to neighbours are operator decisions; defaulting them off keeps
 a freshly-installed node from injecting traffic onto the air or the
 network without intent.

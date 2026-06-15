@@ -10,14 +10,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page, PageHeader } from "@/components/layout/shell";
 import {
-  Button, Badge, Card, Input, Label, Field, InfoHint, Switch, ImpactBadge, Tabs, Modal, Icon,
+  Button, Badge, Card, Input, Label, Field, InfoHint, Switch, Select, ImpactBadge, Tabs, Modal, Icon,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, ReconcileResult, ValidationProblem, ReconcileChange, PortBeacon, TailscaleStatus, SystemInfo, InstallChannelName } from "@/lib/types";
+import type { NodeConfig, ApplyImpact, FieldHelp, ToggleHelp, NetRomRouting, ReconcileResult, ValidationProblem, ReconcileChange, PortBeacon, TailscaleStatus, SystemInfo, InstallChannelName } from "@/lib/types";
 import { api, useQuery, ConfigRejected } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import {
-  APPLY_IMPACT, NETROM_TOGGLE_HELP, NETROM_FIELD_HELP, INP3_FIELD_HELP,
+  APPLY_IMPACT, NETROM_TOGGLE_HELP, NETROM_ROUTING_HELP, NETROM_FIELD_HELP, INP3_FIELD_HELP,
 } from "@/lib/mock";
 
 // a pending change, identified by its dotted config path + apply impact
@@ -545,8 +545,9 @@ function SystemPanel({ canAdmin }: { canAdmin: boolean }) {
 function NetRomSection({ cfg, set }: { cfg: NodeConfig; set: (path: string, val: unknown, impact: ApplyImpact) => void }) {
   const nr = cfg.netRom;
   const inp3 = nr.inp3;
-  const toggleKeys = ["enabled", "broadcast", "connect", "forward"] as const;
+  const toggleKeys = ["enabled", "broadcast"] as const;
   const numKeys = ["defaultNeighbourQuality", "minQuality", "sweepIntervalSeconds", "timeToLive", "window"] as const;
+  const routingDesc = NETROM_ROUTING_HELP.options.find((o) => o.value === nr.routing)?.desc;
   const inp3Keys = ["l3RttInterval", "l3RttResetWindow", "rifInterval", "positiveDebounce"] as const;
   const nrRec = nr as unknown as Record<string, number | undefined>;
   const inp3Rec = inp3 as unknown as Record<string, number>;
@@ -570,6 +571,21 @@ function NetRomSection({ cfg, set }: { cfg: NodeConfig; set: (path: string, val:
             />
           );
         })}
+      </div>
+
+      {/* Routing role: the single 3-state successor to the old connect + forward toggles. */}
+      <div className="max-w-md rounded-lg border border-border p-3">
+        <Field label={NETROM_ROUTING_HELP.label} info={NETROM_ROUTING_HELP.help}>
+          <Select
+            value={nr.routing}
+            onChange={(e) => set("netRom.routing", e.target.value as NetRomRouting, "live")}
+          >
+            {NETROM_ROUTING_HELP.options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </Field>
+        {routingDesc && <p className="mt-2 text-xs leading-snug text-muted-foreground">{routingDesc}</p>}
       </div>
 
       <div className="max-w-xs">

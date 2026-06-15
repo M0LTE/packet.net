@@ -28,7 +28,7 @@ namespace Packet.Node.Core.NetRom;
 /// <see cref="Ax25Listener.FrameTraced"/> event (fires before address filtering, so
 /// it hears NODES — dest <c>NODES</c>, not us — with no engine change) and only
 /// reads. The TX-bearing behaviours are opt-in (<see cref="NetRomConfig.Broadcast"/>
-/// / <see cref="NetRomConfig.Connect"/>) and default off.
+/// / a <see cref="NetRomConfig.Routing"/> mode that opens interlinks) and default off.
 /// </para>
 /// <para>
 /// <b>Interlinks.</b> The service owns the connected-mode AX.25 sessions (PID 0xCF)
@@ -59,6 +59,10 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     private static readonly TimeSpan PersistDebounce = TimeSpan.FromSeconds(30);
 
     private readonly NetRomConfig config;
+    // The resolved routing role (Endpoint/Transit ⇒ interlinks; Transit ⇒ also relay
+    // transit). Resolved once from config.ResolveRouting() so every gate below reads one
+    // settled value, not the raw routing/connect/forward fields.
+    private readonly NetRomRouting routing;
     private readonly NetRomRoutingTable table;
     private readonly NetRomRoutingOptions routingOptions;
     private readonly NetRomCircuitOptions circuitOptions;
@@ -72,9 +76,10 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     // The INP3 routing overlay (link timing + RIF ingest/emit + triggered updates).
     // Null ⇔ INP3 disabled ⇔ the node is byte-for-byte today: no Inp3Engine, no
     // Inp3UpdateScheduler, no INP3 timer, no SendL3Rtt/Advertise/NeighbourDown wiring.
-    // Created only under config.Enabled && config.Connect && config.Inp3.Enabled. Every
-    // seam in NetRomService is `inp3?.` so the default-off guarantee is structural, not a
-    // scatter of `if`s. The implementation lives in NetRomService.Inp3.cs.
+    // Created only under config.Enabled && interlinks-enabled (routing Endpoint/Transit)
+    // && config.Inp3.Enabled. Every seam in NetRomService is `inp3?.` so the default-off
+    // guarantee is structural, not a scatter of `if`s. The implementation lives in
+    // NetRomService.Inp3.cs.
     private readonly Inp3Host? inp3;
 
     // Live port attachments: portId -> attachment. Concurrent because attach/detach
@@ -96,14 +101,23 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// <inheritdoc/>
     public bool Enabled => config.Enabled;
 
-    /// <summary>True if NET/ROM L4 connect-routing is enabled (interlinks + circuits).</summary>
-    public bool ConnectEnabled => config.Enabled && config.Connect;
+    /// <summary>True if NET/ROM L4 connect-routing is enabled (interlinks + circuits) —
+    /// the routing role opens connected-mode interlinks (<see cref="NetRomRouting.Endpoint"/>
+    /// or <see cref="NetRomRouting.Transit"/>). The successor to the old <c>connect</c>
+    /// capability.</summary>
+    public bool ConnectEnabled => config.Enabled && routing is NetRomRouting.Endpoint or NetRomRouting.Transit;
 
     /// <summary>True if this node forwards transit datagrams (the network-layer
-    /// routing role). Rides on <see cref="ConnectEnabled"/> — forwarding needs the
-    /// interlink machinery connect-routing provides — and on
-    /// <see cref="NetRomConfig.Forward"/> (default on); off ⇒ endpoint-only node.</summary>
-    public bool ForwardEnabled => config.Enabled && config.Connect && config.Forward;
+    /// routing role) — only under <see cref="NetRomRouting.Transit"/>. The successor to
+    /// the old <c>connect &amp;&amp; forward</c> gate; <see cref="NetRomRouting.Endpoint"/> ⇒
+    /// interlinks but endpoint-only (no transit).</summary>
+    public bool ForwardEnabled => config.Enabled && routing == NetRomRouting.Transit;
+
+    // Whether this node opens connected-mode interlinks at all (the routing role is
+    // Endpoint or Transit). The construction-time gate for the CircuitManager / INP3 /
+    // the per-port session tap — what the old `config.Connect` gated. Equivalent to
+    // ConnectEnabled, named for the construction seam where it reads more clearly.
+    private bool InterlinksEnabled => config.Enabled && routing is NetRomRouting.Endpoint or NetRomRouting.Transit;
 
     /// <summary>
     /// The hook the supervisor supplies to run a node console over an inbound NET/ROM
@@ -145,6 +159,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         INetRomRoutingStore? store = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
+        routing = this.config.EffectiveRouting;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.logger = logger ?? NullLogger<NetRomService>.Instance;
         this.store = store;
@@ -176,7 +191,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
                     _ => SaveSnapshot(), state: null, dueTime: Timeout.InfiniteTimeSpan, period: Timeout.InfiniteTimeSpan);
             }
 
-            if (config.Connect)
+            if (InterlinksEnabled)
             {
                 circuits = new CircuitManager(default, circuitOptions, this.timeProvider, tickInterval: TimeSpan.FromSeconds(1));
                 circuits.SendPacket = SendNetRomPacket;
@@ -184,8 +199,9 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
                 // INP3 rides on the connected-mode interlink machinery (the L3RTT / RIF
                 // frames are 0xCF I-frames on the same interlink sessions L4 uses), so it
-                // is created only under Connect — and then only when the operator opts in.
-                // When inp3 is null the node is byte-for-byte today (design §1).
+                // is created only when interlinks are enabled (routing Endpoint/Transit) —
+                // and then only when the operator opts in. When inp3 is null the node is
+                // byte-for-byte today (design §1).
                 if (config.Inp3.Enabled)
                 {
                     inp3 = new Inp3Host(this, config.Inp3, this.timeProvider);
@@ -276,7 +292,7 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         }
 
         listener.FrameTraced += FrameHandler;
-        if (config.Connect)
+        if (InterlinksEnabled)
         {
             // Tap inbound NET/ROM data on every session this port accepts so the
             // circuit manager sees interlink datagrams.
