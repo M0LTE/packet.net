@@ -75,7 +75,7 @@ export function Console() {
         'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       theme: TERMINAL_THEME,
-      scrollback: 5000,
+      scrollback: 10000, // generous history; scroll the viewport (touch-drag on mobile) to review
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -86,17 +86,37 @@ export function Console() {
     // running off the edge. A bad fit (too many cols) makes lines overflow the card (which
     // clips them) rather than wrap — the iPhone "lines cut off" symptom, where iOS text
     // auto-sizing also inflated the glyphs past what xterm measured (see the host's
-    // text-size-adjust pin). rAF lets the layout settle before the first measure.
+    // text-size-adjust pin).
     const refit = () => { try { fit.fit(); } catch { /* zero-size / mid-teardown */ } };
-    refit();
-    requestAnimationFrame(refit);
 
-    // Refit on every box change: container resize (panel/layout), window resize, and — on
-    // iOS — the visual-viewport resize the soft keyboard triggers.
+    // Shrink the terminal to the space ABOVE the on-screen keyboard, then refit. On iOS
+    // (Safari AND Chrome — both WebKit) the layout viewport doesn't change when the keyboard
+    // opens; only window.visualViewport shrinks. So we measure the visible bottom from it and
+    // cap the host height to what's left below the terminal's top, down to a usable minimum —
+    // otherwise the input line hides behind the keyboard. Capped at DEFAULT_H so the desktop /
+    // keyboard-closed look is unchanged. NOTE: this runs from window/visualViewport events, NOT
+    // the ResizeObserver — setting the host height from inside the RO callback would feed back
+    // into the observer (resize loop). The RO only refits (width/cols), never sets height.
+    const DEFAULT_H = 448; // 28rem — the comfortable desktop height
+    const MIN_H = 140;     // keep a few lines + the input visible even with the keyboard up
+    const resize = () => {
+      const vv = window.visualViewport;
+      const top = host.getBoundingClientRect().top;
+      const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+      const avail = visibleBottom - top - 12; // a little breathing room above the keyboard
+      host.style.height = `${Math.max(MIN_H, Math.min(DEFAULT_H, avail))}px`;
+      refit();
+    };
+    resize();
+    requestAnimationFrame(resize); // let the layout settle before the first real measure
+
+    // Refit on every box change: container resize (panel/layout) refits only; window + iOS
+    // visual-viewport (keyboard) resizes also re-evaluate the height.
     const ro = new ResizeObserver(refit);
     ro.observe(host);
-    window.addEventListener("resize", refit);
-    window.visualViewport?.addEventListener("resize", refit);
+    window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("scroll", resize);
 
     let id: string | null = null;
     let unsubscribe: (() => void) | null = null;
@@ -150,8 +170,9 @@ export function Console() {
     return () => {
       disposed = true;
       ro.disconnect();
-      window.removeEventListener("resize", refit);
-      window.visualViewport?.removeEventListener("resize", refit);
+      window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("scroll", resize);
       unsubscribe?.();
       if (id) void api.closeConsole(id);
       termRef.current = null;
