@@ -13,7 +13,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { Page, PageHeader } from "@/components/layout/shell";
+import { Page } from "@/components/layout/shell";
 import { Button, Card, Icon } from "@/components/ui";
 import { api, subscribeConsoleOutput } from "@/lib/api";
 import { useAuth } from "@/app/auth";
@@ -73,7 +73,7 @@ export function Console() {
       cursorBlink: true,
       fontFamily:
         'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
+      fontSize: 12,
       theme: TERMINAL_THEME,
       scrollback: 10000, // generous history; scroll the viewport (touch-drag on mobile) to review
     });
@@ -89,22 +89,22 @@ export function Console() {
     // text-size-adjust pin).
     const refit = () => { try { fit.fit(); } catch { /* zero-size / mid-teardown */ } };
 
-    // Shrink the terminal to the space ABOVE the on-screen keyboard, then refit. On iOS
-    // (Safari AND Chrome — both WebKit) the layout viewport doesn't change when the keyboard
-    // opens; only window.visualViewport shrinks. So we measure the visible bottom from it and
-    // cap the host height to what's left below the terminal's top, down to a usable minimum —
-    // otherwise the input line hides behind the keyboard. Capped at DEFAULT_H so the desktop /
-    // keyboard-closed look is unchanged. NOTE: this runs from window/visualViewport events, NOT
-    // the ResizeObserver — setting the host height from inside the RO callback would feed back
-    // into the observer (resize loop). The RO only refits (width/cols), never sets height.
-    const DEFAULT_H = 448; // 28rem — the comfortable desktop height
-    const MIN_H = 140;     // keep a few lines + the input visible even with the keyboard up
+    // Fill the terminal down to the visible bottom — and on iOS shrink it above the on-screen
+    // keyboard. On iOS (Safari AND Chrome — both WebKit) the layout viewport doesn't change when
+    // the keyboard opens; only window.visualViewport shrinks. So we measure the visible bottom
+    // from it and set the host height to what's left below the terminal's top (down to a usable
+    // minimum), reclaiming the now-trimmed header space and keeping the input line above the
+    // keyboard. NOTE: this runs from window/visualViewport events, NOT the ResizeObserver —
+    // setting the host height from inside the RO callback would feed back into the observer
+    // (resize loop). The RO only refits (width/cols), never sets height.
+    const MIN_H = 140;        // keep a few lines + the input visible even with the keyboard up
+    const BOTTOM_GAP = 16;    // breathing room above the visible bottom / keyboard (covers page padding)
     const resize = () => {
       const vv = window.visualViewport;
       const top = host.getBoundingClientRect().top;
       const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-      const avail = visibleBottom - top - 12; // a little breathing room above the keyboard
-      host.style.height = `${Math.max(MIN_H, Math.min(DEFAULT_H, avail))}px`;
+      const avail = visibleBottom - top - BOTTOM_GAP;
+      host.style.height = `${Math.max(MIN_H, avail)}px`;
       refit();
     };
     resize();
@@ -183,44 +183,37 @@ export function Console() {
 
   return (
     <Page>
-      <PageHeader
-        title="Console"
-        subtitle="The node's sysop command console — type node commands (ports, nodes, connect, …)"
-        actions={
-          (phase === "closed" || phase === "error") && (
-            <Button size="sm" onClick={() => setAttempt((a) => a + 1)} disabled={!canOpen}>
-              <Icon name="restart" size={14} /> Reconnect
-            </Button>
-          )
-        }
-      />
-
       {error && (
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+        <div className="mb-2 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           <Icon name="alert" size={15} className="mt-px shrink-0" />
           <span className="flex-1">{error}</span>
         </div>
       )}
 
+      {/* Dense layout: no page title/blurb (the nav already says Console). One thin strip carries
+          the status + a Reconnect (only when there's nothing to type into), then the terminal fills
+          the rest of the screen. */}
       <Card className="overflow-hidden p-0">
-        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-1.5">
-          <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-            <Icon name="console" size={13} />
-            node command console
-          </span>
-          <span className="font-mono text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-2.5 py-1">
+          <span className="flex items-center gap-1.5 font-mono text-[11px] leading-none text-muted-foreground">
+            <Icon name="console" size={12} />
             {phase === "connecting" && "connecting…"}
             {phase === "open" && <span className="text-success">connected</span>}
-            {phase === "closed" && <span className="text-warning">console closed — Reconnect to start a new session</span>}
+            {phase === "closed" && <span className="text-warning">closed</span>}
             {phase === "error" && <span className="text-danger">unavailable</span>}
           </span>
+          {(phase === "closed" || phase === "error") && (
+            <Button size="sm" className="h-6 px-2 text-xs" onClick={() => setAttempt((a) => a + 1)} disabled={!canOpen}>
+              <Icon name="restart" size={12} /> Reconnect
+            </Button>
+          )}
         </div>
-        {/* The xterm host. Fixed height so the FitAddon has a stable box to size into; the
-            terminal owns its own scrollback. data-testid lets the smoke test assert the mount. */}
+        {/* The xterm host. Its height is set imperatively (see resize()) so it fills to the visible
+            bottom / shrinks above the iOS keyboard; the terminal owns its own scrollback. */}
         <div
           ref={containerRef}
           data-testid="console-terminal"
-          className="h-[28rem] w-full overflow-hidden bg-[#0d121c] p-2"
+          className="h-[28rem] w-full overflow-hidden bg-[#0d121c] p-1.5"
           // textSizeAdjust: stop iOS Safari inflating the monospace glyphs (it otherwise
           // renders them wider than xterm measured, so FitAddon picks too many columns and
           // long lines overflow/clip instead of wrapping). Inherited, so the host covers the
@@ -231,12 +224,6 @@ export function Console() {
           onPointerDown={() => termRef.current?.focus()}
         />
       </Card>
-
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        This is the node's own command shell (the same one telnet/RF sysops reach), running in-process.
-        Privileged commands still require <span className="font-mono">SYSOP</span> elevation. The session
-        is torn down when you leave this screen.
-      </p>
     </Page>
   );
 }

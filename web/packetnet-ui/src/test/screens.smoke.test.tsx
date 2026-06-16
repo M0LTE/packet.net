@@ -61,7 +61,8 @@ describe("screens render without crashing", () => {
       const { container } = mount(<Console />, "/console");
       expect(container.firstChild).toBeTruthy();
       await waitFor(() => expect(screen.getByTestId("console-terminal")).toBeInTheDocument());
-      expect(screen.getAllByText(/Console/i).length).toBeGreaterThan(0);
+      // The dense layout dropped the page title; the status strip is the stable key copy.
+      expect(screen.getByText(/connecting|connected|closed|unavailable/i)).toBeInTheDocument();
     } finally {
       localStorage.clear();
     }
