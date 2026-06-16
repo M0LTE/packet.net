@@ -396,9 +396,15 @@ public sealed partial class NodeHostedService : BackgroundService
         ArgumentNullException.ThrowIfNull(console);
 
         var id = "console:" + Guid.NewGuid().ToString("N");
+        // normalizeAppOutputToCrlf: the appEnd is the terminal-bound direction (the command
+        // service's replies AND any relayed connected-session output flow out through it). xterm
+        // only advances a line on LF, so bare-CR endings — which a connected BBS/node emits — must
+        // be completed to CR-LF here, exactly as the real telnet listener's TcpNodeConnection does;
+        // otherwise the cursor parks at column 0 of the prompt line and typed input overtypes it.
         var (appEnd, userEnd) = LoopbackNodeConnection.CreatePair(
             appPeerId: "console", appKind: NodeTransportKind.Telnet,
-            userPeerId: "console", userKind: NodeTransportKind.Telnet);
+            userPeerId: "console", userKind: NodeTransportKind.Telnet,
+            normalizeAppOutputToCrlf: true);
 
         var service = CreateConsoleService();
 

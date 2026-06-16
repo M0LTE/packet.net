@@ -9,7 +9,7 @@
 // terminal; on terminal onData → POST /console/{id}/input. On unmount: DELETE the
 // console + close the stream + dispose the terminal. A closed stream shows a reconnect state.
 // ============================================================
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -81,11 +81,22 @@ export function Console() {
     term.loadAddon(fit);
     term.open(host);
     termRef.current = term;
-    try { fit.fit(); } catch { /* zero-size container (not yet laid out) — refit on resize below */ }
 
-    // Refit on container resize so the terminal tracks the panel width.
-    const ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* mid-teardown */ } });
+    // Size the terminal's columns to the actual host width so long lines WRAP instead of
+    // running off the edge. A bad fit (too many cols) makes lines overflow the card (which
+    // clips them) rather than wrap — the iPhone "lines cut off" symptom, where iOS text
+    // auto-sizing also inflated the glyphs past what xterm measured (see the host's
+    // text-size-adjust pin). rAF lets the layout settle before the first measure.
+    const refit = () => { try { fit.fit(); } catch { /* zero-size / mid-teardown */ } };
+    refit();
+    requestAnimationFrame(refit);
+
+    // Refit on every box change: container resize (panel/layout), window resize, and — on
+    // iOS — the visual-viewport resize the soft keyboard triggers.
+    const ro = new ResizeObserver(refit);
     ro.observe(host);
+    window.addEventListener("resize", refit);
+    window.visualViewport?.addEventListener("resize", refit);
 
     let id: string | null = null;
     let unsubscribe: (() => void) | null = null;
@@ -139,6 +150,8 @@ export function Console() {
     return () => {
       disposed = true;
       ro.disconnect();
+      window.removeEventListener("resize", refit);
+      window.visualViewport?.removeEventListener("resize", refit);
       unsubscribe?.();
       if (id) void api.closeConsole(id);
       termRef.current = null;
@@ -186,7 +199,12 @@ export function Console() {
         <div
           ref={containerRef}
           data-testid="console-terminal"
-          className="h-[28rem] w-full bg-[#0d121c] p-2"
+          className="h-[28rem] w-full overflow-hidden bg-[#0d121c] p-2"
+          // textSizeAdjust: stop iOS Safari inflating the monospace glyphs (it otherwise
+          // renders them wider than xterm measured, so FitAddon picks too many columns and
+          // long lines overflow/clip instead of wrapping). Inherited, so the host covers the
+          // xterm DOM beneath it.
+          style={{ textSizeAdjust: "100%", WebkitTextSizeAdjust: "100%" } as CSSProperties}
           // Tap-to-focus: on iOS the soft keyboard only appears (and keystrokes only
           // arrive) when xterm's hidden textarea has focus; a tap on the host refocuses it.
           onPointerDown={() => termRef.current?.focus()}
