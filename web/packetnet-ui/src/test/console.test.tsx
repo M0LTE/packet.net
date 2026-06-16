@@ -71,15 +71,23 @@ describe("Console screen", () => {
 
     // Simulate a keystroke: xterm raises onData for typed input. The host textarea is the
     // input sink; firing an input event drives onData, which the screen forwards to consoleInput.
+    // Use a token absent from the banner so we can also assert LOCAL ECHO below.
+    const TYPED = "ZORKCMD";
     const textarea = container.querySelector("textarea.xterm-helper-textarea") as HTMLTextAreaElement | null;
     expect(textarea).not.toBeNull();
     act(() => {
-      textarea!.value = "?";
-      textarea!.dispatchEvent(new InputEvent("input", { data: "?", inputType: "insertText", bubbles: true }));
+      textarea!.value = TYPED;
+      textarea!.dispatchEvent(new InputEvent("input", { data: TYPED, inputType: "insertText", bubbles: true }));
     });
 
     await waitFor(() => expect(input).toHaveBeenCalled());
     expect(input.mock.calls[0][0]).toBe("console:test");
+    expect(input.mock.calls[0][1]).toBe(TYPED);
+
+    // Local echo: the node never echoes typed characters, so the screen must — otherwise the
+    // user sees nothing they type (the iPhone "dead console" symptom). The typed text must
+    // appear in the terminal with no server round-trip (the api is mocked, nothing streamed it).
+    await waitFor(() => expect(container.textContent).toContain(TYPED));
   });
 
   it("shows an admin-required state and does not open a session for a non-admin", async () => {

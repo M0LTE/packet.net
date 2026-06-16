@@ -51,6 +51,9 @@ export function Console() {
   const { has } = useAuth();
   const canOpen = has("admin"); // the node command console is admin-gated server-side
   const containerRef = useRef<HTMLDivElement>(null);
+  // The live terminal, so a tap on the host can refocus it (iOS won't raise the soft
+  // keyboard — and won't deliver keystrokes — unless xterm's input textarea has focus).
+  const termRef = useRef<Terminal | null>(null);
   const [phase, setPhase] = useState<Phase>("connecting");
   const [error, setError] = useState<string | null>(null);
   // Bumped to force a fresh session (the Reconnect button), re-running the effect.
@@ -77,6 +80,7 @@ export function Console() {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    termRef.current = term;
     try { fit.fit(); } catch { /* zero-size container (not yet laid out) — refit on resize below */ }
 
     // Refit on container resize so the terminal tracks the panel width.
@@ -103,12 +107,27 @@ export function Console() {
           () => { if (!disposed) setPhase("closed"); },
         );
 
-        // Forward every keystroke to the node verbatim (the node echoes + line-edits,
-        // and its LineAssembler splits on the CR xterm sends on Enter). A failed send
-        // (the session was closed) flips to the closed state.
+        // Forward every keystroke to the node verbatim (its LineAssembler splits on the CR
+        // xterm sends on Enter). A failed send (the session was closed) flips to the closed
+        // state.
+        //
+        // LOCAL ECHO. The node does NOT echo typed characters: NodeCommandService
+        // line-assembles and only replies to whole lines — a real telnet/RF client supplies
+        // its own local echo, and xterm does none by default. So we echo here, or nothing the
+        // user types is visible (the command still ran, just invisibly — this is what made the
+        // console look dead on iPhone). Purely cosmetic: the node stays the source of truth for
+        // the line. We do NOT echo server-side, which would double-echo every real telnet/RF
+        // sysop. `col` bounds Backspace so it can't erase back into the prompt.
+        let col = 0;
         term.onData((data) => {
           if (!id) return;
           api.consoleInput(id, data).catch(() => { if (!disposed) setPhase("closed"); });
+          for (const ch of data) {
+            if (ch === "\r" || ch === "\n") { term.write("\r\n"); col = 0; }
+            else if (ch === "\x7f" || ch === "\b") { if (col > 0) { term.write("\b \b"); col -= 1; } }
+            else if (ch === "\x03") { term.write("^C\r\n"); col = 0; } // Ctrl-C: visible + fresh line
+            else if (ch >= " ") { term.write(ch); col += 1; }          // printable (control seqs are sent, not echoed)
+          }
         });
       } catch (e) {
         if (disposed) return;
@@ -122,6 +141,7 @@ export function Console() {
       ro.disconnect();
       unsubscribe?.();
       if (id) void api.closeConsole(id);
+      termRef.current = null;
       term.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,6 +187,9 @@ export function Console() {
           ref={containerRef}
           data-testid="console-terminal"
           className="h-[28rem] w-full bg-[#0d121c] p-2"
+          // Tap-to-focus: on iOS the soft keyboard only appears (and keystrokes only
+          // arrive) when xterm's hidden textarea has focus; a tap on the host refocuses it.
+          onPointerDown={() => termRef.current?.focus()}
         />
       </Card>
 
