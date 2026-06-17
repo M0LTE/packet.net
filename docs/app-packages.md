@@ -30,6 +30,9 @@ description: Live multi-user lobby — WHO presence + SAY broadcast.
 icon: users                  # lucide icon name, cosmetic
 capabilities: [session]      # declared, shown to the owner at enable time (not enforced in v1)
 
+packet:                      # OPTIONAL — packet-plane identity (for a `packet`-capable app)
+  command: BBS               # node-prompt verb / application name; owner-overridable. Omit → no bare verb (reach by callsign/alias). NOT the callsign/alias — those are the node's, see § Application packet identity.
+
 session:                     # OPTIONAL — packet-plane console attachment
   match: LOBBY               # the console verb (owner may override)
   kind: socket               # process | socket (the pdn-app/1 wire, both transports)
@@ -67,7 +70,7 @@ At least one of `session` / `service` / `ui` must be present. Examples of the sh
 
 Path resolution: a relative `command`/`args` element that names an existing file in the package dir resolves to it; everything else passes through untouched. `workingDirectory` defaults to the state dir.
 
-Environment given to a supervised service: the node's own environment, plus `PDN_APP_ID`, `PDN_APP_DIR` (the package dir), `PDN_APP_STATE` (the state dir), `PDN_NODE_CALLSIGN` (the node's own callsign, so an app can derive its identity per the an-app-lives-at-an-SSID-of-the-node-callsign convention) and `PDN_NODE_ALIAS` when set, and — when the RHP server is enabled — `PDN_RHP_HOST`/`PDN_RHP_PORT`, then the manifest `environment` map, then the owner's override map (last wins).
+Environment given to a supervised service: the node's own environment, plus `PDN_APP_ID`, `PDN_APP_DIR` (the package dir), `PDN_APP_STATE` (the state dir), `PDN_NODE_CALLSIGN` (the node's own callsign) and `PDN_NODE_ALIAS` when set, **`PDN_APP_CALLSIGN`** (the node-resolved callsign this app should bind — see § Application packet identity; the node is the authority, the app no longer derives its own), and — when the RHP server is enabled — `PDN_RHP_HOST`/`PDN_RHP_PORT`, then the manifest `environment` map, then the owner's override map (last wins).
 
 ### `ui.mode` — UI surface modes (how the panel opens the app)
 
@@ -106,14 +109,37 @@ Forwards are **tailnet-only** and apply **only when `tailscale.enabled`** — no
 apps:
   - id: lobby
     enabled: true
+  - id: bbs
+    enabled: true
+    callsign: M9YYY-1        # the node's choice; omit → derive <node-base>-<free SSID>
+    netrom:                  # OPT-IN: present → advertise this app's alias on NET/ROM; absent → not advertised
+      alias: RDGBBS
+      quality: 255
+    command: BBS             # optional override of the manifest's packet.command verb
   - id: dapps
     enabled: true
+    callsign: M0LTE-7
     environment:             # merged over the manifest's service environment
-      DAPPS_CALLSIGN: M0LTE-7
-    match: null              # optional session-verb override
+      EXAMPLE_FLAG: "1"
 ```
 
-That is the whole owner surface: **discovered packages default to disabled**; `apps:` entries flip them on and carry small overrides. An `apps:` entry whose id matches no discovered package is a validation warning, not an error (the package may be installed later). The legacy inline `applications:` list keeps working unchanged (those entries are owner-authored, so they keep their `enabled: true` default); an id collision between an inline entry and a discovered package is a validation **error**. Verb-collision rules extend across the union of both sources.
+That is the whole owner surface: **discovered packages default to disabled**; `apps:` entries flip them on and carry small overrides. The packet-identity fields (`callsign`, `netrom.alias`/`quality`, the `command` verb override) are documented in § Application packet identity below — they are the **node's** to set, never the app manifest's. An `apps:` entry whose id matches no discovered package is a validation warning, not an error (the package may be installed later). The legacy inline `applications:` list keeps working unchanged (those entries are owner-authored, so they keep their `enabled: true` default) and carries the **same** identity fields (`command`/`callsign`/`netrom`) — making an inline entry the exact analog of a BPQ `APPLICATION` line; an id collision between an inline entry and a discovered package is a validation **error**. Verb- and alias-collision rules extend across the union of both sources.
+
+### Application packet identity — command, callsign, alias
+
+A `packet`-capable app is reachable in up to **three** ways, mirroring BPQ's `APPLICATION n,CMD,Call,Alias,Quality`. The split between what the app declares and what the node decides is deliberate:
+
+| Dimension | Example | Who sets it | Where |
+|---|---|---|---|
+| **Command** — node-prompt verb (the application name) | `BBS` | the **app** (a sensible default; owner may override) | manifest `packet.command`; override in `apps[].command` |
+| **Callsign** — the on-air L2 identity stations dial directly | `M9YYY-1` | the **node** | `apps[].callsign` (pin) or derived `<node-base>-<free SSID>`; injected as `PDN_APP_CALLSIGN` |
+| **NET/ROM alias** — the network-wide alias mesh users `C` to | `RDGBBS` | the **node**, opt-in | `apps[].netrom.alias` + `quality` (absent ⇒ not advertised) |
+
+- **Command** is the only one in the manifest because it *is* the app's identity (a generic "bbs" app legitimately calls itself `BBS`). It registers a bare node-prompt verb — typing `BBS` at the node connects you to the app (for a `service` app, a loopback connect to its bound callsign; for a `session` app, the per-connection attachment — `session.match` is retained as the legacy spelling of `packet.command` for session apps). Optional: omit it and the app is reachable only by callsign/alias.
+- **Callsign and NET/ROM alias are wholly the node's** — they encode *this* node's identity (`M9YYY-1`) and location (`RDGBBS` = Reading), which a portable app manifest cannot know. They live in `packetnet.yaml` (the owner's file), per-app, beside `enabled`. Because that file hot-reloads and the web config panel edits it, an owner sets an app's callsign/alias in the Apps page, and a change re-binds / re-advertises with no restart.
+- **The node owns the callsign.** It resolves each enabled packet app's callsign (the `apps[].callsign` pin, else `<node-base>-N` probing for a free SSID) and hands it to the app via **`PDN_APP_CALLSIGN`**. Apps bind *that* — they no longer derive their own identity from `PDN_NODE_CALLSIGN`. (Migration: the BBS's `bbs.yaml callsign:` and DAPPS's `DAPPS_CALLSIGN` env become superseded by `apps[].callsign` + `PDN_APP_CALLSIGN`.)
+- **The NET/ROM alias is opt-in and off by default** — the node advertises an app alias in its NODES broadcast (with the configured quality) only when `apps[].netrom.alias` is set. No alias ⇒ nothing extra on the mesh (the "don't flood the routing table with every app" default).
+- **Collisions:** the command verb must not collide with a built-in node verb (`C`, `NODES`, `BYE`, …) or another app's verb; a callsign or NET/ROM alias must be unique across all apps + the node's own. Collisions are flagged the same way session-verb collisions are today (both entries marked broken, across the inline + package union).
 
 The enable/disable toggle in the UI is a config write through the existing `IWritableConfigProvider` seam — it lands in the YAML, survives restarts, and hot-applies.
 
