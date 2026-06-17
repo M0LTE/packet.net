@@ -93,3 +93,16 @@ public sealed record MalformedPort(string Reason) : NodeCommand;
 
 /// <summary><c>RELOAD</c> — re-read the on-disk conffile. Privileged (admin).</summary>
 public sealed record ReloadCommand : NodeCommand;
+
+/// <summary><c>CAP</c> / <c>CAPS</c> (bare) — list the per-peer AX.25 capability cache.
+/// Read-only; no elevation.</summary>
+public sealed record CapabilitiesCommand : NodeCommand;
+
+/// <summary><c>CAP CLEAR &lt;port:peer&gt;</c> — forget one cached (port, peer) capability
+/// record. Privileged (operate). <see cref="Target"/> is the raw <c>port:peer</c> id; the
+/// command service splits it (the cache key is the pair).</summary>
+public sealed record ClearCapabilityCommand(string Target) : NodeCommand;
+
+/// <summary><c>CAP</c> with an argument the parser couldn't make sense of (anything that
+/// isn't <c>CLEAR &lt;port:peer&gt;</c>) — carries a reason for a helpful usage reply.</summary>
+public sealed record MalformedCapability(string Reason) : NodeCommand;

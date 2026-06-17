@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Packet.Node.Core.Beacons;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.NetRom;
 using Packet.Node.Core.Transports;
@@ -48,7 +49,19 @@ public static class NodeServiceCollectionExtensions
             services.TryAddSingleton<INetRomRoutingStore>(sp => new SqliteNetRomRoutingStore(
                 dbPath,
                 sp.GetService<ILoggerFactory>()?.CreateLogger<SqliteNetRomRoutingStore>()));
+
+            // The per-peer AX.25 capability cache persists to the same pdn.db. Registered here
+            // so a dbPath node gets a durable store; without a dbPath the cache below falls back
+            // to in-memory (the store resolves to null), so tests/embedders are unaffected.
+            services.TryAddSingleton<IPeerCapabilityStore>(sp => new SqlitePeerCapabilityStore(
+                dbPath,
+                sp.GetService<ILoggerFactory>()?.CreateLogger<SqlitePeerCapabilityStore>()));
         }
+
+        // The capability cache itself is always available (in-memory when no store is registered).
+        services.TryAddSingleton(sp => new PeerCapabilityCache(
+            sp.GetService<IPeerCapabilityStore>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
         services.AddHostedService<NodeHostedService>();
         return services;

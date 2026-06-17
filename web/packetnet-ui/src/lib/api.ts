@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   NodeStatus, PortStatus, PortConfig, SessionInfo, NetRomRoutingSnapshot, NodeConfig,
-  LinkStats, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
+  LinkStats, PeerCapability, MonitorEvent, User, LogLine, ReconcileResult, ValidationProblem,
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
   WebAuthnCredential, AssertBeginResponse, RegisterCompleteResponse,
   TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp, AppPackage,
@@ -293,6 +293,13 @@ export const api = {
   // pending interactive-login URL.
   tailscaleStatus: () => get<TailscaleStatus>("/system/tailscale", () => mock.TAILSCALE_STATUS),
   linkStats: () => get<LinkStats[]>("/links", () => mock.LINK_STATS),
+  // The learned per-peer AX.25 capability cache (read-gated like the other read endpoints):
+  // which neighbours speak v2.2 / answer a pre-connect XID. The array may be empty (nothing
+  // learned yet / default-off host) → the screen shows an empty state.
+  capabilities: () => get<PeerCapability[]>("/capabilities", () => mock.CAPABILITIES),
+  // Forget one learned (port, peer) capability by id (port:peer) so the next dial re-probes
+  // it (operate scope). Resolves on 204; a 404 (unknown / malformed) throws Error.
+  clearCapability: (id: string) => clearCapability(id),
   // Recent frames (oldest→newest) the monitor seeds with so it isn't empty on open.
   recentFrames: (limit = 250) => get<MonitorEvent[]>(`/monitor/recent?limit=${limit}`, () => mock.seedFrames(limit)),
   users: () => get<User[]>("/users", () => mock.USERS),
@@ -525,6 +532,22 @@ async function disconnectSession(id: string): Promise<void> {
   const res = await authFetch(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (res.status === 204) return;
   throw new Error(await errorMessage(res, `Disconnect failed (${res.status}).`));
+}
+
+// Forget one learned (port, peer) capability by id (port:peer). Resolves on 204; a 404/other
+// surfaces as Error. Mock mode removes the matching fixture in place (mirroring the live
+// mutate-then-refetch flow: a refetch then shows the row gone), like appPackageAction.
+async function clearCapability(id: string): Promise<void> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 100));
+    const i = mock.CAPABILITIES.findIndex((c) => `${c.portId}:${c.peer}` === id);
+    if (i < 0) throw new Error(`Unknown capability '${id}'.`);
+    mock.CAPABILITIES.splice(i, 1);
+    return;
+  }
+  const res = await authFetch(`/capabilities/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status === 204) return;
+  throw new Error(await errorMessage(res, `Forget failed (${res.status}).`));
 }
 
 // Send one line into a session. Resolves on 202; a 404/other surfaces as Error.

@@ -1,4 +1,5 @@
 using Packet.Node.Core.Applications;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.NetRom;
 
@@ -56,13 +57,22 @@ public sealed class NodeConsoleEnvironment
     /// </summary>
     public IConnectRouter? ConnectRouter { get; }
 
+    /// <summary>
+    /// The per-peer AX.25 capability cache, surfaced by the <c>CAP</c> command (read-only list)
+    /// and <c>CAP CLEAR</c> (sysop forget). Null when the cache isn't wired (older call sites /
+    /// tests) — the console then reports "not available" for CAP. The reads (<c>All</c>) need no
+    /// elevation; the forget (<c>Forget</c>) is gated by the command service.
+    /// </summary>
+    public PeerCapabilityCache? Capabilities { get; }
+
     public NodeConsoleEnvironment(
         IConfigProvider config,
         IOutboundConnector? outboundConnector,
         INetRomRoutingView? netRom = null,
         SysopContext? sysop = null,
         IApplicationHost? applications = null,
-        IConnectRouter? connectRouter = null)
+        IConnectRouter? connectRouter = null,
+        PeerCapabilityCache? capabilities = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         OutboundConnector = outboundConnector;
@@ -70,6 +80,7 @@ public sealed class NodeConsoleEnvironment
         Sysop = sysop;
         Applications = applications;
         ConnectRouter = connectRouter;
+        Capabilities = capabilities;
     }
 
     /// <summary>The default over-RF elevation lifetime when the config leaves it unset.</summary>

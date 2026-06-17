@@ -387,7 +387,7 @@ public sealed class NetRomL3L4IntegrationTests
         // no real N2 timeout). Record the dial order to prove the failover walked
         // from the best route to the alternate.
         var dialed = new List<Callsign>();
-        a.NetRom.OpenInterlink = (_, neighbour, _) =>
+        a.NetRom.OpenInterlink = (_, neighbour, _, _) =>
         {
             dialed.Add(neighbour);
             throw new IOException($"{neighbour} did not answer");

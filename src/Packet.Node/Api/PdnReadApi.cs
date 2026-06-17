@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Packet.NetRom.Routing;
 using Packet.Node.Core.Api;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Hosting;
 using Packet.Node.Core.NetRom;
@@ -87,6 +88,13 @@ public static class PdnReadApi
 
         // Per-link rollup (frame/byte/REJ/SREJ counters) from the telemetry tap.
         v1.MapGet("/links", (NodeHostedService host) => Results.Ok(BuildLinks(host)));
+
+        // The learned per-peer AX.25 capability cache (which neighbours speak v2.2 /
+        // answer a pre-connect XID). Projects host.Capabilities.All() with the two instants
+        // rendered relative-ago, same model as /links + the NetRom rows. Empty when the cache
+        // is absent (default-off host) or still booting.
+        v1.MapGet("/capabilities", (NodeHostedService host, TimeProvider clock)
+            => Results.Ok(BuildCapabilities(host, clock)));
 
         // Recent frames (oldest → newest) from the telemetry ring, so the web monitor
         // bootstraps with history instead of an empty table: the client seeds with this,
@@ -301,6 +309,26 @@ public static class PdnReadApi
         var ctx = session.Context;
         int rtt = (int)Math.Clamp(ctx.Srt.TotalMilliseconds, 0, int.MaxValue);
         return (rtt, ctx.RC);
+    }
+
+    internal static PeerCapability[] BuildCapabilities(NodeHostedService host, TimeProvider clock)
+    {
+        // The cache handle is null on a host built without one (older tests / an embedder that
+        // didn't register the singleton) and the records are absent until a dial has learned
+        // something — either way an empty array is the honest read, never a throw.
+        var cache = host.Capabilities;
+        if (cache is null)
+        {
+            return [];
+        }
+        var now = clock.GetUtcNow();
+        return cache.All().Select(r => new PeerCapability(
+            PortId: r.PortId,
+            Peer: r.Peer,
+            SupportsExtended: r.SupportsExtended,
+            SupportsSrejViaXid: r.SupportsSrejViaXid,
+            LastProbed: RelativeAgo(now, r.LastProbed),
+            LastRefused: r.LastRefused is { } refused ? RelativeAgo(now, refused) : null)).ToArray();
     }
 
     private static object BuildNetRomRoutes(NodeHostedService host, TimeProvider clock)

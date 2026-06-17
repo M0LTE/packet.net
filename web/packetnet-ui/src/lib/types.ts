@@ -222,6 +222,21 @@ export interface LinkStats {
   retries: number; rejCount: number; srejCount: number;
   framesIn: number; framesOut: number;
 }
+// ---- per-peer AX.25 capability cache (server: PdnReadApi.PeerCapability) ----
+// One learned (port, peer) record: whether the neighbour speaks v2.2/SABME
+// (supportsExtended) and whether it answers a pre-connect XID with SREJ enabled
+// (supportsSrejViaXid). Each bool is three-state: true/false = learned, null = never
+// probed (the screen shows a "v2.2?" / "SREJ?" unknown badge). lastProbed/lastRefused are
+// relative-ago "h:mm:ss" strings (the NetRom row style); lastRefused is null when the peer
+// never refused/degraded an extended dial. The id the Forget action addresses is `port:peer`.
+export interface PeerCapability {
+  portId: string;
+  peer: string;
+  supportsExtended: boolean | null;
+  supportsSrejViaXid: boolean | null;
+  lastProbed: string;
+  lastRefused: string | null;
+}
 
 // ---- connectionless TEST ping (docs/node-api.yaml PingResult) ----
 // One TEST-frame round trip. `timeout` true ⇒ no echo came back; `rttMs` is null

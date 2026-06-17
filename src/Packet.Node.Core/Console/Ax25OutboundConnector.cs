@@ -1,5 +1,6 @@
 using Packet.Ax25.Session;
 using Packet.Core;
+using Packet.Node.Core.Capabilities;
 
 namespace Packet.Node.Core.Console;
 
@@ -26,9 +27,19 @@ public sealed class Ax25OutboundConnector : IOutboundConnector
     private readonly Ax25Listener listener;
     private readonly Func<Callsign, IDisposable>? claim;
     private readonly Callsign? localOverride;
+    // The per-peer capability cache. Null ⇒ today's behaviour exactly (dial via the
+    // listener's PreferExtendedConnect default + its pre-connect-XID default, record
+    // nothing). Non-null ⇒ the dial consults PlanDial to pick the version + XID probe
+    // and records the OUTCOME of a RETURNED dial (never on a throw — a throw is no link
+    // of either version, hence no capability signal).
+    private readonly PeerCapabilityCache? cache;
 
     public Ax25OutboundConnector(
-        string portId, Ax25Listener listener, Func<Callsign, IDisposable>? claim = null, Callsign? localOverride = null)
+        string portId,
+        Ax25Listener listener,
+        Func<Callsign, IDisposable>? claim = null,
+        Callsign? localOverride = null,
+        PeerCapabilityCache? cache = null)
     {
         PortId = portId ?? throw new ArgumentNullException(nameof(portId));
         this.listener = listener ?? throw new ArgumentNullException(nameof(listener));
@@ -36,6 +47,7 @@ public sealed class Ax25OutboundConnector : IOutboundConnector
         // Originate from an application callsign instead of the port's own (the RHPv2
         // server's open.local) — multi-callsign origination; null = the listener's MyCall.
         this.localOverride = localOverride;
+        this.cache = cache;
     }
 
     /// <inheritdoc/>
@@ -50,9 +62,37 @@ public sealed class Ax25OutboundConnector : IOutboundConnector
         var ticket = claim?.Invoke(target);
         try
         {
-            var session = localOverride is { } local
-                ? await listener.ConnectAsync(target, local, cancellationToken).ConfigureAwait(false)
-                : await listener.ConnectAsync(target, cancellationToken).ConfigureAwait(false);
+            var local = localOverride ?? listener.MyCall;
+
+            // No cache ⇒ today's exact call: the no-extended-arg overload follows the
+            // listener's PreferExtendedConnect + PreConnectXidNegotiatesSrej defaults,
+            // and we record nothing. Preserves every existing connector unchanged.
+            if (cache is null)
+            {
+                var sessionNoCache = localOverride is { } lo
+                    ? await listener.ConnectAsync(target, lo, cancellationToken).ConfigureAwait(false)
+                    : await listener.ConnectAsync(target, cancellationToken).ConfigureAwait(false);
+                return new Ax25NodeConnection(listener, sessionNoCache);
+            }
+
+            // Cache present ⇒ consult the plan. PlanDial's miss/stale default for a user
+            // CONNECT is the optimistic SABME + (moot) no-XID; a learned answer overrides
+            // it. (The no-cache path above is the one that defers to the listener's own
+            // PreferExtendedConnect / PreConnectXidNegotiatesSrej defaults.)
+            var plan = cache.PlanDial(PortId, target.ToString(), PeerDialPolicy.UserConnect);
+
+            var session = await listener
+                .ConnectAsync(target, local, plan.Extended, plan.PreConnectXid, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Record the OUTCOME of this RETURNED dial (plan-aware: pass what we dialled +
+            // what the resulting link observed; the cache decides which dimension to learn).
+            // A throw above never reaches here — no link of either version means no signal.
+            cache.RecordOutcome(
+                PortId, target.ToString(),
+                dialedExtended: plan.Extended, observedIsExtended: session.Context.IsExtended,
+                dialedPreConnectXid: plan.PreConnectXid, observedSrejEnabled: session.Context.SrejEnabled);
+
             return new Ax25NodeConnection(listener, session);
         }
         finally

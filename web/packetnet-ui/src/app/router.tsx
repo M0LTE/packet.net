@@ -12,6 +12,7 @@ import { Console } from "@/screens/console";
 import { Apps } from "@/screens/apps";
 import { AppFrame } from "@/screens/app-frame";
 import { Routes } from "@/screens/routes";
+import { Capabilities } from "@/screens/capabilities";
 import { Ports } from "@/screens/ports";
 import { Config } from "@/screens/config";
 import { Users } from "@/screens/users";
@@ -112,6 +113,7 @@ export const router = createBrowserRouter([
       // this SPA route, since that path has a trailing slash + extra segments the router ignores).
       { path: "apps/:id", element: <AppFrame /> },
       { path: "routes", element: <Routes /> },
+      { path: "capabilities", element: <Capabilities /> },
       { path: "ports", element: <Ports /> },
       { path: "config", element: <Config /> },
       { path: "users", element: <Users /> },

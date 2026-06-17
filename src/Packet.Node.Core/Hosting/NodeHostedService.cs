@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Node.Core.Applications;
 using Packet.Node.Core.Auth;
 using Packet.Node.Core.Beacons;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.NetRom;
@@ -29,6 +30,11 @@ public sealed partial class NodeHostedService : BackgroundService
     private readonly ILoggerFactory loggerFactory;
     private readonly ILogger<NodeHostedService> logger;
     private readonly INetRomRoutingStore? routingStore;
+    // Optional per-peer AX.25 capability cache (DI passes the registered singleton). Null in
+    // older tests / a host that didn't register one — the node then dials with today's static
+    // defaults and records nothing (default-off). Threaded into NetRomService (interlinks) and
+    // the PortSupervisor (user CONNECT) at start.
+    private readonly PeerCapabilityCache? capabilityCache;
     private readonly NodeTelemetry telemetry;
     private readonly BeaconService beacons;
     // Optional over-RF sysop dependencies (DI passes the registered user store + TOTP
@@ -66,13 +72,15 @@ public sealed partial class NodeHostedService : BackgroundService
         IUserStore? userStore = null,
         TotpService? totp = null,
         Applications.Packages.IAppPackageCatalog? appPackages = null,
-        Applications.Packages.IAppServiceSupervisor? appServices = null)
+        Applications.Packages.IAppServiceSupervisor? appServices = null,
+        PeerCapabilityCache? capabilityCache = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.transportFactory = transportFactory ?? TransportFactory.Instance;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         this.routingStore = routingStore;
+        this.capabilityCache = capabilityCache;
         this.userStore = userStore;
         this.totp = totp;
         telemetry = new NodeTelemetry(this.loggerFactory.CreateLogger<NodeTelemetry>());
@@ -115,6 +123,16 @@ public sealed partial class NodeHostedService : BackgroundService
     /// the bound port).</summary>
     public TelnetConsoleListener? Telnet => telnet;
 
+    /// <summary>The per-peer AX.25 capability cache (the learned v2.2/SREJ-via-XID
+    /// records the dial path consults). Exposed for the operator read surface — the
+    /// REST <c>/capabilities</c> projection reads <see cref="PeerCapabilityCache.All"/>
+    /// off this handle and forgets a (port, peer) through it, mirroring the
+    /// <see cref="NetRom"/> / <see cref="Telemetry"/> handles. Null when the host was
+    /// constructed without a cache (older tests / an embedder that didn't register one) —
+    /// the API then projects an empty list and treats every forget as a 404, the same
+    /// default-off behaviour the rest of the cache wiring keeps.</summary>
+    public PeerCapabilityCache? Capabilities => capabilityCache;
+
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -124,7 +142,7 @@ public sealed partial class NodeHostedService : BackgroundService
         // The NET/ROM read-only service is created once at start from the initial
         // config. It's a pure consumer of each port's frame-trace tap (subscribed
         // by the supervisor as ports come up), so it can never disturb a session.
-        netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>(), routingStore);
+        netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>(), routingStore, capabilityCache);
 
         // Feed the opt-in app NET/ROM adverts (docs/app-packages.md § Application packet identity):
         // when an enabled app's owner set netrom.alias, the node advertises alias → the app's
@@ -151,7 +169,7 @@ public sealed partial class NodeHostedService : BackgroundService
         // (AX.25 + NET/ROM) can launch registered apps; the telnet factory reads the same field.
         applicationHost = new ApplicationHost(config, loggerFactory, appPackages);
 
-        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons, sysopContext, applicationHost);
+        supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons, sysopContext, applicationHost, capabilityCache);
         await supervisor.StartAsync(stoppingToken).ConfigureAwait(false);
 
         StartTelnet(startConfig.Management.Telnet, stoppingToken);
@@ -387,7 +405,7 @@ public sealed partial class NodeHostedService : BackgroundService
         // one, deterministically). If no port is up, Connect reports "not available".
         var connector = supervisor?.ResolveDefaultConnector();
         var router = supervisor?.CreateConnectRouter(connector);
-        var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, router);
+        var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, router, capabilityCache);
         return new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
     }
 

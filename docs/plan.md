@@ -688,6 +688,7 @@ Disposition legend: **DROP** (decided no), **PARK** (deferred / secondary — re
 
 | Item | Disposition | Owner | Notes |
 |---|---|---|---|
+| **Per-peer AX.25 capability cache** (adaptive interlink/CONNECT dialing) | ✅ SHIPPED (node-v0.15.0) | packet.net | Remembers per (port,peer) whether a neighbour does v2.2/SABME + answers a pre-session XID; skips probes a known non-answerer would stall on, re-probes negatives after ~30d. `src/Packet.Node.Core/Capabilities/`; console `CAP`/`CAP CLEAR` + `/api/v1/capabilities` + SPA panel. See §17 2026-06-17. |
 | **BBS content filtering** (RejFrom / RejTo / RefuseBulls / FBB filters) | CONSIDER | pdn-bbs | Biggest BBS gap — GB7RDG dropped 219 filter + 131 BID rejects in 9 days; PDN does only the BID half. Highest daily impact. |
 | **Prometheus metrics / exporter** | CONSIDER | packet.net | New (replaces the dropped bpqmon ask). "Something like Prometheus" for node/link/forwarding observability — design the metric set + `/metrics` exposure. |
 | **Chat federation: on-air validation** | CONSIDER | pdn-bpqchat | Wire protocol is done + docker-validated; needs a live RF link to GB7RDG's neighbours (GB7NDH-3 / GB7WOD-1 / GB7WOK-1), a tagged bpqchat release, and the inbound peer allow-list enforced (design.md §4.1). |
@@ -1138,6 +1139,16 @@ Most recent first. Format:
 What changed, why, where to look for details.
 ```
 
+
+### 2026-06-17 — Per-peer AX.25 capability cache (adaptive interlink + user-CONNECT dialing)
+
+Goal set by Tom. Turns the hard-coded mod-8 interlinks (the regression-fix below) into adaptive per-neighbour dials: the node now remembers, per (port, peer), whether a neighbour does v2.2/SABME (`SupportsExtended`) and whether it answers a pre-session XID (`SupportsSrejViaXid`), so a dial skips the probes a known non-answerer would only stall on, and re-probes a negative after ~30 days. New `src/Packet.Node.Core/Capabilities/`: `PeerCapabilityCache` (`PlanDial(port, peer, policy) → PeerDialPlan{Extended, PreConnectXid}` + a **plan-aware** `RecordOutcome`) over a resilient `SqlitePeerCapabilityStore` (pdn.db, WAL, degrade-not-throw, mirrors the routing/refresh-token stores). Two policies: `Interlink` (miss ⇒ mod-8 — preserves the conservative default against the BPQ/XRouter neighbour population) and `UserConnect` (miss ⇒ optimistic SABME, today's listener default).
+
+**The correctness hinge** (first-class asserted): `RecordOutcome` is *plan-aware* and only writes on a dial that RETURNED — `SupportsExtended` is updated only when we actually dialled SABME (a mod-8 dial proves nothing about extended capability), `SupportsSrejViaXid` only when a pre-connect XID actually ran, and a dial that THREW (timeout / DM = no link of either version) writes nothing. Wired at all three outbound sites (`NetRomService.EnsureInterlinkAsync` + `PortSupervisor.OpenInterlinkAsync` interlinks, `Ax25OutboundConnector` user CONNECT) via a new per-call `ConnectAsync(remote, local, extended, preConnectXidNegotiatesSrej, ct)` overload (mirrored in ax25-ts `connect()`; parity-invisible — a name-deduped overload, no new flag). Operator surfaces: console **`CAP`/`CAPS`** (read) + **`CAP CLEAR <port:peer>`** (Operate-gated), and **`GET`/`DELETE /api/v1/capabilities`** + a Routes-style SPA panel; unknown (`bool?` null) renders as `v2.2?`/`SREJ?`, never false. Persisted, so the learned table survives restart. Tests: cache core + store round-trip + plan-aware/no-write-on-throw, interlink + user-CONNECT wiring, the overload, console + REST + SPA — full unit suites green (Node.Tests 1200, Ax25.Tests 951, web 84) + interop on a quiet box. Lib (`Packet.Ax25` overload) + node change → lib-v0.10.0 / node-v0.15.0 / ax25-ts 0.15.0. Addresses the §5.G capability-cache item.
+
+### 2026-06-17 — Released: lib-v0.9.0 + node-v0.14.0 (v2.2-preferred CONNECT + working SREJ to BPQ + figc4.6 fallbacks)
+
+Release cascade for the two arcs below (the v2.2-first CONNECT/SREJ work + the interlink-mod-8/pre-session-XID regression fix). Tagged `lib-v0.9.0` + `node-v0.14.0` on green `main` (merge 95da708). Published + verified: NuGet `Packet.Ax25` 0.9.0 (+ the 6-package set) indexed; `node-v0.14.0` GitHub release non-draft with amd64/arm64/armhf `.deb`+`.tar.gz`+`SHA256SUMS`; GHCR docker image. ax25-ts parity landed in #65 (SREJ port) + #66 (interlink/responder/budget); its npm release + the downstream `axcall`/`packet-term-tui` pin bumps + the lab deploy are batched into the capability-cache release (above) to avoid double churn. Runner infra: runner-2 had been OOM-killed (memory oversubscription — ~5 GB/job × 4 runners > 16 GB) and a concurrent ci+interop run swap-thrashed into a 27-min hang; cancelled, restarted runner-2 (all 4 back), re-ran clean. Systemic mitigation (a concurrency group for interop/crossgen) recommended to Tom, not yet applied.
 
 ### 2026-06-17 — Fix: NET/ROM interlinks dial mod-8 + PDN answers a pre-session XID (regression from the prefer-v2.2 default)
 
