@@ -17,7 +17,7 @@ public class AppCatalogYamlTests
         // dapps — assets kind.
         var dapps = doc.Apps.Single(a => a.Id == "dapps");
         dapps.Name.Should().Be("DAPPS");
-        dapps.Version.Should().Be("0.34.1");
+        dapps.Version.Should().Be("0.34.2");
         // The catalog ships the transport-accurate `packet` spelling (the rename from `network`).
         dapps.Capabilities.Should().Contain(["packet", "web"]);
         dapps.Artifact!.Kind.Should().Be(ArtifactKind.Assets);
