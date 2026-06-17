@@ -191,18 +191,32 @@ public sealed class LiveNodeMcpBackend(
             : new SessionResult(false, sessionId, "no such session.");
     }
 
-    public Task<KissParamResult> SetKissParamAsync(SetKissParamRequest req, McpCaller caller, CancellationToken ct = default)
+    public async Task<KissParamResult> SetKissParamAsync(SetKissParamRequest req, McpCaller caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(req);
         Audit(caller, "set_kiss_param", req.Port, $"{req.Param}={req.Value}");
 
-        // The KISS-parameter write path (TXDELAY/persist/slottime/txtail → a KISS
-        // SetHardware/param frame on the modem, vs the construction-time params that
-        // need a port restart) isn't wired into the modem yet. Report honestly rather
-        // than fake success — tracked as a remaining Phase-8 write-tool step.
-        return Task.FromResult(new KissParamResult(
-            Accepted: false, RequiresRestart: false,
-            Message: "set_kiss_param is not yet wired to the KISS modem (tracked for a later Phase-8 step)."));
+        if (host.Supervisor is not { } supervisor)
+        {
+            return new KissParamResult(false, false, "the node is still starting.");
+        }
+
+        // Push the parameter to the live modem through the same exclusive gate the
+        // reconcile / restart paths use, so a KISS-param write can't race a port
+        // teardown and write to a half-disposed modem. KissParamWriter owns the
+        // settable-param set + range validation and dispatches to the matching
+        // IKissModem setter, which emits the KISS command frame on the wire.
+        return await host.RunExclusiveAsync(async () =>
+        {
+            if (supervisor.GetPort(req.Port) is not { Started: true } port)
+            {
+                return new KissParamResult(false, false, $"port '{req.Port}' is not up.");
+            }
+
+            var r = await Packet.Node.Core.Transports.KissParamWriter
+                .ApplyAsync(port.Modem, req.Param, req.Value, ct).ConfigureAwait(false);
+            return new KissParamResult(r.Accepted, r.RequiresRestart, r.Message);
+        }, ct).ConfigureAwait(false);
     }
 
     // Persist the privileged-action invocation to the node-wide audit log (pdn.db).
