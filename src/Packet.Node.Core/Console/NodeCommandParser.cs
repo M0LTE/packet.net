@@ -130,9 +130,12 @@ public static class NodeCommandParser
         {
             return ParseKick(rest);
         }
-        if (Matches(upper, "PORT"))
+        // PORT(S): the bare verb (any prefix of PORTS, which subsumes PORT) lists the radio ports;
+        // the sysop form "PORT <id> UP|DOWN" (i.e. with args) powers a port. Listing is read-only
+        // and needs no elevation; the args form routes to the sysop handler as before.
+        if (Matches(upper, "PORTS"))
         {
-            return ParsePort(rest);
+            return string.IsNullOrWhiteSpace(rest) ? new PortsCommand() : ParsePort(rest);
         }
         if (Matches(upper, "RELOAD"))
         {

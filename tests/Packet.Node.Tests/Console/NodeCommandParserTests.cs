@@ -131,11 +131,19 @@ public class NodeCommandParserTests
     }
 
     [Theory]
-    [InlineData("PORT")]
     [InlineData("PORT gb7rdg")]
     [InlineData("PORT gb7rdg SIDEWAYS")]
-    public void Port_without_a_valid_state_is_malformed(string line) =>
+    public void Port_with_args_but_no_valid_state_is_malformed(string line) =>
         NodeCommandParser.Parse(line).Should().BeOfType<MalformedPort>();
+
+    [Theory]
+    [InlineData("PORTS")]
+    [InlineData("ports")]
+    [InlineData("PORT")]   // bare PORT lists too (PORT is a prefix of PORTS); the sysop form needs args
+    [InlineData("PO")]     // unambiguous prefix of the PORT(S) family
+    [InlineData("P")]
+    public void Parses_ports_listing(string line) =>
+        NodeCommandParser.Parse(line).Should().BeOfType<PortsCommand>();
 
     [Theory]
     [InlineData("RELOAD")]

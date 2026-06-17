@@ -81,7 +81,10 @@ public sealed class TelnetConsoleIntegrationTests
         await Wait.ForAsync(() => Saw("Commands:"), "Help works over telnet");
 
         await SendAsync("N");
-        await Wait.ForAsync(() => Saw("Ports:"), "Nodes works over telnet");
+        await Wait.ForAsync(() => Saw("Node "), "Nodes works over telnet");
+
+        await SendAsync("PORTS");
+        await Wait.ForAsync(() => Saw("Ports:"), "Ports works over telnet");
 
         await SendAsync("B");
         await Wait.ForAsync(() => Saw("73"), "Bye is acknowledged over telnet");

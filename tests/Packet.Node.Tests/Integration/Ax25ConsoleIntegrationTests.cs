@@ -67,10 +67,14 @@ public sealed class Ax25ConsoleIntegrationTests
         await Wait.ForAsync(() => remote.Saw("Software: Packet.NET"), "Info should reply with the version");
         remote.Saw("NODE-1").Should().BeTrue();
 
-        // Nodes — lists the configured port.
+        // Nodes — the node identity (+ NET/ROM table); ports moved to their own command.
         remote.SendLine("N");
-        await Wait.ForAsync(() => remote.Saw("Ports:"), "Nodes should list ports");
-        remote.Saw("p1").Should().BeTrue("the configured port id appears in Nodes");
+        await Wait.ForAsync(() => remote.Saw("Node "), "Nodes should name the node");
+
+        // Ports — lists the configured port.
+        remote.SendLine("PORTS");
+        await Wait.ForAsync(() => remote.Saw("Ports:"), "Ports should list ports");
+        remote.Saw("p1").Should().BeTrue("the configured port id appears in Ports");
 
         // Help.
         remote.SendLine("H");

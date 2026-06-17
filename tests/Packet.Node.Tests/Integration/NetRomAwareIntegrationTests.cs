@@ -181,7 +181,9 @@ public sealed class NetRomAwareIntegrationTests
         await Wait.ForAsync(() => remote.Saw("NODE"), "banner should arrive on connect");
 
         remote.SendLine("N");
-        await Wait.ForAsync(() => remote.Saw("Ports:"), "Nodes still lists ports when NET/ROM is off");
+        await Wait.ForAsync(() => remote.Saw("Node "), "Nodes names the node when NET/ROM is off");
+        remote.SendLine("PORTS");
+        await Wait.ForAsync(() => remote.Saw("Ports:"), "Ports still lists ports when NET/ROM is off");
         netRom.Snapshot().NeighbourCount.Should().Be(0, "a disabled service learns nothing");
         remote.Saw("NET/ROM").Should().BeFalse("no NET/ROM section when disabled");
     }

@@ -156,6 +156,10 @@ public sealed partial class NodeCommandService : INodeApplication
                 await WriteLineAsync(connection, NodesText(), ct).ConfigureAwait(false);
                 return DispatchOutcome.Continue;
 
+            case PortsCommand:
+                await WriteLineAsync(connection, PortsText(), ct).ConfigureAwait(false);
+                return DispatchOutcome.Continue;
+
             case ByeCommand:
                 await WriteLineAsync(connection, "73", ct).ConfigureAwait(false);
                 return DispatchOutcome.Disconnect;
@@ -377,24 +381,28 @@ public sealed partial class NodeCommandService : INodeApplication
     private string NodesText()
     {
         var sb = new StringBuilder();
-        sb.Append("Node ").Append(env.NodeName).Append(" (").Append(env.Identity.Callsign).Append(')').Append('\n');
+        sb.Append("Node ").Append(env.NodeName).Append(" (").Append(env.Identity.Callsign).Append(')');
+        AppendNetRom(sb);
+        return sb.ToString();
+    }
+
+    // The radio ports — split out of NODES into its own PORTS command. Read-only; no elevation.
+    private string PortsText()
+    {
         var ports = env.Ports;
         if (ports.Count == 0)
         {
-            sb.Append("Ports: (none configured)");
-        }
-        else
-        {
-            sb.Append("Ports:");
-            foreach (var p in ports)
-            {
-                sb.Append('\n').Append("  ").Append(p.Id)
-                  .Append(' ').Append(p.Enabled ? "[up]" : "[down]")
-                  .Append(' ').Append(p.Transport.DescribeEndpoint());
-            }
+            return "Ports: (none configured)";
         }
 
-        AppendNetRom(sb);
+        var sb = new StringBuilder();
+        sb.Append("Ports:");
+        foreach (var p in ports)
+        {
+            sb.Append('\n').Append("  ").Append(p.Id)
+              .Append(' ').Append(p.Enabled ? "[up]" : "[down]")
+              .Append(' ').Append(p.Transport.DescribeEndpoint());
+        }
         return sb.ToString();
     }
 
@@ -459,7 +467,8 @@ public sealed partial class NodeCommandService : INodeApplication
         var sb = new StringBuilder();
         sb.Append("Commands:\n")
           .Append("  C[onnect] <call>   connect to a station\n")
-          .Append("  N[odes]            list this node and its ports\n")
+          .Append("  N[odes]            this node + the NET/ROM table\n")
+          .Append("  P[orts]            list the radio ports\n")
           .Append("  I[nfo]             node info and version\n")
           .Append("  B[ye] / D          disconnect\n")
           .Append("  H[elp] / ?         this help");

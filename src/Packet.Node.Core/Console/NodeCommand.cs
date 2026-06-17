@@ -24,8 +24,11 @@ public abstract record NodeCommand
 /// </summary>
 public sealed record ConnectCommand(Callsign Target, int? Port = null) : NodeCommand;
 
-/// <summary><c>N[odes]</c> — list the node identity + configured ports.</summary>
+/// <summary><c>N[odes]</c> — list the node identity + the NET/ROM table.</summary>
 public sealed record NodesCommand : NodeCommand;
+
+/// <summary><c>P[orts]</c> — list the node's radio ports (split out of NODES).</summary>
+public sealed record PortsCommand : NodeCommand;
 
 /// <summary><c>I[nfo]</c> — node identity + version banner.</summary>
 public sealed record InfoCommand : NodeCommand;
