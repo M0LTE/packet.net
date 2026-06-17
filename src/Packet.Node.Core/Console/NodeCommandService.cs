@@ -396,10 +396,15 @@ public sealed partial class NodeCommandService : INodeApplication
         }
 
         var sb = new StringBuilder();
-        sb.Append("Ports:");
-        foreach (var p in ports)
+        // The leading number is the 1-indexed config-order port number — the same one CONNECT
+        // takes to dial out a specific port (C <n> <call>); see PortSupervisor's router
+        // (ports[n-1]) and ConnectCommand.Port.
+        sb.Append("Ports:  (the number is for C <n> <call>)");
+        for (int i = 0; i < ports.Count; i++)
         {
-            sb.Append('\n').Append("  ").Append(p.Id)
+            var p = ports[i];
+            sb.Append('\n').Append("  ").Append(i + 1)
+              .Append("  ").Append(p.Id)
               .Append(' ').Append(p.Enabled ? "[up]" : "[down]")
               .Append(' ').Append(p.Transport.DescribeEndpoint());
         }

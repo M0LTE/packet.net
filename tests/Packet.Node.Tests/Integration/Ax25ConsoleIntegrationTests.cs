@@ -71,10 +71,10 @@ public sealed class Ax25ConsoleIntegrationTests
         remote.SendLine("N");
         await Wait.ForAsync(() => remote.Saw("Node "), "Nodes should name the node");
 
-        // Ports — lists the configured port.
+        // Ports — lists the configured port with its 1-indexed CONNECT port number.
         remote.SendLine("PORTS");
         await Wait.ForAsync(() => remote.Saw("Ports:"), "Ports should list ports");
-        remote.Saw("p1").Should().BeTrue("the configured port id appears in Ports");
+        remote.Saw("1  p1").Should().BeTrue("Ports shows the 1-indexed CONNECT port number next to the id");
 
         // Help.
         remote.SendLine("H");
