@@ -69,7 +69,7 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
             .Must(HaveUniqueAppIds)
             .WithMessage("Each application must have a unique Id.")
             .Must(HaveUniqueAppMatches)
-            .WithMessage("Two applications may not share the same Match verb (case-insensitive).");
+            .WithMessage("Two applications may not share the same command verb (case-insensitive).");
 
         // The apps: package-override list (docs/app-packages.md § Owner state). The validator
         // has no filesystem access, so whether an id matches a discovered package is the
@@ -80,6 +80,18 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
         RuleFor(c => c.Apps)
             .Must(HaveUniqueOverrideIds)
             .WithMessage("Each apps: entry must have a unique id (the package it applies to).");
+
+        // Packet-identity uniqueness (docs/app-packages.md § Application packet identity): a
+        // pinned callsign or a NET/ROM alias must be unique across all apps (inline + package
+        // overrides) and must not collide with the node's own callsign / alias. Auto-assigned
+        // callsigns can't collide by construction (the resolver probes a free SSID), so only
+        // EXPLICIT pins are checked here — and the validator has no filesystem, so package
+        // pins/aliases participate via their apps[] override, the inline apps via applications[].
+        RuleFor(c => c)
+            .Must(HaveUniqueAppCallsigns)
+            .WithMessage("Two apps may not pin the same callsign, and an app callsign may not equal the node's own (docs/app-packages.md § Application packet identity).")
+            .Must(HaveUniqueAppNetromAliases)
+            .WithMessage("Two apps may not advertise the same NET/ROM alias, and an app alias may not equal the node's own (docs/app-packages.md § Application packet identity).");
 
         // appPackageRoots: null means the standard roots; when the list is present every
         // entry must be a non-empty path (an empty string would silently scan nothing).
@@ -103,7 +115,7 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
     private static bool HaveUniqueAppMatches(IReadOnlyList<ApplicationConfig> apps)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return apps.All(a => string.IsNullOrWhiteSpace(a.Match) || seen.Add(a.Match.Trim()));
+        return apps.All(a => string.IsNullOrWhiteSpace(a.Command) || seen.Add(a.Command.Trim()));
     }
 
     private static bool HaveUniqueOverrideIds(IReadOnlyList<AppOverrideConfig> apps)
@@ -111,6 +123,62 @@ public sealed class NodeConfigValidator : AbstractValidator<NodeConfig>
         // Blank ids are reported by AppOverrideConfigValidator; don't double-report them here.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         return apps.All(a => string.IsNullOrWhiteSpace(a.Id) || seen.Add(a.Id));
+    }
+
+    /// <summary>Every explicitly-pinned app callsign (inline + package overrides), normalised
+    /// through the node base, must be unique and must not equal the node's own callsign. An
+    /// unparsable pin is left to the catalog/UI to flag (the resolver skips it); a blank pin is
+    /// the auto-assign path and never collides.</summary>
+    private static bool HaveUniqueAppCallsigns(NodeConfig c)
+    {
+        if (!Callsign.TryParse(c.Identity.Callsign, out var node))
+        {
+            return true;   // no usable node identity → IdentityValidator reports it; don't pile on.
+        }
+        var seen = new HashSet<string>(StringComparer.Ordinal) { node.ToString() };
+        var pins = c.Applications.Select(a => a.Callsign)
+            .Concat(c.Apps.Select(a => a.Callsign));
+        foreach (var pin in pins)
+        {
+            if (string.IsNullOrWhiteSpace(pin))
+            {
+                continue;   // auto-assign — can't collide by construction.
+            }
+            if (!Applications.Packages.AppCallsignResolver.TryResolvePin(pin, node.Base, out var call, out _))
+            {
+                continue;   // unparsable pin — flagged elsewhere; not a uniqueness verdict.
+            }
+            if (!seen.Add(call.ToString()))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Every NET/ROM alias advertised for an app (inline + package overrides) must be
+    /// unique (case-insensitive) and must not equal the node's own NET/ROM alias.</summary>
+    private static bool HaveUniqueAppNetromAliases(NodeConfig c)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(c.NetRom.Alias))
+        {
+            seen.Add(c.NetRom.Alias!.Trim());
+        }
+        var aliases = c.Applications.Select(a => a.Netrom?.Alias)
+            .Concat(c.Apps.Select(a => a.Netrom?.Alias));
+        foreach (var alias in aliases)
+        {
+            if (string.IsNullOrWhiteSpace(alias))
+            {
+                continue;
+            }
+            if (!seen.Add(alias.Trim()))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static bool HaveUniqueEndpoints(IReadOnlyList<PortConfig> ports)
@@ -305,14 +373,14 @@ public sealed class ApplicationConfigValidator : AbstractValidator<ApplicationCo
         RuleFor(a => a.Id)
             .NotEmpty().WithMessage("application.id is required.");
 
-        RuleFor(a => a.Match)
-            .NotEmpty().WithMessage("application.match (the launch verb) is required.")
+        RuleFor(a => a.Command)
+            .NotEmpty().WithMessage("application.command (the launch verb) is required.")
             .Must(NotABuiltInVerb)
-            .WithMessage(a => $"application.match '{a.Match}' collides with a built-in console verb " +
+            .WithMessage(a => $"application.command '{a.Command}' collides with a built-in console verb " +
                 "(CONNECT/BYE/NODES/INFO/HELP/SYSOP/SESSIONS/KICK/PORT/RELOAD or an abbreviation) — pick another.");
 
-        RuleFor(a => a.Command)
-            .NotEmpty().WithMessage("application.command is required for a process application.")
+        RuleFor(a => a.Executable)
+            .NotEmpty().WithMessage("application.executable is required for a process application.")
             .When(a => a.Kind == ApplicationKind.Process);
 
         RuleFor(a => a.SocketPath)

@@ -126,6 +126,23 @@ public sealed partial class NodeHostedService : BackgroundService
         // by the supervisor as ports come up), so it can never disturb a session.
         netRom = new NetRomService(startConfig.NetRom, timeProvider, loggerFactory.CreateLogger<NetRomService>(), routingStore);
 
+        // Feed the opt-in app NET/ROM adverts (docs/app-packages.md § Application packet identity):
+        // when an enabled app's owner set netrom.alias, the node advertises alias → the app's
+        // resolved callsign in its NODES broadcast. Read fresh per broadcast off the live config +
+        // catalog so an alias edit hot-applies; off by default (no alias ⇒ no extra advert). Only
+        // wired when the catalog exists — an inline-only node still advertises its inline apps'
+        // aliases through the same source (packages is then empty).
+        netRom.AppAdvertSource = () =>
+        {
+            var current = config.Current;
+            if (!Packet.Core.Callsign.TryParse(current.Identity.Callsign, out var nodeCall))
+            {
+                return [];
+            }
+            var packages = appPackages?.Discover(current) ?? [];
+            return Packet.Node.Core.NetRom.AppNetromAdvert.Build(current, packages, nodeCall);
+        };
+
         // Assemble the over-RF sysop context before the supervisor so its per-connection
         // consoles (AX.25 + NET/ROM) can serve SYSOP; the telnet factory reads the same field.
         sysopContext = BuildSysopContext();

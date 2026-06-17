@@ -28,20 +28,20 @@
 // can refetch BOTH: a newly-installed app leaves the available list for the manager. The
 // left-nav's launcher feed lives in <Shell> and re-fetches on its own polling/navigation.
 // ============================================================
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Page, PageHeader } from "@/components/layout/shell";
-import { Badge, Button, Card, EmptyState, Icon, Modal, Tooltip, type BadgeVariant } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Field, Icon, Input, Modal, Tooltip, type BadgeVariant } from "@/components/ui";
 import { AppIcon } from "@/components/icon";
 import { api, useQuery, APPS_CHANGED_EVENT, type Query } from "@/lib/api";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/lib/utils";
 import { isAppNotRunning, displayCapability } from "@/lib/types";
-import type { AppForward, AppPackage, AppPackageService, AppPackageState, AvailableApp } from "@/lib/types";
+import type { AppForward, AppPackage, AppPackageService, AppPackageState, AppIdentityRequest, AvailableApp } from "@/lib/types";
 
 // ---- the in-flight verb a control surfaces while its mutation runs --------------
 // There is no spinner primitive, so we reuse the `restart` icon with `animate-spin`
 // (a circular-arrow glyph) and pair it with a present-progressive label.
-type BusyVerb = "enable" | "disable" | "restart" | "uninstall" | "install" | "upload";
+type BusyVerb = "enable" | "disable" | "restart" | "uninstall" | "install" | "upload" | "identity";
 const BUSY_LABEL: Record<BusyVerb, string> = {
   enable: "Enabling…",
   disable: "Disabling…",
@@ -49,6 +49,7 @@ const BUSY_LABEL: Record<BusyVerb, string> = {
   uninstall: "Uninstalling…",
   install: "Installing…",
   upload: "Uploading…",
+  identity: "Saving…",
 };
 // The shared in-progress affordance: a spinning circular-arrow + the verb's label.
 function Spinner({ verb }: { verb: BusyVerb }) {
@@ -311,6 +312,8 @@ function PackageManager({ query, reloadAll, reloadBoth }: { query: Query<AppPack
   const [confirming, setConfirming] = useState<AppPackage | null>(null);
   // The package awaiting its uninstall confirm (null = no confirm open).
   const [uninstalling, setUninstalling] = useState<AppPackage | null>(null);
+  // The package whose packet identity is being edited (null = the editor is closed).
+  const [editingIdentity, setEditingIdentity] = useState<AppPackage | null>(null);
   // The id + verb of the in-flight mutation (null = idle) — drives the row's busy spinner.
   const [busy, setBusy] = useState<{ id: string; verb: BusyVerb } | null>(null);
   // A banner-style notice for a failed mutation (mirrors the ports screen's
@@ -396,6 +399,7 @@ function PackageManager({ query, reloadAll, reloadBoth }: { query: Query<AppPack
                 onToggle={(next) => onToggle(p, next)}
                 onRestart={() => void run(p.id, "restart", () => api.appPackageRestart(p.id), "Could not restart the app.")}
                 onUninstall={() => setUninstalling(p)}
+                onEditIdentity={() => setEditingIdentity(p)}
               />
             </div>
           ))}
@@ -476,20 +480,117 @@ function PackageManager({ query, reloadAll, reloadBoth }: { query: Query<AppPack
           </p>
         )}
       </Modal>
+
+      {/* The packet-identity editor — set the command verb, callsign pin, and NET/ROM alias.
+          The callsign/alias are the NODE's (they encode this node's identity + location); a
+          blank callsign falls back to node auto-assignment, a blank alias turns the advert off. */}
+      <IdentityEditor
+        pkg={editingIdentity}
+        onClose={() => setEditingIdentity(null)}
+        onSave={(body) => {
+          const p = editingIdentity;
+          setEditingIdentity(null);
+          if (p) void run(p.id, "identity", () => api.appPackageSetIdentity(p.id, body), "Could not update the app's identity.", "all");
+        }}
+      />
     </section>
+  );
+}
+
+// ---- the packet-identity editor modal ------------------------------------------
+// A small form over one package's command verb / callsign pin / NET/ROM alias+quality. Local
+// state seeds from the package's current values; Save sends the AppIdentityRequest (a blank
+// field clears that override server-side). Re-keyed on the package id so reopening for a
+// different app starts from that app's values.
+function IdentityEditor({ pkg, onClose, onSave }: {
+  pkg: AppPackage | null;
+  onClose: () => void;
+  onSave: (body: AppIdentityRequest) => void;
+}) {
+  return (
+    <Modal
+      open={pkg !== null}
+      onClose={onClose}
+      title={`Packet identity — ${pkg?.name ?? ""}`}
+      width="max-w-md"
+    >
+      {pkg && <IdentityForm key={pkg.id} pkg={pkg} onClose={onClose} onSave={onSave} />}
+    </Modal>
+  );
+}
+
+function IdentityForm({ pkg, onClose, onSave }: {
+  pkg: AppPackage;
+  onClose: () => void;
+  onSave: (body: AppIdentityRequest) => void;
+}) {
+  const [command, setCommand] = useState(pkg.command ?? "");
+  // Only a PINNED callsign round-trips through this field; an auto-assigned one shows as a
+  // placeholder so the owner sees what the node chose without it looking like a pin.
+  const [callsign, setCallsign] = useState("");
+  const [netromAlias, setNetromAlias] = useState(pkg.netromAlias ?? "");
+  const [netromQuality, setNetromQuality] = useState(pkg.netromQuality != null ? String(pkg.netromQuality) : "");
+
+  const submit = () => {
+    const q = netromQuality.trim() === "" ? null : Number(netromQuality);
+    onSave({
+      command: command.trim() || null,
+      callsign: callsign.trim() || null,
+      netromAlias: netromAlias.trim() || null,
+      netromQuality: q != null && Number.isFinite(q) ? q : null,
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <Field label="Command verb" info="The node-prompt word that reaches this app (e.g. BBS). Blank uses the app's own default.">
+        <Input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="e.g. BBS" />
+      </Field>
+      <Field label="Callsign" info="The on-air callsign this app binds. A full callsign (M0ABC-1) or a bare -N SSID on the node base. Blank = the node auto-assigns the lowest free SSID.">
+        <Input value={callsign} onChange={(e) => setCallsign(e.target.value)} placeholder={pkg.callsign ?? "auto (lowest free SSID)"} />
+      </Field>
+      <Field label="NET/ROM alias" info="Opt-in: the network-wide alias the node advertises → this app's callsign. Blank = not advertised (off by default).">
+        <Input value={netromAlias} onChange={(e) => setNetromAlias(e.target.value)} placeholder="e.g. RDGBBS" />
+      </Field>
+      <Field label="NET/ROM quality" info="The quality (0–255) the alias is advertised at. Only used when an alias is set; blank defaults to 255.">
+        <Input value={netromQuality} onChange={(e) => setNetromQuality(e.target.value)} inputMode="numeric" placeholder="255" />
+      </Field>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+        <Button size="sm" onClick={submit}><Icon name="check" size={14} /> Save</Button>
+      </div>
+    </div>
   );
 }
 
 // ---- one package row: identity + state, then the admin controls ----------------
 // `busy` is the verb of this row's in-flight mutation (null = idle) — the matching
 // control swaps its label for a spinner while it runs.
-function PackageRow({ p, isAdmin, busy, onToggle, onRestart, onUninstall }: {
+// The app's packet identity, read-only: the node-prompt command verb, the on-air callsign the
+// node resolved for it, and the opt-in NET/ROM alias (with quality). Each part renders only when
+// set, so a session-only app with no identity shows nothing. (docs/app-packages.md § Application
+// packet identity.)
+function IdentityLine({ p }: { p: AppPackage }) {
+  const parts: ReactNode[] = [];
+  if (p.command) parts.push(<span key="cmd"><span className="text-muted-foreground">verb </span><span className="font-mono">{p.command}</span></span>);
+  if (p.callsign) parts.push(<span key="call"><span className="text-muted-foreground">call </span><span className="font-mono">{p.callsign}</span></span>);
+  if (p.netromAlias) parts.push(<span key="nr"><span className="text-muted-foreground">alias </span><span className="font-mono">{p.netromAlias}</span>{p.netromQuality != null ? <span className="text-muted-foreground"> (q{p.netromQuality})</span> : null}</span>);
+  if (parts.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" data-identity={p.id}>
+      {parts}
+    </div>
+  );
+}
+
+function PackageRow({ p, isAdmin, busy, onToggle, onRestart, onUninstall, onEditIdentity }: {
   p: AppPackage;
   isAdmin: boolean;
   busy: BusyVerb | null;
   onToggle: (next: boolean) => void;
   onRestart: () => void;
   onUninstall: () => void;
+  onEditIdentity: () => void;
 }) {
   const working = busy !== null;
   const broken = p.error !== null;
@@ -542,9 +643,23 @@ function PackageRow({ p, isAdmin, busy, onToggle, onRestart, onUninstall }: {
             </div>
             {p.description && <p className="mt-0.5 text-xs text-muted-foreground">{p.description}</p>}
             <CapabilityBadges capabilities={p.capabilities} />
+            <IdentityLine p={p} />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Edit the packet identity (command verb / callsign / NET/ROM alias) — discovered
+              packages only; an inline app is config-authored, so its identity is read-only here. */}
+          {!inline && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!isAdmin || working}
+              title={isAdmin ? "Set this app's command verb, callsign, and NET/ROM alias" : "Requires admin"}
+              onClick={onEditIdentity}
+            >
+              {busy === "identity" ? <Spinner verb="identity" /> : <><Icon name="edit" size={14} /> Identity</>}
+            </Button>
+          )}
           {showRestart && (
             <Button
               variant="ghost"

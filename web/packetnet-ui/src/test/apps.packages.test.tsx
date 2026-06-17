@@ -317,3 +317,76 @@ describe("Apps — package management section", () => {
     expect(restart).toHaveAttribute("title", "Requires admin");
   });
 });
+
+describe("Apps — packet identity", () => {
+  it("renders an app's resolved callsign, command verb and NET/ROM alias on its row", async () => {
+    await mountApps();
+    // wall: verb WALL + callsign M0ABC-1, no alias — scope to the identity line so the verb
+    // (also "WALL", same as the app name) is unambiguous.
+    const wallIdentity = row("wall").querySelector('[data-identity="wall"]') as HTMLElement;
+    expect(wallIdentity).not.toBeNull();
+    expect(within(wallIdentity).getByText("M0ABC-1")).toBeInTheDocument();
+    expect(within(wallIdentity).getByText("WALL")).toBeInTheDocument();
+    // bbs-bridge advertises an alias with a quality.
+    const bbs = row("bbs-bridge");
+    expect(within(bbs).getByText("RDGBBS")).toBeInTheDocument();
+    expect(within(bbs).getByText(/q255/)).toBeInTheDocument();
+  });
+
+  it("shows no identity line for a session-only app with no identity set", async () => {
+    await mountApps();
+    // notes has no command/callsign/alias → no identity line.
+    expect(row("notes").querySelector('[data-identity="notes"]')).toBeNull();
+  });
+
+  it("offers the Identity editor for discovered packages but not inline apps", async () => {
+    await mountApps();
+    expect(within(row("wall")).getByRole("button", { name: "Identity" })).toBeEnabled();
+    // motd is inline (config-authored) → no Identity edit affordance.
+    expect(within(row("motd")).queryByRole("button", { name: "Identity" })).toBeNull();
+  });
+
+  it("the Identity editor PUTs the entered command/callsign/alias/quality", async () => {
+    const setIdentity = vi
+      .spyOn(api, "appPackageSetIdentity")
+      .mockResolvedValue({ ...fixture("lobby"), command: "CHAT", callsign: "M0ABC-9", netromAlias: "RDGCHAT", netromQuality: 200 });
+    await mountApps();
+
+    fireEvent.click(within(row("lobby")).getByRole("button", { name: "Identity" }));
+    const title = screen.getByText(/Packet identity — LOBBY/);
+    const modal = title.closest("div.relative") as HTMLElement;
+
+    fireEvent.change(within(modal).getByPlaceholderText(/e\.g\. BBS/), { target: { value: "CHAT" } });
+    fireEvent.change(within(modal).getByPlaceholderText(/auto \(lowest free SSID\)/), { target: { value: "M0ABC-9" } });
+    fireEvent.change(within(modal).getByPlaceholderText(/e\.g\. RDGBBS/), { target: { value: "RDGCHAT" } });
+    fireEvent.change(within(modal).getByPlaceholderText(/^255$/), { target: { value: "200" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(setIdentity).toHaveBeenCalledWith("lobby", {
+      command: "CHAT", callsign: "M0ABC-9", netromAlias: "RDGCHAT", netromQuality: 200,
+    }));
+  });
+
+  it("a blank alias clears the advert (null) in the PUT body", async () => {
+    const setIdentity = vi.spyOn(api, "appPackageSetIdentity").mockResolvedValue(fixture("bbs-bridge"));
+    await mountApps();
+
+    fireEvent.click(within(row("bbs-bridge")).getByRole("button", { name: "Identity" }));
+    const title = screen.getByText(/Packet identity — BBS bridge/);
+    const modal = title.closest("div.relative") as HTMLElement;
+    // the alias seeds from the fixture (RDGBBS) — clear it.
+    fireEvent.change(within(modal).getByDisplayValue("RDGBBS"), { target: { value: "" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(setIdentity).toHaveBeenCalled());
+    const body = setIdentity.mock.calls[0][1];
+    expect(body.netromAlias).toBeNull();
+  });
+
+  it("the Identity editor is disabled for read scope", async () => {
+    await mountApps("read");
+    const btn = within(row("wall")).getByRole("button", { name: "Identity" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute("title", "Requires admin");
+  });
+});

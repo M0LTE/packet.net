@@ -103,10 +103,14 @@ public sealed partial class AppServiceSupervisor(
         try
         {
             var current = config.Current;
+            var discovered = catalog.Discover(current);
+            // The node is the callsign authority — resolve every enabled packet app's callsign
+            // once per reconcile so the PDN_APP_CALLSIGN we inject is consistent across the set.
+            var callsigns = AppCallsignResolver.Resolve(current, discovered);
 
             // Desired set: enabled, error-free, service block, managed by pdn.
             var desired = new Dictionary<string, (ServiceSpawnSpec Spec, string Fingerprint)>(StringComparer.Ordinal);
-            foreach (var pkg in catalog.Discover(current))
+            foreach (var pkg in discovered)
             {
                 if (!pkg.Enabled || pkg.Error is not null)
                 {
@@ -116,7 +120,7 @@ public sealed partial class AppServiceSupervisor(
                 {
                     continue;
                 }
-                var spec = BuildSpec(pkg, current);
+                var spec = BuildSpec(pkg, current, callsigns);
                 desired[pkg.Id] = (spec, FingerprintOf(spec));
             }
 
@@ -174,7 +178,8 @@ public sealed partial class AppServiceSupervisor(
         try
         {
             var current = config.Current;
-            var pkg = catalog.Discover(current).FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal))
+            var discovered = catalog.Discover(current);
+            var pkg = discovered.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Unknown app package '{id}'.");
             var service = pkg.Manifest?.Service
                 ?? throw new InvalidOperationException($"App package '{id}' declares no service.");
@@ -204,7 +209,8 @@ public sealed partial class AppServiceSupervisor(
 
             // A fresh entry by construction clears Faulted, the backoff ladder, and the
             // crash-loop window — this is the owner's way out of Faulted.
-            var spec = BuildSpec(pkg, current);
+            var callsigns = AppCallsignResolver.Resolve(current, discovered);
+            var spec = BuildSpec(pkg, current, callsigns);
             LogRestartRequested(id);
             Start(id, spec, FingerprintOf(spec));
         }
@@ -303,7 +309,9 @@ public sealed partial class AppServiceSupervisor(
     /// the package dir (the contract's path rule), working dir (?? state dir), and the merged
     /// environment overlay — PDN_APP_*, then PDN_RHP_* when the RHP server is on, then the
     /// manifest map, then the owner's override map (last wins).</summary>
-    private static ServiceSpawnSpec BuildSpec(DiscoveredAppPackage pkg, NodeConfig current)
+    private static ServiceSpawnSpec BuildSpec(
+        DiscoveredAppPackage pkg, NodeConfig current,
+        IReadOnlyDictionary<string, AppCallsignResolver.ResolvedAppCallsign> callsigns)
     {
         var service = pkg.Manifest!.Service!;
         var command = AppPackagePaths.ResolveFile(service.Command, pkg.PackageDir);
@@ -317,10 +325,16 @@ public sealed partial class AppServiceSupervisor(
             ["PDN_APP_ID"] = pkg.Id,
             ["PDN_APP_DIR"] = pkg.PackageDir,
             ["PDN_APP_STATE"] = pkg.StateDir,
-            // The host node's identity, so an app can derive its own (the convention: an app
-            // lives at an SSID of the node callsign — e.g. DAPPS defaults to <nodecall>-7).
+            // The host node's identity. Kept for back-compat: an un-migrated app still
+            // self-derives its callsign as an SSID of this (the convention: <nodecall>-N).
             ["PDN_NODE_CALLSIGN"] = current.Identity.Callsign,
         };
+        // The node is the callsign authority: a migrated app binds the node-resolved
+        // PDN_APP_CALLSIGN instead of deriving its own. Additive — PDN_NODE_CALLSIGN stays.
+        if (callsigns.TryGetValue(pkg.Id, out var resolved))
+        {
+            environment["PDN_APP_CALLSIGN"] = resolved.Callsign.ToString();
+        }
         if (!string.IsNullOrWhiteSpace(current.Identity.Alias))
         {
             environment["PDN_NODE_ALIAS"] = current.Identity.Alias!;

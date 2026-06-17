@@ -15,7 +15,7 @@ import type {
   PingResult, PingReply, UserSummary, LoginResult, SetupState, SetupRequest, SetupResult,
   WebAuthnCredential, AssertBeginResponse, RegisterCompleteResponse,
   TotpEnrollBeginResponse, TotpEnrollCompleteResponse, TotpEnrollState, NodeApp, AppPackage,
-  AvailableApp, InstallOutcome, TailscaleStatus, SystemInfo,
+  AppIdentityRequest, AvailableApp, InstallOutcome, TailscaleStatus, SystemInfo,
 } from "./types";
 import * as mock from "./mock";
 import { passkeysAvailable } from "./secureContext";
@@ -312,6 +312,10 @@ export const api = {
   // Restart a managed package's service (admin scope). 503 { error } when there is
   // no supervisor; 409 { error } when the package has no restartable service.
   appPackageRestart: (id: string) => appPackageAction(id, "restart"),
+  // Set a package's packet identity — command verb / callsign pin / NET/ROM advert (admin
+  // scope). Returns the updated entry; a 404 (inline/unknown) or 422 (validation, e.g. a
+  // callsign collision) surfaces its { error } as an Error. See docs/app-packages.md.
+  appPackageSetIdentity: (id: string, body: AppIdentityRequest) => appPackageSetIdentity(id, body),
 
   // ---- app catalog: available apps (app-catalog Slice 6b) ----
   // The available-apps list (catalog ⋈ this node's installed state). Read-gated; the
@@ -655,6 +659,30 @@ async function appPackageAction(
     headers: { accept: "application/json" },
   });
   if (!res.ok) throw new Error(await errorMessage(res, `Could not ${action} '${id}' (${res.status}).`));
+  return (await res.json()) as AppPackage;
+}
+
+// Set a package's packet identity (command verb / callsign pin / NET/ROM advert). Live mode
+// PUTs the identity body and returns the server's updated AppPackage; a 404 (inline/unknown
+// id) or 422 (validation — e.g. a callsign/alias collision) surfaces its { error } as an
+// Error. Mock mode patches the in-memory fixture in place so a refetch shows the new identity.
+async function appPackageSetIdentity(id: string, body: AppIdentityRequest): Promise<AppPackage> {
+  if (MODE === "mock") {
+    await new Promise((r) => setTimeout(r, 120));
+    const p = mock.APP_PACKAGES.find((x) => x.id === id);
+    if (!p || p.source === "inline") throw new Error(`Unknown package '${id}'.`);
+    p.command = body.command?.trim() || null;
+    p.callsign = body.callsign?.trim() || p.callsign; // a blank pin falls back to auto-assign (kept as-is in the mock)
+    p.netromAlias = body.netromAlias?.trim() || null;
+    p.netromQuality = p.netromAlias ? (body.netromQuality ?? 255) : null;
+    return structuredClone(p);
+  }
+  const res = await authFetch(`/apps/packages/${encodeURIComponent(id)}/identity`, {
+    method: "PUT",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Could not update '${id}' identity (${res.status}).`));
   return (await res.json()) as AppPackage;
 }
 

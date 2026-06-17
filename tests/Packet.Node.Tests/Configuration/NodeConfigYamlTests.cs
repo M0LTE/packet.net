@@ -699,4 +699,79 @@ public class NodeConfigYamlTests
         reparsed.Tailscale.Should().Be(original.Tailscale,
             "the whole tailscale block should round-trip\nYAML:\n{0}", yaml);
     }
+
+    [Fact]
+    public void Parses_app_packet_identity_fields_on_apps_and_applications()
+    {
+        // docs/app-packages.md § Application packet identity — the owner's per-app callsign pin,
+        // opt-in NET/ROM advert, and command verb override on both apps[] (package overrides) and
+        // applications[] (inline). The inline app carries a separate verb (command) and executable.
+        const string yaml = """
+            identity:
+              callsign: M0LTE-1
+            applications:
+              - id: myapp
+                command: MYAPP
+                executable: /usr/bin/python3
+                args: [app.py]
+                callsign: M0LTE-3
+                netrom:
+                  alias: RDGCHAT
+                  quality: 200
+            apps:
+              - id: bbs
+                enabled: true
+                command: BBS
+                callsign: M9YYY-1
+                netrom:
+                  alias: RDGBBS
+                  quality: 255
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+
+        var inline = config.Applications.Should().ContainSingle().Subject;
+        inline.Command.Should().Be("MYAPP");                 // the verb
+        inline.Executable.Should().Be("/usr/bin/python3");   // the exec — distinct field
+        inline.Callsign.Should().Be("M0LTE-3");
+        inline.Netrom!.Alias.Should().Be("RDGCHAT");
+        inline.Netrom!.Quality.Should().Be(200);
+
+        var pkg = config.Apps.Should().ContainSingle().Subject;
+        pkg.Enabled.Should().BeTrue();
+        pkg.Command.Should().Be("BBS");                      // the verb override
+        pkg.Callsign.Should().Be("M9YYY-1");                 // the pin
+        pkg.Netrom!.Alias.Should().Be("RDGBBS");
+        pkg.Netrom!.Quality.Should().Be(255);
+    }
+
+    [Fact]
+    public void Round_trips_the_app_packet_identity_fields()
+    {
+        var original = new NodeConfig
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            Applications =
+            [
+                new ApplicationConfig
+                {
+                    Id = "myapp", Command = "MYAPP", Executable = "/bin/cat",
+                    Callsign = "M0LTE-3", Netrom = new AppNetromConfig { Alias = "RDGCHAT", Quality = 200 },
+                },
+            ],
+            Apps =
+            [
+                new AppOverrideConfig
+                {
+                    Id = "bbs", Enabled = true, Command = "BBS", Callsign = "M9YYY-1",
+                    Netrom = new AppNetromConfig { Alias = "RDGBBS", Quality = 255 },
+                },
+            ],
+        };
+
+        var reparsed = NodeConfigYaml.Parse(NodeConfigYaml.Serialize(original));
+
+        reparsed.Applications.Should().BeEquivalentTo(original.Applications);
+        reparsed.Apps.Should().BeEquivalentTo(original.Apps);
+    }
 }

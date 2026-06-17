@@ -81,6 +81,22 @@ public static class PdnAppPackagesApi
             })
             .RequireAuthorization(PdnAuthPolicies.Admin);
 
+        // Set a discovered package's packet identity (docs/app-packages.md § Application packet
+        // identity): the command-verb override, the callsign pin, and the opt-in NET/ROM advert.
+        // These are the NODE's to set (they encode this node's identity + location), so they live
+        // on the apps: override beside enabled — written through the same config-write seam, with
+        // the same TryApply → 422 discipline. Admin: it changes what the node answers for on the
+        // air. An inline applications: entry is config-authored — like enable/disable, it answers
+        // 404 here (edit it through the full-config PUT).
+        group.MapPut("/{id}/identity",
+            (string id, AppIdentityRequest body, HttpContext ctx, IWritableConfigProvider cfg, IAppPackageCatalog catalog, IServiceProvider services, IAuditLog audit, TimeProvider clock) =>
+            {
+                audit.RecordRest(ctx, clock, "set_app_identity", id, "requested",
+                    $"callsign={body.Callsign} command={body.Command} netromAlias={body.NetromAlias}");
+                return SetIdentity(id, body, cfg, catalog, services);
+            })
+            .RequireAuthorization(PdnAuthPolicies.Admin);
+
         // Stop-then-start one managed service regardless of backoff state — the owner's way
         // out of Faulted. 503 when no supervisor is wired; 404 for an unknown id; 409 for a
         // service pdn does not manage (none/external) or anything the supervisor refuses.
@@ -239,19 +255,71 @@ public static class PdnAppPackagesApi
         return Results.Ok(ProjectById(cfg.Current, catalog, supervisor, package?.Id ?? existing!.Id));
     }
 
+    /// <summary>Upsert the packet-identity overrides (command verb, callsign pin, NET/ROM advert)
+    /// onto <paramref name="id"/>'s <c>apps:</c> override and persist through the write seam. An
+    /// absent field in the request CLEARS that override (so the owner can blank a pin and fall
+    /// back to auto-assignment); pass the current value to keep it. 404 when the id matches
+    /// neither a discovered package nor an existing override; 422 when the candidate is rejected
+    /// (e.g. a callsign/alias collision the validator catches). A bare-empty NET/ROM (no alias)
+    /// is normalised to no advert at all.</summary>
+    private static IResult SetIdentity(
+        string id, AppIdentityRequest body, IWritableConfigProvider cfg, IAppPackageCatalog catalog, IServiceProvider services)
+    {
+        var current = cfg.Current;
+        var package = FindPackage(catalog.Discover(current), id);
+        var existing = current.Apps.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (package is null && existing is null)
+        {
+            return Results.NotFound();
+        }
+
+        var netrom = Trim(body.NetromAlias) is { } alias
+            ? new AppNetromConfig { Alias = alias, Quality = body.NetromQuality }
+            : null;   // no alias ⇒ no advert (off by default), dropping any stale quality.
+
+        // Upsert: rewrite the identity fields on the existing override (keeping its enable +
+        // environment), or append a fresh disabled override carrying only the identity.
+        var canonicalId = package?.Id ?? existing!.Id;
+        AppOverrideConfig updated = (existing ?? new AppOverrideConfig { Id = canonicalId }) with
+        {
+            Command = Trim(body.Command),
+            Callsign = Trim(body.Callsign),
+            Netrom = netrom,
+        };
+
+        IReadOnlyList<AppOverrideConfig> apps = existing is not null
+            ? [.. current.Apps.Select(a => ReferenceEquals(a, existing) ? updated : a)]
+            : [.. current.Apps, updated];
+
+        if (!cfg.TryApply(current with { Apps = apps }, out var errors))
+        {
+            return Results.UnprocessableEntity(new ValidationProblem(errors));
+        }
+
+        var supervisor = services.GetService<IAppServiceSupervisor>();
+        return Results.Ok(ProjectById(cfg.Current, catalog, supervisor, canonicalId));
+    }
+
+    /// <summary>Trim a request string to null — an absent or blank field clears the override.</summary>
+    private static string? Trim(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     /// <summary>The whole inventory: discovered packages (catalog order), then the inline
-    /// <c>applications:</c> entries (config order).</summary>
+    /// <c>applications:</c> entries (config order). The node-resolved callsign map is computed
+    /// once (the node is the callsign authority) and threaded into every row's projection.</summary>
     private static List<AppPackageEntry> BuildInventory(
         NodeConfig config, IAppPackageCatalog catalog, IAppServiceSupervisor? supervisor)
     {
+        var discovered = catalog.Discover(config);
+        var callsigns = AppCallsignResolver.Resolve(config, discovered);
         var entries = new List<AppPackageEntry>();
-        foreach (var package in catalog.Discover(config))
+        foreach (var package in discovered)
         {
-            entries.Add(ProjectPackage(package, supervisor));
+            entries.Add(ProjectPackage(package, supervisor, callsigns));
         }
         foreach (var inline in config.Applications)
         {
-            entries.Add(ProjectInline(inline));
+            entries.Add(ProjectInline(inline, callsigns));
         }
         return entries;
     }
@@ -262,23 +330,32 @@ public static class PdnAppPackagesApi
     private static AppPackageEntry ProjectById(
         NodeConfig config, IAppPackageCatalog catalog, IAppServiceSupervisor? supervisor, string id)
     {
-        var package = FindPackage(catalog.Discover(config), id);
+        var discovered = catalog.Discover(config);
+        var callsigns = AppCallsignResolver.Resolve(config, discovered);
+        var package = FindPackage(discovered, id);
         if (package is not null)
         {
-            return ProjectPackage(package, supervisor);
+            return ProjectPackage(package, supervisor, callsigns);
         }
 
         // The override exists but the package is not on disk (installed later — a config
-        // warning, not an error). Project the override's state with no manifest data.
-        var enabled = config.Apps.FirstOrDefault(a =>
-            string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase))?.Enabled ?? false;
+        // warning, not an error). Project the override's state with no manifest data, but still
+        // surface the owner-set identity overrides (command/callsign pin/netrom) so the edit the
+        // owner just made round-trips even before the package lands.
+        var override_ = config.Apps.FirstOrDefault(a =>
+            string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
+        var resolvedCall = callsigns.TryGetValue(id, out var rc) ? rc.Callsign.ToString() : null;
         return new AppPackageEntry(
             Id: id, Name: id, Version: null, Description: null, Icon: null,
-            Capabilities: [], Enabled: enabled, Source: "package",
-            Error: null, Service: "none", State: null, Pid: null, Detail: null, Forwards: []);
+            Capabilities: [], Enabled: override_?.Enabled ?? false, Source: "package",
+            Error: null, Service: "none", State: null, Pid: null, Detail: null, Forwards: [],
+            Command: override_?.Command, Callsign: resolvedCall,
+            NetromAlias: override_?.Netrom?.Alias, NetromQuality: override_?.Netrom?.Quality);
     }
 
-    private static AppPackageEntry ProjectPackage(DiscoveredAppPackage package, IAppServiceSupervisor? supervisor)
+    private static AppPackageEntry ProjectPackage(
+        DiscoveredAppPackage package, IAppServiceSupervisor? supervisor,
+        IReadOnlyDictionary<string, AppCallsignResolver.ResolvedAppCallsign> callsigns)
     {
         var manifest = package.Manifest;
         var service = manifest?.Service switch
@@ -335,10 +412,19 @@ public static class PdnAppPackagesApi
             Pid: pid,
             Detail: detail,
             Forwards: [.. package.Forwards.Select(f => new AppForwardEntry(
-                f.Listen, f.Target, f.Tls == ForwardTls.Raw ? "raw" : "terminate"))]);
+                f.Listen, f.Target, f.Tls == ForwardTls.Raw ? "raw" : "terminate"))],
+            // Packet identity: the effective command verb (owner override ?? manifest), the
+            // node-resolved callsign (pin or auto-assigned — null when the app binds none), and
+            // the opt-in NET/ROM advert (null until the owner sets it).
+            Command: package.EffectiveCommand,
+            Callsign: callsigns.TryGetValue(package.Id, out var resolved) ? resolved.Callsign.ToString() : null,
+            NetromAlias: package.Override?.Netrom?.Alias,
+            NetromQuality: package.Override?.Netrom?.Quality);
     }
 
-    private static AppPackageEntry ProjectInline(ApplicationConfig inline) => new(
+    private static AppPackageEntry ProjectInline(
+        ApplicationConfig inline,
+        IReadOnlyDictionary<string, AppCallsignResolver.ResolvedAppCallsign> callsigns) => new(
         Id: inline.Id,
         Name: inline.Ui?.Name ?? inline.Id,
         Version: null,
@@ -355,7 +441,13 @@ public static class PdnAppPackagesApi
         Detail: null,
         // Inline applications: entries have no forward: block (it lives only in a package
         // manifest); always empty.
-        Forwards: []);
+        Forwards: [],
+        // The inline app's own packet identity (it carries the same fields directly, being the
+        // owner-authored analog of a BPQ APPLICATION line).
+        Command: inline.Command,
+        Callsign: callsigns.TryGetValue(inline.Id, out var inlineCall) ? inlineCall.Callsign.ToString() : null,
+        NetromAlias: inline.Netrom?.Alias,
+        NetromQuality: inline.Netrom?.Quality);
 
     private static DiscoveredAppPackage? FindPackage(IReadOnlyList<DiscoveredAppPackage> packages, string id) =>
         packages.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -365,7 +457,13 @@ public static class PdnAppPackagesApi
     /// <c>none</c>|<c>managed</c>|<c>external</c>; <c>State</c> is an
     /// <see cref="AppServiceState"/> name, or null when there is no service. <c>Forwards</c> is
     /// the manifest's declared tailnet port forwards (empty for inline entries / no
-    /// <c>forward:</c> block) — a capability the owner sees in the enable confirm.</summary>
+    /// <c>forward:</c> block) — a capability the owner sees in the enable confirm. The
+    /// packet-identity fields (<c>docs/app-packages.md</c> § Application packet identity):
+    /// <c>Command</c> is the effective node-prompt verb (owner override ?? manifest /
+    /// inline), <c>Callsign</c> is the node-resolved on-air callsign (a pin or an
+    /// auto-assigned <c>&lt;node-base&gt;-N</c>, null when the app binds none),
+    /// <c>NetromAlias</c>/<c>NetromQuality</c> are the opt-in NET/ROM advertisement (null when
+    /// the owner hasn't opted in).</summary>
     public sealed record AppPackageEntry(
         string Id,
         string Name,
@@ -380,11 +478,27 @@ public static class PdnAppPackagesApi
         string? State,
         int? Pid,
         string? Detail,
-        IReadOnlyList<AppForwardEntry> Forwards);
+        IReadOnlyList<AppForwardEntry> Forwards,
+        string? Command,
+        string? Callsign,
+        string? NetromAlias,
+        int? NetromQuality);
 
     /// <summary>One declared tailnet forward on the wire (camelCase): the tailnet-facing
     /// <c>listen</c> port, the app's loopback <c>target</c> (host:port), and <c>tls</c>
     /// (<c>terminate</c> | <c>raw</c>). See <c>docs/network-access.md</c> § App-declared port
     /// forwarding.</summary>
     public sealed record AppForwardEntry(int Listen, string Target, string Tls);
+
+    /// <summary>The <c>PUT /{id}/identity</c> body (camelCase on the wire): the owner's
+    /// packet-identity overrides for a discovered package. Every field is optional — an absent /
+    /// blank field clears that override (a blank callsign falls back to node auto-assignment; a
+    /// blank NET/ROM alias turns the advert off). <see cref="NetromQuality"/> only matters when
+    /// <see cref="NetromAlias"/> is set. See <c>docs/app-packages.md</c> § Application packet
+    /// identity.</summary>
+    public sealed record AppIdentityRequest(
+        string? Command,
+        string? Callsign,
+        string? NetromAlias,
+        int? NetromQuality);
 }

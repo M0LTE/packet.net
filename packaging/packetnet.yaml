@@ -113,6 +113,11 @@ management:
 # entry). Only the on/off switch and small overrides live here — everything else (the
 # console verb, the supervised daemon, the web tile) comes from the package's own manifest,
 # authored by the app.
+# The packet-identity fields (callsign / netrom.alias / command) are the NODE's to set, never
+# the app manifest's (docs/app-packages.md § Application packet identity): the node resolves
+# each enabled packet app's callsign — your `callsign:` pin, else <node-base>-<free SSID> — and
+# injects it as PDN_APP_CALLSIGN. The NET/ROM alias is opt-in: set `netrom.alias` to advertise
+# the app on the mesh, omit it for nothing extra (the default).
 # apps:
 #   - id: wall
 #     enabled: true
@@ -120,26 +125,33 @@ management:
 #     enabled: true
 #   - id: dapps
 #     enabled: true
+#     callsign: M0LTE-7      # the node binds this for the app (omit → auto <node-base>-N)
+#     netrom:                # OPT-IN: advertise this app's alias on the mesh (omit → off)
+#       alias: RDGDAPPS
+#       quality: 255
+#     # command: DAPPS       # optional override of the manifest's packet.command verb
 #     environment:           # merged over the manifest's service environment (owner wins)
-#       DAPPS_CALLSIGN: M0LTE-7
-#     # match: DAPPS         # optional session-verb override
+#       EXAMPLE_FLAG: "1"
 
 # Inline applications — the other supported path: declare an app directly here instead of
-# via a package (handy for something of your own that has no pdn-app.yaml). Inline entries
-# are owner-authored, so they default to enabled. Don't reuse the id or match verb of a
-# discovered package (that's a validation error — enable the package via `apps:` instead).
-# The session is bridged over the pdn-app/1 wire (docs/app-local-session-wire.md):
+# via a package (handy for something of your own that has no pdn-app.yaml). This is the exact
+# analog of a BPQ `APPLICATION n,CMD,Call,Alias,Quality` line. Inline entries are owner-authored,
+# so they default to enabled. Don't reuse the id or command verb of a discovered package (that's
+# a validation error — enable the package via `apps:` instead). The session is bridged over the
+# pdn-app/1 wire (docs/app-local-session-wire.md):
 # applications:
 #   - id: myapp
-#     match: MYAPP                # users type MYAPP at the prompt to enter it
+#     command: MYAPP              # the node-prompt verb — users type MYAPP to enter it
 #     enabled: true
 #     kind: process               # process = spawn per connect (stdio wire);
 #                                 # socket = connect per session to a daemon you run
-#     command: /usr/bin/python3
+#     executable: /usr/bin/python3   # the program to run (distinct from the command verb)
 #     args: [ /opt/myapp/myapp.py ]
 #     workingDirectory: /var/lib/packetnet/apps/myapp   # where its state lives
 #     capabilities: [ session ]
-#     # kind: socket instead: drop command/args and set
+#     # callsign: M0LTE-9         # optional pin (the node's identity for this app)
+#     # netrom: { alias: MYAPP, quality: 200 }   # optional opt-in NET/ROM advert
+#     # kind: socket instead: drop executable/args and set
 #     #   socketPath: /run/packetnet/myapp.sock
 #     # Optional human-plane web UI: run your own loopback web server and pdn
 #     # reverse-proxies /apps/myapp/ to it + shows a launcher tile (docs/app-gateway.md):

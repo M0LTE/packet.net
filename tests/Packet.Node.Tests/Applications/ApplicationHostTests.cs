@@ -20,7 +20,7 @@ public sealed class ApplicationHostTests
     };
 
     private static ApplicationConfig App(string id, string match, bool enabled = true, string command = "/bin/cat") =>
-        new() { Id = id, Match = match, Enabled = enabled, Command = command };
+        new() { Id = id, Command = match, Enabled = enabled, Executable = command };
 
     [Fact]
     public void Resolve_matches_an_enabled_app_case_insensitively_and_exactly()

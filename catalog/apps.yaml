@@ -62,7 +62,7 @@ apps:
   # The Debian arch maps from the RID: linux-x64→amd64, linux-arm64→arm64, linux-arm→armhf.
   - id: bpqchat
     name: BPQ Chat
-    version: "0.1.0"
+    version: "0.1.1"
     description: "BPQ-Chat-compatible chat node — RF + web chat, peering with the BPQ Chat network."
     icon: chat
     capabilities: [packet, web]
@@ -71,18 +71,18 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.0/pdn-bpqchat_0.1.0_amd64.deb
-          sha256: eb61449232d85af46f4ccaa090d34441dc7e0527cbf250e9792576e65a717027
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_amd64.deb
+          sha256: 11f0b0eac02e9326fc418dd5c51e64021912946bb71ee8e50d81a07124f71959
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.0/pdn-bpqchat_0.1.0_arm64.deb
-          sha256: c9a55eb9eba4aec30267585a91570843d19466f05879643742abd98b1cc23e5d
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_arm64.deb
+          sha256: 721462a23ff66f35dbbcaa6acf8f1784fbeb64453171b556a887e98f5dc88e61
         linux-arm:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.0/pdn-bpqchat_0.1.0_armhf.deb
-          sha256: ba13b3673e69aab4619ded02bbb5931c771899a2859fbb332d5732b94fe2d55f
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_armhf.deb
+          sha256: f8332352d7974f576734ac169d3fda0fd6d95bd2fb191d063f6a135d63113b24
 
   - id: convers
     name: Convers
-    version: "0.1.2"
+    version: "0.1.3"
     description: "Round-table packet chat — a leaf node on the worldwide convers network, for RF and web users."
     icon: chat
     capabilities: [packet, web]
@@ -91,18 +91,18 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.2/pdn-convers_0.1.2_amd64.deb
-          sha256: 274b03a751e7506a0f35a48e2a0269fa6e5f69950cc35541ffd5e00b9bd919a0
+          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.3/pdn-convers_0.1.3_amd64.deb
+          sha256: 2005f6664979e9b73a9b030996fc87f4fcf3ba1e2128942d3f9f81acaaeca55a
         linux-arm64:
-          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.2/pdn-convers_0.1.2_arm64.deb
-          sha256: 4200759288fd9060df4683abf17b606e6dfaa13ab1ce90ed6824a2d9f7750308
+          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.3/pdn-convers_0.1.3_arm64.deb
+          sha256: f08fef7712f5719a908fd317a9149e2062e58474e0411de4b65225056549ca22
         linux-arm:
-          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.2/pdn-convers_0.1.2_armhf.deb
-          sha256: d4d1e081016c82c5f5d463f6685f42712d702f662d01777dae3e0454dcdc7223
+          url: https://github.com/packet-net/pdn-convers/releases/download/v0.1.3/pdn-convers_0.1.3_armhf.deb
+          sha256: bda6227486f9a13ac1a6e4574cf6847460b7860e16fb0155c7a5058942800bca
 
   - id: bbs
     name: BBS
-    version: "0.2.32"
+    version: "0.2.33"
     description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale. Renders inside the pdn panel (slot UI mode), styled to match and following the panel's theme. Binds <node>-<ssid> + the BBS alias; mail addresses are SSID-less. Sysop forwarding dashboard; reverse collection."
     icon: mail
     capabilities: [packet, web]
@@ -111,11 +111,11 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.32/pdn-bbs_0.2.32_amd64.deb
-          sha256: b58104f33f07db99ef17de9a859e6762727a4d8f7b094c4f8e1a93c652d68941
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.33/pdn-bbs_0.2.33_amd64.deb
+          sha256: f062949693f8634b8924e0cd5b3fa938346c84fe10d67523fd34bda104066636
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.32/pdn-bbs_0.2.32_arm64.deb
-          sha256: ebc61122b9dadf55758f1f4f57c9592016607bc84c34e949938d6e590f9ef6a0
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.33/pdn-bbs_0.2.33_arm64.deb
+          sha256: 23fc605c5aa509d7e4b64d1b844f61d03d20df3fa274a1fb6ccba154f0602df4
         linux-arm:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.32/pdn-bbs_0.2.32_armhf.deb
-          sha256: 5dac3a1e0bed0bcfb550b6e74a5bc486700bc5bc07cf25d63b74c1ddb330ab09
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.33/pdn-bbs_0.2.33_armhf.deb
+          sha256: a35e65d1afa1011efec93b37852104b18bf9a722fc59ea12b7fe3204c11c6539

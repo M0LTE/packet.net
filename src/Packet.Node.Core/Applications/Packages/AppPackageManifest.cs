@@ -35,7 +35,15 @@ public sealed record AppPackageManifest
     /// not enforced in v1. Conventional values: <c>session</c>, <c>network</c>, <c>web</c>.</summary>
     public IReadOnlyList<string> Capabilities { get; init; } = [];
 
-    /// <summary>Packet-plane console attachment (the <c>pdn-app/1</c> wire) — optional.</summary>
+    /// <summary>Packet-plane identity (<c>docs/app-packages.md</c> § Application packet identity) —
+    /// optional. Carries the app-authored node-prompt verb (<see cref="AppPacketSpec.Command"/>);
+    /// the callsign / NET/ROM alias are the <b>node's</b>, set in the owner's
+    /// <c>apps[]</c>/<c>applications[]</c> entry, never the manifest.</summary>
+    public AppPacketSpec? Packet { get; init; }
+
+    /// <summary>Packet-plane console attachment (the <c>pdn-app/1</c> wire) — optional.
+    /// The console verb that attaches a session is <see cref="AppPacketSpec.Command"/> on
+    /// <see cref="Packet"/>, not a field here.</summary>
     public AppSessionSpec? Session { get; init; }
 
     /// <summary>A long-running daemon pdn supervises (or observes, when
@@ -91,16 +99,32 @@ public sealed record AppForwardSpec
     public ForwardTls Tls { get; init; } = ForwardTls.Terminate;
 }
 
+/// <summary>
+/// The manifest's <c>packet:</c> block — the app's packet-plane identity
+/// (<c>docs/app-packages.md</c> § Application packet identity). Only the
+/// <see cref="Command"/> verb is app-authored: it <i>is</i> the app's identity (a generic
+/// "bbs" app legitimately calls itself <c>BBS</c>). The callsign and NET/ROM alias are the
+/// node's — they live in the owner's <c>apps[]</c>/<c>applications[]</c> entry, never here.
+/// </summary>
+public sealed record AppPacketSpec
+{
+    /// <summary>The node-prompt verb / application name (e.g. <c>"BBS"</c>) — a sensible
+    /// app-authored default the owner may override via <see cref="AppOverrideConfig.Command"/>.
+    /// Registers a bare node-prompt verb; for a <c>service</c> app it loopback-connects to the
+    /// app's resolved callsign, for a <c>session</c> app it attaches the per-connection session.
+    /// Optional: omit it and the app is reachable only by callsign / NET/ROM alias. This
+    /// <b>replaces</b> the old <c>session.match</c> (no back-compat parsing). Note it is distinct
+    /// from <see cref="AppSessionSpec.Command"/> (the executable for <c>kind: process</c>).</summary>
+    public string? Command { get; init; }
+}
+
 /// <summary>The manifest's <c>session:</c> block — how a console verb attaches a user session
 /// to the app over the <c>pdn-app/1</c> wire. Mirrors the inline
-/// <see cref="ApplicationConfig"/> fields, minus owner-only concerns.</summary>
+/// <see cref="ApplicationConfig"/> fields, minus owner-only concerns. The verb that triggers
+/// the attachment is <see cref="AppPacketSpec.Command"/> (on <see cref="AppPackageManifest.Packet"/>),
+/// not a field on this record.</summary>
 public sealed record AppSessionSpec
 {
-    /// <summary>The console verb (e.g. <c>"LOBBY"</c>). Owner-overridable via
-    /// <see cref="AppOverrideConfig.Match"/>. Same uniqueness/built-in-collision rules as
-    /// inline applications.</summary>
-    public required string Match { get; init; }
-
     /// <summary>Transport of the wire: spawn-per-connect <see cref="ApplicationKind.Process"/>
     /// or connect-per-session <see cref="ApplicationKind.Socket"/>.</summary>
     public ApplicationKind Kind { get; init; } = ApplicationKind.Process;

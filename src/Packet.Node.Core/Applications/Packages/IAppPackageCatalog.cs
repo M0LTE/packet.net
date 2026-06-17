@@ -44,13 +44,15 @@ public sealed record DiscoveredAppPackage
     /// (broken entries are never enabled, sessions never resolve, services never start).</summary>
     public string? Error { get; init; }
 
-    /// <summary>The effective console verb — the owner's <see cref="AppOverrideConfig.Match"/>
-    /// when set, else the manifest's session match. Null when there is no session block (or
-    /// the manifest failed to parse). This is the value the catalog's verb-collision rules
-    /// run on and the value the session-verb resolution uses. Computed, never stored — not
-    /// part of record equality.</summary>
-    public string? EffectiveMatch =>
-        string.IsNullOrWhiteSpace(Override?.Match) ? Manifest?.Session?.Match : Override!.Match;
+    /// <summary>The effective node-prompt command verb — the owner's
+    /// <see cref="AppOverrideConfig.Command"/> when set, else the manifest's
+    /// <c>packet.command</c> (<see cref="AppPacketSpec.Command"/>). Null when neither declares
+    /// one (the app is then reachable only by callsign / NET/ROM alias). This is the value the
+    /// catalog's verb-collision rules run on, the value the session-verb resolution uses, and
+    /// the bare node-prompt verb the console registers. Computed, never stored — not part of
+    /// record equality.</summary>
+    public string? EffectiveCommand =>
+        string.IsNullOrWhiteSpace(Override?.Command) ? Manifest?.Packet?.Command : Override!.Command;
 
     /// <summary>The declared tailnet port forwards (the manifest's <c>forward:</c> block) — the
     /// capabilities the API/UI surface and the supervisor collects for an enabled, error-free

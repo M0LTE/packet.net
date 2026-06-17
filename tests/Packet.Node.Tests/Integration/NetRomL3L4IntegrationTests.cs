@@ -172,6 +172,39 @@ public sealed class NetRomL3L4IntegrationTests
     }
 
     [Fact]
+    public async Task An_opt_in_app_alias_is_advertised_in_NODES_and_a_neighbour_learns_it()
+    {
+        // Slice 3 (docs/app-packages.md § Application packet identity): node A sets an app
+        // NET/ROM advert (alias RDGBBS → the app's resolved callsign GB7AAA-7, via A). When A
+        // broadcasts NODES, neighbour B should learn RDGBBS as a routable destination pointing
+        // at the app callsign — composing with A's own node-self advert. (Absent advert = the
+        // default, exercised by every other broadcast test in this file: none learns an app alias.)
+        var bus = new SharedRadioBus();
+        await using var a = await StartNodeAsync(bus, ANodeCall, "ANODE");
+        await using var b = await StartNodeAsync(bus, BNodeCall, "BNODE");
+
+        var appCall = new Callsign(ANodeCall.Base, 7);
+        a.NetRom.AppAdvertSource = () =>
+            [new NodesBroadcastBuilder.Entry(appCall, "RDGBBS", ANodeCall, Quality: 255)];
+
+        var generous = TimeSpan.FromSeconds(60);
+        a.NetRom.BroadcastNodes();
+
+        await Wait.ForAsync(
+            () => b.NetRom.Snapshot().ResolveDestination("RDGBBS") is { } d && d.Destination.Equals(appCall),
+            "neighbour B should learn the app alias RDGBBS → the app callsign from A's NODES advert",
+            generous);
+
+        // A node that set NO app advert never floods an app alias (the off-by-default contract):
+        // B advertises only its own identity, so A never learns RDGBBS from B.
+        b.NetRom.BroadcastNodes();
+        await Wait.ForAsync(() => a.NetRom.Snapshot().ResolveDestination("BNODE") is not null,
+            "A hears B's node-self advert", generous);
+        a.NetRom.Snapshot().ResolveDestination("RDGBBS").Should().BeNull(
+            "B set no app advert, so the alias is never on the mesh from B");
+    }
+
+    [Fact]
     public async Task A_transit_node_forwards_an_L4_circuit_between_two_channels_it_bridges_without_terminating_it()
     {
         // The transit topology: A is on channel 1, C is on channel 2, and B bridges

@@ -66,7 +66,7 @@ public sealed record NodeConfig
     public McpConfig Mcp { get; init; } = new();
 
     /// <summary>Registered node applications — the app-extensibility platform. Each entry
-    /// is launched (out-of-process) when a connected user types its <see cref="ApplicationConfig.Match"/>
+    /// is launched (out-of-process) when a connected user types its <see cref="ApplicationConfig.Command"/>
     /// verb at the node prompt; the session is bridged to the app over the
     /// <c>pdn-app/1</c> stdio wire (<c>docs/app-local-session-wire.md</c>). Default-empty: a
     /// node with no entries has no apps and behaves exactly as before. Read live at launch
@@ -150,13 +150,52 @@ public sealed record AppOverrideConfig
     /// resolves a verb, or shows a tile until the owner flips this.</summary>
     public bool Enabled { get; init; }
 
-    /// <summary>Optional override of the manifest's session verb.</summary>
-    public string? Match { get; init; }
+    /// <summary>Optional override of the manifest's <c>packet.command</c> node-prompt verb
+    /// (<c>docs/app-packages.md</c> § Application packet identity). Null = use the manifest's
+    /// own <see cref="AppPacketSpec.Command"/>. This replaces the old <c>match</c> field — the
+    /// verb for a session app is now <see cref="AppPacketSpec.Command"/>, owner-overridable here.</summary>
+    public string? Command { get; init; }
+
+    /// <summary>Optional pinned callsign for this app — the node's choice, the on-air L2 identity
+    /// stations dial directly (<c>docs/app-packages.md</c> § Application packet identity). A full
+    /// callsign (e.g. <c>M9YYY-1</c>) or a bare <c>-N</c> SSID appended to the node base. Null =
+    /// the node auto-assigns <c>&lt;node-base&gt;-&lt;lowest free SSID&gt;</c>. Injected as
+    /// <c>PDN_APP_CALLSIGN</c>.</summary>
+    public string? Callsign { get; init; }
+
+    /// <summary>Optional opt-in NET/ROM advertisement for this app (<c>docs/app-packages.md</c>
+    /// § Application packet identity). Present (with an alias) ⇒ the node advertises this app's
+    /// alias → its resolved callsign in its NODES broadcast; absent ⇒ nothing extra on the mesh
+    /// (the anti-noise default).</summary>
+    public AppNetromConfig? Netrom { get; init; }
 
     /// <summary>Owner environment for the package's service, merged OVER the manifest's
     /// <c>environment</c> map (owner wins).</summary>
     public IReadOnlyDictionary<string, string> Environment { get; init; } =
         new Dictionary<string, string>();
+}
+
+/// <summary>
+/// The owner's opt-in NET/ROM advertisement for one app (<c>docs/app-packages.md</c>
+/// § Application packet identity). When present with an <see cref="Alias"/>, the node advertises
+/// that alias → the app's resolved callsign in its NODES broadcast with <see cref="Quality"/>.
+/// The alias + quality are the <b>node's</b> (they encode this node's location), so they live in
+/// the owner's file beside <c>enabled</c>, never in the portable app manifest.
+/// </summary>
+public sealed record AppNetromConfig
+{
+    /// <summary>The network-wide NET/ROM alias users <c>C</c> to (e.g. <c>RDGBBS</c>). Null /
+    /// blank ⇒ nothing is advertised for this app (off by default).</summary>
+    public string? Alias { get; init; }
+
+    /// <summary>The quality (0..255) to advertise the alias at. Null ⇒ a sensible default
+    /// (<see cref="DefaultQuality"/>).</summary>
+    public int? Quality { get; init; }
+
+    /// <summary>The default advertised quality when <see cref="Quality"/> is unset — high (an
+    /// app on this node is one hop away, directly reachable), matching the BPQ
+    /// <c>APPLICATION ...,Quality</c> convention for a local application.</summary>
+    public const int DefaultQuality = 255;
 }
 
 /// <summary>
@@ -272,9 +311,13 @@ public enum ApplicationKind
 }
 
 /// <summary>
-/// One registered node application. <see cref="Id"/> is the stable identity (log / reconcile
-/// key); <see cref="Match"/> is the console verb that launches it. Out-of-process by design —
-/// the node never links app code (see <c>docs/app-extensibility.md</c>).
+/// One registered node application — the inline, owner-authored analog of a BPQ
+/// <c>APPLICATION n,CMD,Call,Alias,Quality</c> line. <see cref="Id"/> is the stable identity
+/// (log / reconcile key); <see cref="Command"/> is the console verb that launches it. Out-of-process
+/// by design — the node never links app code (see <c>docs/app-extensibility.md</c>). The
+/// packet-identity fields (<see cref="Command"/> verb, <see cref="Callsign"/>, <see cref="Netrom"/>)
+/// mirror the discovered-package <see cref="AppOverrideConfig"/> (<c>docs/app-packages.md</c>
+/// § Application packet identity).
 /// </summary>
 public sealed record ApplicationConfig
 {
@@ -286,8 +329,9 @@ public sealed record ApplicationConfig
     /// <summary>The console verb a connected user types to launch this app (e.g. <c>"MYAPP"</c>).
     /// Matched case-insensitively, exact (no prefix abbreviation), and only after the built-in
     /// console verbs — so an app can never shadow <c>BYE</c>/<c>CONNECT</c>/etc. Must be unique
-    /// within <see cref="NodeConfig.Applications"/> and must not collide with a built-in verb.</summary>
-    public required string Match { get; init; }
+    /// within <see cref="NodeConfig.Applications"/> and must not collide with a built-in verb.
+    /// This is the <i>verb</i>; the <i>executable</i> is <see cref="Executable"/>.</summary>
+    public required string Command { get; init; }
 
     /// <summary>Whether this app is launchable. A disabled entry is retained in config but
     /// never spawned (its verb falls through to "unknown command"). Default <c>true</c>.</summary>
@@ -297,15 +341,16 @@ public sealed record ApplicationConfig
     public ApplicationKind Kind { get; init; } = ApplicationKind.Process;
 
     /// <summary>The executable to spawn (<see cref="ApplicationKind.Process"/>) — e.g.
-    /// <c>/usr/bin/python3</c>. Required for a process app.</summary>
-    public string? Command { get; init; }
+    /// <c>/usr/bin/python3</c>. Required for a process app. Distinct from <see cref="Command"/>
+    /// (the node-prompt verb).</summary>
+    public string? Executable { get; init; }
 
     /// <summary>The Unix-domain socket the daemon listens on (<see cref="ApplicationKind.Socket"/>)
     /// — e.g. <c>/run/packetnet/lobby.sock</c>. The node connects here per session. Required for a
     /// socket app.</summary>
     public string? SocketPath { get; init; }
 
-    /// <summary>Arguments passed to <see cref="Command"/> (e.g. the script path). Each element
+    /// <summary>Arguments passed to <see cref="Executable"/> (e.g. the script path). Each element
     /// is one argument, passed without shell interpretation.</summary>
     public IReadOnlyList<string> Args { get; init; } = [];
 
@@ -324,6 +369,16 @@ public sealed record ApplicationConfig
     /// <see cref="AppUiConfig.Upstream"/>, injecting the authenticated identity. Absent = a
     /// packet-plane-only app (no launcher tile, no proxy). See <c>docs/app-gateway.md</c>.</summary>
     public AppUiConfig? Ui { get; init; }
+
+    /// <summary>Optional pinned callsign — the node's choice, the on-air L2 identity this inline
+    /// app binds (<c>docs/app-packages.md</c> § Application packet identity). A full callsign or
+    /// a bare <c>-N</c> SSID appended to the node base. Null = the node auto-assigns
+    /// <c>&lt;node-base&gt;-&lt;lowest free SSID&gt;</c>. Injected as <c>PDN_APP_CALLSIGN</c>.</summary>
+    public string? Callsign { get; init; }
+
+    /// <summary>Optional opt-in NET/ROM advertisement (alias → resolved callsign, with quality).
+    /// Absent ⇒ nothing extra advertised. See <see cref="AppNetromConfig"/>.</summary>
+    public AppNetromConfig? Netrom { get; init; }
 }
 
 /// <summary>

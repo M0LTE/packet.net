@@ -19,7 +19,7 @@ public sealed class ExternalProcessApplicationTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
     private static ExternalProcessApplication CatApp() => new(
-        new ApplicationConfig { Id = "echo", Match = "ECHO", Command = "/bin/cat" },
+        new ApplicationConfig { Id = "echo", Command = "ECHO", Executable = "/bin/cat" },
         NullLogger.Instance);
 
     private static NodeAppContext Ctx(NodeTransportKind kind = NodeTransportKind.Ax25, params string[] args) => new()
@@ -83,7 +83,7 @@ public sealed class ExternalProcessApplicationTests
         // stays open. RunAsync must return (the user is dropped back to the node prompt).
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
         var app = new ExternalProcessApplication(
-            new ApplicationConfig { Id = "hi", Match = "HI", Command = "/bin/echo", Args = ["hi there"] },
+            new ApplicationConfig { Id = "hi", Command = "HI", Executable = "/bin/echo", Args = ["hi there"] },
             NullLogger.Instance);
 
         await app.RunAsync(conn, Ctx()).WaitAsync(Timeout);   // returns without us dropping the session
@@ -97,7 +97,7 @@ public sealed class ExternalProcessApplicationTests
     {
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
         var app = new ExternalProcessApplication(
-            new ApplicationConfig { Id = "ghost", Match = "GHOST", Command = "/no/such/binary-xyzzy" },
+            new ApplicationConfig { Id = "ghost", Command = "GHOST", Executable = "/no/such/binary-xyzzy" },
             NullLogger.Instance);
 
         await Assert.ThrowsAsync<ApplicationStartException>(() => app.RunAsync(conn, Ctx()));
@@ -107,6 +107,6 @@ public sealed class ExternalProcessApplicationTests
     public void Constructing_without_a_command_throws()
     {
         Assert.Throws<ArgumentException>(() =>
-            new ExternalProcessApplication(new ApplicationConfig { Id = "x", Match = "X", Command = null }));
+            new ExternalProcessApplication(new ApplicationConfig { Id = "x", Command = "X", Executable = null }));
     }
 }

@@ -50,8 +50,8 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
 
         var drafts = ScanRoots(roots, rootsOverridden, config);
 
-        // Cross-package rule: two packages resolving the same effective session verb can't
-        // both go live — mark BOTH (the owner disambiguates with an apps[].match override).
+        // Cross-package rule: two packages resolving the same effective command verb can't
+        // both go live — mark BOTH (the owner disambiguates with an apps[].command override).
         foreach (var group in drafts.Where(d => d.EffectiveVerb is not null)
                      .GroupBy(d => d.EffectiveVerb!, StringComparer.OrdinalIgnoreCase)
                      .Where(g => g.Count() > 1))
@@ -61,8 +61,8 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
                 var others = string.Join(", ", group.Where(o => !ReferenceEquals(o, draft))
                     .Select(o => $"'{o.Id}'"));
                 draft.Problems.Add(
-                    $"session verb '{draft.EffectiveVerb}' collides with package(s) {others} — " +
-                    "override apps[].match to disambiguate.");
+                    $"command verb '{draft.EffectiveVerb}' collides with package(s) {others} — " +
+                    "override apps[].command to disambiguate.");
             }
         }
 
@@ -224,10 +224,8 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
 
         if (manifest.Session is { } session)
         {
-            if (string.IsNullOrWhiteSpace(session.Match))
-            {
-                problems.Add("session.match: the console verb is required.");
-            }
+            // The console verb is now packet.command (owner-overridable), not a session field;
+            // a session app reachable only by callsign/alias may legitimately omit it.
             if (session.Kind == ApplicationKind.Process && string.IsNullOrWhiteSpace(session.Command))
             {
                 problems.Add("session.command: required when session.kind is process.");
@@ -289,26 +287,27 @@ public sealed partial class AppPackageCatalog(ILoggerFactory loggerFactory) : IA
             problems.Add($"id: '{dirName}' collides with the inline applications: entry '{inlineIdClash.Id}' — remove one.");
         }
 
-        // The effective session verb (owner override wins over the manifest) — checked
-        // against the built-in console verbs and the inline applications here; against the
-        // other packages' effective verbs in the cross-package pass.
-        var verb = (draft.Override?.Match ?? manifest.Session?.Match)?.Trim();
-        if (manifest.Session is not null && !string.IsNullOrWhiteSpace(verb))
+        // The effective command verb (owner override wins over the manifest packet.command) —
+        // checked against the built-in console verbs and the inline applications here; against
+        // the other packages' effective verbs in the cross-package pass. A packet app may omit
+        // the verb entirely (reachable only by callsign/alias), in which case nothing registers.
+        var verb = (draft.Override?.Command ?? manifest.Packet?.Command)?.Trim();
+        if (!string.IsNullOrWhiteSpace(verb))
         {
             draft.EffectiveVerb = verb;
 
             if (NodeCommandParser.Parse(verb) is not (UnknownCommand or EmptyCommand))
             {
-                problems.Add($"session verb '{verb}' collides with a built-in console verb " +
+                problems.Add($"command verb '{verb}' collides with a built-in console verb " +
                     "(CONNECT/BYE/NODES/INFO/HELP/SYSOP/SESSIONS/KICK/PORT/RELOAD or an abbreviation) — pick another.");
             }
 
             var inlineVerbClash = config.Applications.FirstOrDefault(a =>
-                !string.IsNullOrWhiteSpace(a.Match)
-                && string.Equals(a.Match.Trim(), verb, StringComparison.OrdinalIgnoreCase));
+                !string.IsNullOrWhiteSpace(a.Command)
+                && string.Equals(a.Command.Trim(), verb, StringComparison.OrdinalIgnoreCase));
             if (inlineVerbClash is not null)
             {
-                problems.Add($"session verb '{verb}' collides with inline application '{inlineVerbClash.Id}'.");
+                problems.Add($"command verb '{verb}' collides with inline application '{inlineVerbClash.Id}'.");
             }
         }
     }

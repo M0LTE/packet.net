@@ -52,7 +52,7 @@ public sealed class LobbyAppIntegrationTests : IDisposable
         await Wait.ForAsync(() => File.Exists(socketPath), "LOBBY bound its socket");
 
         SocketApplication App() => new(
-            new ApplicationConfig { Id = "lobby", Match = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = socketPath },
+            new ApplicationConfig { Id = "lobby", Command = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = socketPath },
             NullLogger.Instance);
 
         // Two users connect — two separate Unix-socket connections to the one daemon.

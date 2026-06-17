@@ -28,8 +28,9 @@ public class AppPackageCatalogTests : IDisposable
     private static string SocketManifest(string id, string match) => $"""
         manifest: 1
         id: {id}
+        packet:
+          command: {match}
         session:
-          match: {match}
           kind: socket
           socketPath: /run/packetnet/{id}.sock
         """;
@@ -72,7 +73,7 @@ public class AppPackageCatalogTests : IDisposable
 
         var alpha = found.Should().ContainSingle().Subject;
         alpha.PackageDir.Should().Be(winner, "the owner-installed root overrides the distro root");
-        alpha.Manifest!.Session!.Match.Should().Be("LATE");
+        alpha.Manifest!.Packet!.Command.Should().Be("LATE");
         alpha.Error.Should().BeNull();
     }
 
@@ -133,9 +134,9 @@ public class AppPackageCatalogTests : IDisposable
         WritePackage(rootA, "alpha", SocketManifest("alpha", "CHAT"));
 
         var entry = catalog.Discover(Config(apps:
-            [new AppOverrideConfig { Id = "alpha", Enabled = true, Match = "TALK" }])).Single();
+            [new AppOverrideConfig { Id = "alpha", Enabled = true, Command = "TALK" }])).Single();
 
-        entry.EffectiveMatch.Should().Be("TALK");
+        entry.EffectiveCommand.Should().Be("TALK");
         entry.Error.Should().BeNull();
     }
 
@@ -252,7 +253,6 @@ public class AppPackageCatalogTests : IDisposable
             manifest: 1
             id: alpha
             session:
-              match: ALPHA
               kind: process
             """);
 
@@ -268,7 +268,6 @@ public class AppPackageCatalogTests : IDisposable
             manifest: 1
             id: alpha
             session:
-              match: ALPHA
               kind: socket
             """);
 
@@ -315,7 +314,7 @@ public class AppPackageCatalogTests : IDisposable
         var inline = new ApplicationConfig
         {
             Id = "alpha",
-            Match = "OTHER",
+            Command = "OTHER",
             Kind = ApplicationKind.Socket,
             SocketPath = "/run/other.sock",
         };
@@ -343,7 +342,7 @@ public class AppPackageCatalogTests : IDisposable
         WritePackage(rootA, "alpha", SocketManifest("alpha", "CHAT"));
 
         var entry = catalog.Discover(Config(apps:
-            [new AppOverrideConfig { Id = "alpha", Enabled = true, Match = "NODES" }])).Single();
+            [new AppOverrideConfig { Id = "alpha", Enabled = true, Command = "NODES" }])).Single();
 
         entry.Error.Should().Contain("built-in console verb");
         entry.Enabled.Should().BeFalse();
@@ -369,7 +368,7 @@ public class AppPackageCatalogTests : IDisposable
         var inline = new ApplicationConfig
         {
             Id = "other",
-            Match = "chat",
+            Command = "chat",
             Kind = ApplicationKind.Socket,
             SocketPath = "/run/other.sock",
         };

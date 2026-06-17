@@ -27,8 +27,8 @@ public sealed class ApplicationConfigTests
         var yaml = BaseIdentity + """
             applications:
               - id: wall
-                match: WALL
-                command: /usr/bin/python3
+                command: WALL
+                executable: /usr/bin/python3
                 args: [ /usr/share/packetnet/apps/wall/wall.py ]
                 workingDirectory: /var/lib/packetnet/apps/wall
                 capabilities: [ session ]
@@ -38,10 +38,10 @@ public sealed class ApplicationConfigTests
 
         var app = Assert.Single(cfg.Applications);
         Assert.Equal("wall", app.Id);
-        Assert.Equal("WALL", app.Match);
+        Assert.Equal("WALL", app.Command);
         Assert.True(app.Enabled);                       // defaults true
         Assert.Equal(ApplicationKind.Process, app.Kind); // defaults Process when kind: omitted
-        Assert.Equal("/usr/bin/python3", app.Command);
+        Assert.Equal("/usr/bin/python3", app.Executable);
         Assert.Equal(["/usr/share/packetnet/apps/wall/wall.py"], app.Args);
         Assert.Equal("/var/lib/packetnet/apps/wall", app.WorkingDirectory);
         Assert.Equal(["session"], app.Capabilities);
@@ -53,10 +53,10 @@ public sealed class ApplicationConfigTests
         var yaml = BaseIdentity + """
             applications:
               - id: wall
-                match: WALL
+                command: WALL
                 enabled: false
                 kind: process
-                command: /bin/cat
+                executable: /bin/cat
             """;
 
         var app = Assert.Single(NodeConfigYaml.Parse(yaml).Applications);
@@ -70,8 +70,8 @@ public sealed class ApplicationConfigTests
         var cfg = Valid(new ApplicationConfig
         {
             Id = "wall",
-            Match = "WALL",
-            Command = "/usr/bin/python3",
+            Command = "WALL",
+            Executable = "/usr/bin/python3",
             Args = ["wall.py"],
             Capabilities = ["session"],
         });
@@ -80,8 +80,8 @@ public sealed class ApplicationConfigTests
 
         var app = Assert.Single(round.Applications);
         Assert.Equal("wall", app.Id);
-        Assert.Equal("WALL", app.Match);
-        Assert.Equal("/usr/bin/python3", app.Command);
+        Assert.Equal("WALL", app.Command);
+        Assert.Equal("/usr/bin/python3", app.Executable);
         Assert.Equal(["wall.py"], app.Args);
     }
 
@@ -96,7 +96,7 @@ public sealed class ApplicationConfigTests
     [Fact]
     public void A_well_formed_process_app_validates()
     {
-        var cfg = Valid(new ApplicationConfig { Id = "wall", Match = "WALL", Command = "/usr/bin/python3" });
+        var cfg = Valid(new ApplicationConfig { Id = "wall", Command = "WALL", Executable = "/usr/bin/python3" });
         Assert.True(Validate(cfg).IsValid);
     }
 
@@ -104,8 +104,8 @@ public sealed class ApplicationConfigTests
     public void Duplicate_ids_are_rejected()
     {
         var cfg = Valid(
-            new ApplicationConfig { Id = "wall", Match = "WALL", Command = "/bin/cat" },
-            new ApplicationConfig { Id = "wall", Match = "GUEST", Command = "/bin/cat" });
+            new ApplicationConfig { Id = "wall", Command = "WALL", Executable = "/bin/cat" },
+            new ApplicationConfig { Id = "wall", Command = "GUEST", Executable = "/bin/cat" });
         Assert.False(Validate(cfg).IsValid);
     }
 
@@ -115,8 +115,8 @@ public sealed class ApplicationConfigTests
     public void Duplicate_match_verbs_are_rejected_case_insensitively(string a, string b)
     {
         var cfg = Valid(
-            new ApplicationConfig { Id = "a", Match = a, Command = "/bin/cat" },
-            new ApplicationConfig { Id = "b", Match = b, Command = "/bin/cat" });
+            new ApplicationConfig { Id = "a", Command = a, Executable = "/bin/cat" },
+            new ApplicationConfig { Id = "b", Command = b, Executable = "/bin/cat" });
         Assert.False(Validate(cfg).IsValid);
     }
 
@@ -129,21 +129,21 @@ public sealed class ApplicationConfigTests
     [InlineData("SYSOP")]
     public void A_match_that_collides_with_a_builtin_verb_is_rejected(string match)
     {
-        var cfg = Valid(new ApplicationConfig { Id = "x", Match = match, Command = "/bin/cat" });
+        var cfg = Valid(new ApplicationConfig { Id = "x", Command = match, Executable = "/bin/cat" });
         Assert.False(Validate(cfg).IsValid);
     }
 
     [Fact]
     public void A_process_app_without_a_command_is_rejected()
     {
-        var cfg = Valid(new ApplicationConfig { Id = "wall", Match = "WALL", Command = null });
+        var cfg = Valid(new ApplicationConfig { Id = "wall", Command = "WALL", Executable = null });
         Assert.False(Validate(cfg).IsValid);
     }
 
     [Fact]
     public void A_blank_match_is_rejected()
     {
-        var cfg = Valid(new ApplicationConfig { Id = "wall", Match = "", Command = "/bin/cat" });
+        var cfg = Valid(new ApplicationConfig { Id = "wall", Command = "", Executable = "/bin/cat" });
         Assert.False(Validate(cfg).IsValid);
     }
 
@@ -155,8 +155,8 @@ public sealed class ApplicationConfigTests
         var yaml = BaseIdentity + """
             applications:
               - id: wall
-                match: WALL
-                command: /usr/bin/python3
+                command: WALL
+                executable: /usr/bin/python3
                 ui:
                   upstream: http://127.0.0.1:9090
                   name: WALL
@@ -175,7 +175,7 @@ public sealed class ApplicationConfigTests
     {
         var cfg = Valid(new ApplicationConfig
         {
-            Id = "wall", Match = "WALL", Command = "/bin/cat",
+            Id = "wall", Command = "WALL", Executable = "/bin/cat",
             Ui = new AppUiConfig { Upstream = "http://127.0.0.1:9090", Name = "WALL" },
         });
         Assert.True(Validate(cfg).IsValid);
@@ -189,7 +189,7 @@ public sealed class ApplicationConfigTests
         var yaml = BaseIdentity + """
             applications:
               - id: lobby
-                match: LOBBY
+                command: LOBBY
                 kind: socket
                 socketPath: /run/packetnet/lobby.sock
             """;
@@ -207,7 +207,7 @@ public sealed class ApplicationConfigTests
     [Fact]
     public void A_socket_app_without_a_socket_path_is_rejected()
     {
-        var cfg = Valid(new ApplicationConfig { Id = "lobby", Match = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = null });
+        var cfg = Valid(new ApplicationConfig { Id = "lobby", Command = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = null });
         Assert.False(Validate(cfg).IsValid);
     }
 
@@ -220,7 +220,7 @@ public sealed class ApplicationConfigTests
     {
         var cfg = Valid(new ApplicationConfig
         {
-            Id = "wall", Match = "WALL", Command = "/bin/cat",
+            Id = "wall", Command = "WALL", Executable = "/bin/cat",
             Ui = new AppUiConfig { Upstream = upstream },
         });
         Assert.False(Validate(cfg).IsValid);

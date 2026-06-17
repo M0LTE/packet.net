@@ -36,7 +36,7 @@ public sealed partial class ExternalProcessApplication : INodeApplication
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.logger = logger ?? NullLogger.Instance;
-        if (string.IsNullOrWhiteSpace(config.Command))
+        if (string.IsNullOrWhiteSpace(config.Executable))
         {
             throw new ArgumentException("A process application requires a command.", nameof(config));
         }
@@ -79,7 +79,7 @@ public sealed partial class ExternalProcessApplication : INodeApplication
     {
         var psi = new ProcessStartInfo
         {
-            FileName = config.Command!,
+            FileName = config.Executable!,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -100,8 +100,8 @@ public sealed partial class ExternalProcessApplication : INodeApplication
         try
         {
             var process = Process.Start(psi)
-                ?? throw new ApplicationStartException(config.Id, config.Command!, reason: "Process.Start returned null.");
-            LogStarted(config.Id, config.Command!, process.Id);
+                ?? throw new ApplicationStartException(config.Id, config.Executable!, reason: "Process.Start returned null.");
+            LogStarted(config.Id, config.Executable!, process.Id);
             return process;
         }
         catch (ApplicationStartException)
@@ -110,8 +110,8 @@ public sealed partial class ExternalProcessApplication : INodeApplication
         }
         catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or DirectoryNotFoundException or InvalidOperationException)
         {
-            LogStartFailed(ex, config.Id, config.Command!);
-            throw new ApplicationStartException(config.Id, config.Command!, ex);
+            LogStartFailed(ex, config.Id, config.Executable!);
+            throw new ApplicationStartException(config.Id, config.Executable!, ex);
         }
     }
 

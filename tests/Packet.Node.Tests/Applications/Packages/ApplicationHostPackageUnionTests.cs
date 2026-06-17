@@ -37,9 +37,9 @@ public sealed class ApplicationHostPackageUnionTests
             Manifest = 1,
             Id = id,
             Capabilities = capabilities ?? ["session"],
+            Packet = new AppPacketSpec { Command = match },
             Session = new AppSessionSpec
             {
-                Match = match,
                 Kind = kind,
                 Command = command,
                 Args = args ?? [],
@@ -60,10 +60,10 @@ public sealed class ApplicationHostPackageUnionTests
 
         Assert.NotNull(resolved);
         Assert.Equal("lobby", resolved!.Id);
-        Assert.Equal("LOBBY", resolved.Match);
+        Assert.Equal("LOBBY", resolved.Command);
         Assert.True(resolved.Enabled);
         Assert.Equal(ApplicationKind.Process, resolved.Kind);
-        Assert.Equal("/usr/bin/python3", resolved.Command);   // absolute → untouched
+        Assert.Equal("/usr/bin/python3", resolved.Executable);   // absolute → untouched
         Assert.Equal(script, resolved.Args[0]);               // names a package file → absolute
         Assert.Equal("--flag", resolved.Args[1]);             // a flag passes through
         Assert.Equal(pkg.StateDir, resolved.WorkingDirectory);
@@ -81,7 +81,7 @@ public sealed class ApplicationHostPackageUnionTests
         catalog.Set(pkg.Discovered(SessionManifest("script", match: "RUN", command: "run.sh")));
         var host = Host(catalog);
 
-        Assert.Equal(script, host.Resolve("RUN")!.Command);
+        Assert.Equal(script, host.Resolve("RUN")!.Executable);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class ApplicationHostPackageUnionTests
         using var pkg = new TempAppPackage("lobby");
         var catalog = new FakeAppPackageCatalog();
         catalog.Set(pkg.Discovered(SessionManifest("lobby")));
-        var inline = new ApplicationConfig { Id = "inline-lobby", Match = "LOBBY", Command = "/bin/cat" };
+        var inline = new ApplicationConfig { Id = "inline-lobby", Command = "LOBBY", Executable = "/bin/cat" };
         var host = Host(catalog, inline);
 
         Assert.Equal("inline-lobby", host.Resolve("LOBBY")!.Id);
@@ -134,11 +134,11 @@ public sealed class ApplicationHostPackageUnionTests
         var catalog = new FakeAppPackageCatalog();
         catalog.Set(pkg.Discovered(
             SessionManifest("lobby"),
-            @override: new AppOverrideConfig { Id = "lobby", Enabled = true, Match = "FOYER" }));
+            @override: new AppOverrideConfig { Id = "lobby", Enabled = true, Command = "FOYER" }));
         var host = Host(catalog);
 
         Assert.Equal("lobby", host.Resolve("FOYER")!.Id);
-        Assert.Equal("FOYER", host.Resolve("foyer")!.Match);
+        Assert.Equal("FOYER", host.Resolve("foyer")!.Command);
         Assert.Null(host.Resolve("LOBBY"));   // the overridden verb is gone
     }
 
@@ -155,7 +155,7 @@ public sealed class ApplicationHostPackageUnionTests
         Assert.NotNull(resolved);
         Assert.Equal(ApplicationKind.Socket, resolved!.Kind);
         Assert.Equal("/run/packetnet/lobby.sock", resolved.SocketPath);
-        Assert.Null(resolved.Command);
+        Assert.Null(resolved.Executable);
     }
 
     [Fact]

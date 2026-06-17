@@ -50,7 +50,7 @@ public sealed class SocketApplicationTests : IDisposable
     }
 
     private SocketApplication App() => new(
-        new ApplicationConfig { Id = "lobby", Match = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = socketPath },
+        new ApplicationConfig { Id = "lobby", Command = "LOBBY", Kind = ApplicationKind.Socket, SocketPath = socketPath },
         NullLogger.Instance);
 
     private static NodeAppContext Ctx() => new()
@@ -101,6 +101,6 @@ public sealed class SocketApplicationTests : IDisposable
     public void Constructing_without_a_socket_path_throws()
     {
         Assert.Throws<ArgumentException>(() =>
-            new SocketApplication(new ApplicationConfig { Id = "x", Match = "X", Kind = ApplicationKind.Socket, SocketPath = null }));
+            new SocketApplication(new ApplicationConfig { Id = "x", Command = "X", Kind = ApplicationKind.Socket, SocketPath = null }));
     }
 }

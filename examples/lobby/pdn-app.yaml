@@ -13,11 +13,15 @@ description: Live multi-user lobby — WHO presence + SAY broadcast across conne
 icon: users
 capabilities: [session]
 
+# Packet-plane identity: the node-prompt verb (the application name). The callsign
+# and any NET/ROM alias are the NODE's — set per-app in packetnet.yaml, never here.
+packet:
+  command: LOBBY
+
 # Packet plane: a connected station types LOBBY at the node prompt; pdn opens a
 # NEW connection to the daemon's Unix socket per user session (the pdn-app/1
 # wire over a socket), so every session shares the daemon's in-memory state.
 session:
-  match: LOBBY
   kind: socket
   socketPath: /run/packetnet/lobby.sock
 

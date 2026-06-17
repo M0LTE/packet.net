@@ -13,10 +13,14 @@ description: Shared message wall — read recent posts, add your own. The node g
 icon: message-square
 capabilities: [session, web]
 
+# Packet-plane identity: the node-prompt verb (the application name). The callsign
+# and any NET/ROM alias are the NODE's — set per-app in packetnet.yaml, never here.
+packet:
+  command: WALL
+
 # Packet plane: a connected station types WALL at the node prompt; pdn spawns
 # one wall.py per connect and bridges the session over the pdn-app/1 stdio wire.
 session:
-  match: WALL
   kind: process
   command: /usr/bin/python3
   args: [wall.py]             # relative — resolves to this package's wall.py

@@ -36,7 +36,7 @@ public sealed class ConsoleAppDispatchTests
     [Fact]
     public async Task A_registered_verb_launches_the_app_with_callsign_transport_and_args()
     {
-        var wall = new ApplicationConfig { Id = "wall", Match = "WALL", Command = "/bin/cat" };
+        var wall = new ApplicationConfig { Id = "wall", Command = "WALL", Executable = "/bin/cat" };
         var host = new StubHost(wall);
         var svc = Build(host);
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
@@ -56,7 +56,7 @@ public sealed class ConsoleAppDispatchTests
     {
         // The stub would happily "resolve" BYE, but the parser claims it first as the disconnect
         // verb — so the host is never consulted and the user is disconnected.
-        var host = new StubHost(new ApplicationConfig { Id = "x", Match = "BYE", Command = "/bin/cat" });
+        var host = new StubHost(new ApplicationConfig { Id = "x", Command = "BYE", Executable = "/bin/cat" });
         var svc = Build(host);
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
 
@@ -69,7 +69,7 @@ public sealed class ConsoleAppDispatchTests
     [Fact]
     public async Task A_non_matching_verb_is_still_unknown_command()
     {
-        var host = new StubHost(new ApplicationConfig { Id = "wall", Match = "WALL", Command = "/bin/cat" });
+        var host = new StubHost(new ApplicationConfig { Id = "wall", Command = "WALL", Executable = "/bin/cat" });
         var svc = Build(host);
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
 
@@ -77,6 +77,26 @@ public sealed class ConsoleAppDispatchTests
 
         Assert.Equal(0, host.RunCalls);
         Assert.Contains("Unknown command", conn.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_service_app_command_verb_takes_the_connect_path_not_unknown_command()
+    {
+        // A service app (no session attachment) resolves its command verb to a bound callsign;
+        // typing the verb loopback-connects (the C <callsign> path). Here no outbound connector
+        // is wired, so the console reports the connect-unavailable message — which proves the
+        // verb was routed to the CONNECT path rather than falling through to "unknown command".
+        var host = new StubHost(
+            new ApplicationConfig { Id = "wall", Command = "WALL", Executable = "/bin/cat" },
+            serviceVerb: "BBS", serviceCallsign: new Packet.Core.Callsign("M9YYY", 1));
+        var svc = Build(host);
+        var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
+
+        await RunWith(svc, conn, "BBS", "B");
+
+        host.RunCalls.Should().Be(0, "a service verb connects, it does not RunAsync a session app");
+        conn.Output.Should().NotContain("Unknown command");
+        conn.Output.Should().Contain("Connect is not available");   // the connect path was taken
     }
 
     [Fact]
@@ -92,14 +112,22 @@ public sealed class ConsoleAppDispatchTests
 
     // Records what the console asked of the launcher; resolves the one configured app by an
     // exact case-insensitive match, mirroring the real host's contract.
-    private sealed class StubHost(ApplicationConfig app) : IApplicationHost
+    private sealed class StubHost(
+        ApplicationConfig app, string? serviceVerb = null, Packet.Core.Callsign? serviceCallsign = null) : IApplicationHost
     {
         public int RunCalls { get; private set; }
         public ApplicationConfig? RanApp { get; private set; }
         public NodeAppContext? RanContext { get; private set; }
 
         public ApplicationConfig? Resolve(string verb) =>
-            string.Equals(verb?.Trim(), app.Match, StringComparison.OrdinalIgnoreCase) ? app : null;
+            string.Equals(verb?.Trim(), app.Command, StringComparison.OrdinalIgnoreCase) ? app : null;
+
+        // A service app's command verb resolves to its bound callsign (the loopback-connect
+        // path); the default stub has none (its one app is a session app).
+        public Packet.Core.Callsign? ResolveServiceCommandCallsign(string verb) =>
+            serviceVerb is not null && string.Equals(verb?.Trim(), serviceVerb, StringComparison.OrdinalIgnoreCase)
+                ? serviceCallsign
+                : null;
 
         public Task RunAsync(ApplicationConfig a, INodeConnection session, NodeAppContext context, CancellationToken ct = default)
         {

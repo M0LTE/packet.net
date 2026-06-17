@@ -93,8 +93,8 @@ public sealed class AppPackagesApiTests : IDisposable
                 port: 8080
             applications:
               - id: wall
-                match: WALL
-                command: /bin/cat
+                command: WALL
+                executable: /bin/cat
                 capabilities: [session]
             appPackageRoots:
               - {packagesRoot}

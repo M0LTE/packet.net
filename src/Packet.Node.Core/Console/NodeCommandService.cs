@@ -309,13 +309,23 @@ public sealed partial class NodeCommandService : INodeApplication
         var app = host.Resolve(parts[0]);
         if (app is null)
         {
+            // Not a session app — it may be a SERVICE app's command verb (docs/app-packages.md
+            // § Application packet identity). A service app binds a callsign over RHP; typing its
+            // verb at the prompt loopback-connects to that callsign, the same path C <callsign>
+            // takes. Resolved against the live config + the node's callsign authority.
+            var serviceCall = host.ResolveServiceCommandCallsign(parts[0]);
+            if (serviceCall is { } call)
+            {
+                await HandleConnectAsync(connection, new ConnectCommand(call, Port: null), ct).ConfigureAwait(false);
+                return true;
+            }
             return false;
         }
 
         var args = parts.Length > 1
             ? parts[1].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
             : [];
-        var callsign = Callsign.TryParse(connection.PeerId, out var call) ? call.ToString() : connection.PeerId;
+        var callsign = Callsign.TryParse(connection.PeerId, out var peerCall) ? peerCall.ToString() : connection.PeerId;
         var context = new NodeAppContext
         {
             Callsign = callsign,

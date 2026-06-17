@@ -15,7 +15,7 @@ namespace Packet.Node.Core.Applications;
 /// </summary>
 public interface IApplicationHost
 {
-    /// <summary>Resolve an <b>enabled</b> application whose <see cref="ApplicationConfig.Match"/>
+    /// <summary>Resolve an <b>enabled</b> application whose <see cref="ApplicationConfig.Command"/>
     /// equals <paramref name="verb"/> (case-insensitive, exact — no abbreviation), reading the
     /// live config so a hot edit applies to the next launch. Resolution is the <b>union</b> of
     /// the inline <c>applications:</c> list and the enabled, error-free app packages with a
@@ -27,6 +27,16 @@ public interface IApplicationHost
     /// the user drops, then return so the console can re-prompt. Total: a spawn/run failure is
     /// reported to the user and logged, never thrown (other than cancellation).</summary>
     Task RunAsync(ApplicationConfig app, INodeConnection session, NodeAppContext context, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolve a bare node-prompt command verb to the resolved callsign of a <b>service</b> app
+    /// (an enabled packet/service app, inline or package, with a <c>command</c> verb but no
+    /// <c>session:</c> attachment). The console typing this verb then issues a loopback connect
+    /// to that callsign — the same path <c>C &lt;callsign&gt;</c> takes. Returns null when the
+    /// verb matches no service app (a session app is handled by <see cref="Resolve"/> instead, a
+    /// built-in verb never reaches here). Reads live config so a hot edit applies immediately.
+    /// </summary>
+    Packet.Core.Callsign? ResolveServiceCommandCallsign(string verb);
 }
 
 /// <inheritdoc cref="IApplicationHost"/>
@@ -58,8 +68,8 @@ public sealed partial class ApplicationHost : IApplicationHost
         var current = config.Current;
         foreach (var app in current.Applications)
         {
-            if (app.Enabled && !string.IsNullOrWhiteSpace(app.Match)
-                && string.Equals(app.Match.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
+            if (app.Enabled && !string.IsNullOrWhiteSpace(app.Command)
+                && string.Equals(app.Command.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
             {
                 return app;
             }
@@ -68,9 +78,10 @@ public sealed partial class ApplicationHost : IApplicationHost
     }
 
     /// <summary>The package half of the union: an enabled, error-free discovered package with a
-    /// <c>session:</c> block whose effective verb (owner override ?? manifest) matches. Mapped
-    /// to the <see cref="ApplicationConfig"/> shape the existing run path already understands —
-    /// command/args resolved against the package dir, working dir = the app's state dir.</summary>
+    /// <c>session:</c> block whose effective command verb (owner override ?? manifest
+    /// <c>packet.command</c>) matches. Mapped to the <see cref="ApplicationConfig"/> shape the
+    /// existing run path already understands — executable/args resolved against the package dir,
+    /// working dir = the app's state dir.</summary>
     private ApplicationConfig? ResolvePackage(string wanted, NodeConfig current)
     {
         if (catalog is null)
@@ -83,9 +94,9 @@ public sealed partial class ApplicationHost : IApplicationHost
             {
                 continue;
             }
-            var match = !string.IsNullOrWhiteSpace(pkg.Override?.Match) ? pkg.Override!.Match! : session.Match;
-            if (string.IsNullOrWhiteSpace(match)
-                || !string.Equals(match.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
+            var verb = pkg.EffectiveCommand;
+            if (string.IsNullOrWhiteSpace(verb)
+                || !string.Equals(verb.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -105,10 +116,10 @@ public sealed partial class ApplicationHost : IApplicationHost
             return new ApplicationConfig
             {
                 Id = pkg.Id,
-                Match = match.Trim(),
+                Command = verb.Trim(),
                 Enabled = true,
                 Kind = session.Kind,
-                Command = session.Command is null
+                Executable = session.Command is null
                     ? null
                     : AppPackagePaths.ResolveFile(session.Command, pkg.PackageDir),
                 SocketPath = session.SocketPath,
@@ -117,6 +128,44 @@ public sealed partial class ApplicationHost : IApplicationHost
                 Capabilities = pkg.Manifest.Capabilities,
                 Ui = null,   // tiles are the gateway's concern — out of the session union's scope
             };
+        }
+        return null;
+    }
+
+    /// <inheritdoc/>
+    public Packet.Core.Callsign? ResolveServiceCommandCallsign(string verb)
+    {
+        if (string.IsNullOrWhiteSpace(verb))
+        {
+            return null;
+        }
+        var wanted = verb.Trim();
+        var current = config.Current;
+        var discovered = catalog?.Discover(current) ?? [];
+        var callsigns = Packages.AppCallsignResolver.Resolve(current, discovered);
+
+        // Inline apps are always session apps (they attach over the session via Resolve), so a
+        // service-command verb is a package concern: an enabled, error-free package whose
+        // effective command matches and which has NO session block (a session package is the
+        // attachment path, handled by Resolve). Its daemon binds the resolved callsign over RHP;
+        // typing the verb loopback-connects to it.
+        foreach (var pkg in discovered)
+        {
+            if (!pkg.Enabled || pkg.Error is not null || pkg.Manifest?.Session is not null)
+            {
+                continue;
+            }
+            var command = pkg.EffectiveCommand;
+            if (string.IsNullOrWhiteSpace(command)
+                || !string.Equals(command.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (callsigns.TryGetValue(pkg.Id, out var resolved))
+            {
+                return resolved.Callsign;
+            }
+            return null;   // verb matched but the app has no resolvable callsign — nothing to dial.
         }
         return null;
     }

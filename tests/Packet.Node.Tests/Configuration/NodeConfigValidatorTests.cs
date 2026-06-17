@@ -686,4 +686,86 @@ public class NodeConfigValidatorTests
         };
         Validator.Validate(config).IsValid.Should().BeTrue();
     }
+
+    // ─── App packet-identity uniqueness (docs/app-packages.md § Application packet identity) ───
+
+    private static ApplicationConfig InlineApp(string id, string verb, string? callsign = null, AppNetromConfig? netrom = null) =>
+        new() { Id = id, Command = verb, Executable = "/bin/cat", Callsign = callsign, Netrom = netrom };
+
+    [Fact]
+    public void Two_apps_pinning_the_same_callsign_are_rejected()
+    {
+        var config = Valid() with
+        {
+            Applications = [InlineApp("a", "ALPHA", callsign: "M0LTE-3"), InlineApp("b", "BRAVO", callsign: "-3")],
+        };
+        Validator.Validate(config).IsValid.Should().BeFalse("both resolve to M0LTE-3");
+    }
+
+    [Fact]
+    public void An_app_pinning_the_nodes_own_callsign_is_rejected()
+    {
+        var config = Valid() with { Applications = [InlineApp("a", "ALPHA", callsign: "M0LTE-1")] };
+        Validator.Validate(config).IsValid.Should().BeFalse("M0LTE-1 is the node's own");
+    }
+
+    [Fact]
+    public void Distinct_pinned_callsigns_are_accepted()
+    {
+        var config = Valid() with
+        {
+            Applications = [InlineApp("a", "ALPHA", callsign: "-3"), InlineApp("b", "BRAVO", callsign: "-4")],
+        };
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_inline_app_and_a_package_override_pinning_the_same_callsign_are_rejected()
+    {
+        var config = Valid() with
+        {
+            Applications = [InlineApp("a", "ALPHA", callsign: "M9YYY-2")],
+            Apps = [new AppOverrideConfig { Id = "bbs", Enabled = true, Callsign = "M9YYY-2" }],
+        };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Two_apps_advertising_the_same_netrom_alias_are_rejected()
+    {
+        var config = Valid() with
+        {
+            Applications =
+            [
+                InlineApp("a", "ALPHA", netrom: new AppNetromConfig { Alias = "RDGBBS" }),
+                InlineApp("b", "BRAVO", netrom: new AppNetromConfig { Alias = "rdgbbs" }),   // case-insensitive clash
+            ],
+        };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_app_alias_equal_to_the_nodes_own_netrom_alias_is_rejected()
+    {
+        var config = Valid() with
+        {
+            NetRom = new NetRomConfig { Alias = "RDGNODE" },
+            Applications = [InlineApp("a", "ALPHA", netrom: new AppNetromConfig { Alias = "RDGNODE" })],
+        };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Two_inline_apps_sharing_a_command_verb_are_rejected()
+    {
+        var config = Valid() with { Applications = [InlineApp("a", "CHAT"), InlineApp("b", "CHAT")] };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_inline_command_verb_colliding_with_a_built_in_is_rejected()
+    {
+        var config = Valid() with { Applications = [InlineApp("a", "NODES")] };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
 }

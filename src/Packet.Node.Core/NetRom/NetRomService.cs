@@ -152,6 +152,17 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// debounced ingest, and on graceful dispose — so a restart does not lose the
     /// learned topology. Null = in-memory only (the default; every existing call site
     /// and test is unchanged).</summary>
+    /// <summary>
+    /// Optional source of <b>app NET/ROM adverts</b> (<c>docs/app-packages.md</c> § Application
+    /// packet identity): returns the extra destination entries to append to our NODES broadcast —
+    /// one per enabled app whose owner set <c>netrom.alias</c>, each pointing the alias at the
+    /// app's resolved callsign with the configured quality (best-neighbour = this node). Null /
+    /// returns-empty ⇒ nothing extra advertised (the opt-in default, off). Read fresh on each
+    /// broadcast so an alias edit hot-applies. Set by the composition root, which holds the
+    /// catalog + the node callsign authority the resolution needs.
+    /// </summary>
+    public Func<IReadOnlyList<NodesBroadcastBuilder.Entry>>? AppAdvertSource { get; set; }
+
     public NetRomService(
         NetRomConfig config,
         TimeProvider? timeProvider = null,
@@ -563,8 +574,17 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             return;
         }
 
-        var entries = table.BuildAdvertisement(routingOptions.ObsoleteMinimum);
+        var learned = table.BuildAdvertisement(routingOptions.ObsoleteMinimum);
         var alias = ResolveAlias();
+
+        // Opt-in app aliases (docs/app-packages.md § Application packet identity): append each
+        // enabled app whose owner set netrom.alias, advertised AT our node (best-neighbour =
+        // nodeCall) so a station C's the alias and routes to us, then to the app. Absent source
+        // (or no aliases) ⇒ nothing extra — the off-by-default, anti-noise behaviour. Composes
+        // with the learned routes + the implicit node-self advert (the UI frame's source call).
+        var appAdverts = AppAdvertSource?.Invoke() ?? [];
+        var entries = appAdverts.Count == 0 ? learned : [.. learned, .. appAdverts];
+
         var frames = NodesBroadcastBuilder.Build(alias, entries);
         var dest = new Callsign(NodesBroadcast.NodesDestination, 0);
 

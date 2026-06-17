@@ -423,6 +423,27 @@ export interface AppPackage {
   detail: string | null;
   /** Declared tailnet port forwards — a capability shown in the enable confirm. */
   forwards: AppForward[];
+  // ---- packet identity (docs/app-packages.md § Application packet identity) ----
+  /** The effective node-prompt command verb (owner override ?? manifest / inline). Null = the
+   *  app declares no verb (reachable only by callsign / NET/ROM alias). */
+  command?: string | null;
+  /** The node-resolved on-air callsign this app binds — a pin or an auto-assigned
+   *  `<node-base>-N`. Null when the app binds no callsign (a pure session app with no pin). */
+  callsign?: string | null;
+  /** The opt-in NET/ROM alias the node advertises → this app's callsign. Null = not advertised. */
+  netromAlias?: string | null;
+  /** The quality the NET/ROM alias is advertised at (only meaningful with `netromAlias`). */
+  netromQuality?: number | null;
+}
+// The PUT /apps/packages/{id}/identity body — the owner's packet-identity overrides for a
+// discovered package (mirrors PdnAppPackagesApi.AppIdentityRequest, camelCase on the wire).
+// Every field is optional: an absent/blank value CLEARS that override (a blank callsign falls
+// back to node auto-assignment; a blank alias turns the advert off).
+export interface AppIdentityRequest {
+  command?: string | null;
+  callsign?: string | null;
+  netromAlias?: string | null;
+  netromQuality?: number | null;
 }
 // ---- app catalog: available apps (GET /api/v1/apps/available) ----
 // One catalog entry projected with this node's view (mirrors

@@ -53,8 +53,8 @@ public sealed class AppGatewayChallengeTests : IDisposable
                 enabled: {(authEnabled ? "true" : "false")}
             applications:
               - id: bbs
-                match: BBS
-                command: /bin/cat
+                command: BBS
+                executable: /bin/cat
                 ui:
                   upstream: http://127.0.0.1:9
                   name: BBS

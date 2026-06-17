@@ -16,8 +16,9 @@ public class AppPackageManifestYamlTests
             description: Live multi-user lobby — WHO presence + SAY broadcast.
             icon: users
             capabilities: [session, network]
+            packet:
+              command: LOBBY
             session:
-              match: LOBBY
               kind: socket
               socketPath: /run/packetnet/lobby.sock
             service:
@@ -45,9 +46,10 @@ public class AppPackageManifestYamlTests
         m.Icon.Should().Be("users");
         m.Capabilities.Should().Equal("session", "network");
 
+        m.Packet.Should().NotBeNull();
+        m.Packet!.Command.Should().Be("LOBBY");
         m.Session.Should().NotBeNull();
-        m.Session!.Match.Should().Be("LOBBY");
-        m.Session.Kind.Should().Be(ApplicationKind.Socket);
+        m.Session!.Kind.Should().Be(ApplicationKind.Socket);
         m.Session.SocketPath.Should().Be("/run/packetnet/lobby.sock");
 
         m.Service.Should().NotBeNull();
@@ -111,7 +113,6 @@ public class AppPackageManifestYamlTests
             manifest: 1
             id: x
             session:
-              match: X
               kind: {text}
               command: /bin/x
               socketPath: /run/x.sock
@@ -127,7 +128,6 @@ public class AppPackageManifestYamlTests
             manifest: 1
             id: x
             session:
-              match: X
               command: /bin/x
             service:
               command: /bin/x
@@ -150,9 +150,9 @@ public class AppPackageManifestYamlTests
             Id = "demo",
             Name = "DEMO",
             Capabilities = ["session"],
+            Packet = new AppPacketSpec { Command = "DEMO" },
             Session = new AppSessionSpec
             {
-                Match = "DEMO",
                 Kind = ApplicationKind.Socket,
                 SocketPath = "/run/packetnet/demo.sock",
             },

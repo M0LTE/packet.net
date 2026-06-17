@@ -93,8 +93,8 @@ public sealed class AppPackagesGatewayTests : IDisposable
                 port: 8080
             applications:
               - id: wall
-                match: WALL
-                command: /bin/cat
+                command: WALL
+                executable: /bin/cat
                 ui:
                   upstream: http://127.0.0.1:{port}
                   name: WALL

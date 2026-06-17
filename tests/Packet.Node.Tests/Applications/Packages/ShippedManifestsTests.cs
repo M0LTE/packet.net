@@ -37,9 +37,10 @@ public class ShippedManifestsTests
 
         // Packet plane: spawn-per-connect wall.py over the stdio wire. The args are
         // package-dir-relative by design — the host resolves them against the package dir.
+        m.Packet.Should().NotBeNull();
+        m.Packet!.Command.Should().Be("WALL");
         m.Session.Should().NotBeNull();
-        m.Session!.Match.Should().Be("WALL");
-        m.Session.Kind.Should().Be(ApplicationKind.Process);
+        m.Session!.Kind.Should().Be(ApplicationKind.Process);
         m.Session.Command.Should().Be("/usr/bin/python3");
         m.Session.Args.Should().Equal("wall.py");
 
@@ -83,9 +84,10 @@ public class ShippedManifestsTests
         m.Capabilities.Should().Equal("session");
 
         // Packet plane: connect-per-session to the daemon's Unix socket.
+        m.Packet.Should().NotBeNull();
+        m.Packet!.Command.Should().Be("LOBBY");
         m.Session.Should().NotBeNull();
-        m.Session!.Match.Should().Be("LOBBY");
-        m.Session.Kind.Should().Be(ApplicationKind.Socket);
+        m.Session!.Kind.Should().Be(ApplicationKind.Socket);
         m.Session.SocketPath.Should().Be("/run/packetnet/lobby.sock");
 
         // The daemon pdn supervises.

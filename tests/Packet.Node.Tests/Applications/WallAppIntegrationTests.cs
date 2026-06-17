@@ -46,8 +46,8 @@ public sealed class WallAppIntegrationTests : IDisposable
             new ApplicationConfig
             {
                 Id = "wall",
-                Match = "WALL",
-                Command = python,
+                Command = "WALL",
+                Executable = python,
                 Args = [wallPy],
                 WorkingDirectory = workDir,   // wall.txt lands here (default WALL_FILE)
             },
