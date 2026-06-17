@@ -57,6 +57,16 @@ public sealed partial class ApplicationHost : IApplicationHost
         logger = this.loggerFactory.CreateLogger<ApplicationHost>();
     }
 
+    /// <summary>
+    /// The live view of which app callsigns are currently bound over RHP. Set by the host after the
+    /// <c>PortSupervisor</c> is constructed (the supervisor IS the registry; the host builds it
+    /// after this object — hence a settable seam, not a ctor arg). Null = no registry wired (older
+    /// hosts / tests): the bare-verb resolver then returns the node-resolved callsign verbatim,
+    /// exactly the pre-#476 behaviour. When present it lets the resolver reach a self-deriving app
+    /// that bound a different SSID than its node-resolved <c>PDN_APP_CALLSIGN</c> (packet.net#476).
+    /// </summary>
+    public ILocalAppRegistry? LocalAppRegistry { get; set; }
+
     /// <inheritdoc/>
     public ApplicationConfig? Resolve(string verb)
     {
@@ -163,11 +173,47 @@ public sealed partial class ApplicationHost : IApplicationHost
             }
             if (callsigns.TryGetValue(pkg.Id, out var resolved))
             {
-                return resolved.Callsign;
+                return BridgeToBoundCallsign(resolved.Callsign, callsigns);
             }
             return null;   // verb matched but the app has no resolvable callsign — nothing to dial.
         }
         return null;
+    }
+
+    /// <summary>
+    /// Bridge the node-<i>resolved</i> service callsign to the one the app actually <c>bind</c>ed
+    /// (packet.net#476). A <b>migrated</b> app binds exactly its <c>PDN_APP_CALLSIGN</c>, so the
+    /// resolved callsign is live in the registry → return it unchanged (no regression). An
+    /// <b>un-migrated, self-deriving</b> app instead bound some other SSID of the node base; its
+    /// resolved callsign is then absent from the registry. In that case, if the registry holds
+    /// exactly one "stray" binding on the same node base — a callsign that is not the node-resolved
+    /// identity of any app, i.e. one the node didn't hand out — that stray is the self-deriving
+    /// app, so dial it. Ambiguous (or no) stray ⇒ fall back to the resolved callsign: a best-effort
+    /// that never guesses the wrong app, and matches the pre-#476 behaviour. With no registry wired
+    /// (older hosts / tests) the resolved callsign is returned verbatim.
+    /// </summary>
+    private Packet.Core.Callsign BridgeToBoundCallsign(
+        Packet.Core.Callsign resolved,
+        IReadOnlyDictionary<string, Packages.AppCallsignResolver.ResolvedAppCallsign> callsigns)
+    {
+        var registry = LocalAppRegistry;
+        if (registry is null || registry.IsRegistered(resolved))
+        {
+            return resolved;   // no registry, or the app bound exactly what the node resolved.
+        }
+
+        // The set of callsigns the node DID hand out (every app's node-resolved identity). A
+        // registered callsign in this set belongs to some other (migrated) app — never the
+        // self-deriving one we're looking for.
+        var nodeAssigned = new HashSet<Packet.Core.Callsign>(callsigns.Values.Select(c => c.Callsign));
+
+        var strays = registry.RegisteredCallsigns()
+            .Where(c => !nodeAssigned.Contains(c)
+                        && string.Equals(c.Base, resolved.Base, StringComparison.Ordinal))
+            .Distinct()
+            .ToList();
+
+        return strays.Count == 1 ? strays[0] : resolved;
     }
 
     /// <inheritdoc/>

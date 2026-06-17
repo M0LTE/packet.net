@@ -184,9 +184,15 @@ public sealed partial class NodeHostedService : BackgroundService
 
         // The application launcher — built before the supervisor so its per-connection consoles
         // (AX.25 + NET/ROM) can launch registered apps; the telnet factory reads the same field.
-        applicationHost = new ApplicationHost(config, loggerFactory, appPackages);
+        var host = new ApplicationHost(config, loggerFactory, appPackages);
+        applicationHost = host;
 
         supervisor = new PortSupervisor(config, transportFactory, timeProvider, loggerFactory, netRom, telemetry, beacons, sysopContext, applicationHost, capabilityCache);
+        // The supervisor IS the live app-callsign registry; wire it back into the host now it exists
+        // so a bare command verb reaches a self-deriving app that bound a non-PDN_APP_CALLSIGN SSID
+        // (packet.net#476). Built after the host (its per-connection consoles need the host), so this
+        // is a post-construction wire, not a ctor arg.
+        host.LocalAppRegistry = supervisor;
         await supervisor.StartAsync(stoppingToken).ConfigureAwait(false);
 
         StartTelnet(startConfig.Management.Telnet, stoppingToken);

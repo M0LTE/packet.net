@@ -38,7 +38,7 @@ namespace Packet.Node.Core.Hosting;
 /// by the provider and never reaches here.
 /// </para>
 /// </remarks>
-public sealed partial class PortSupervisor : IAsyncDisposable
+public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILocalAppRegistry
 {
     private readonly IConfigProvider config;
     private readonly ITransportFactory transportFactory;
@@ -223,6 +223,28 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         lock (appCallsignGate)
         {
             return appCallsigns.TryGetValue(target, out var reg) ? reg : null;
+        }
+    }
+
+    // ── ILocalAppRegistry — the live key set, for the bare-verb resolver (packet.net#476) ──
+    // A self-deriving app binds an SSID it chose, not the node-resolved PDN_APP_CALLSIGN; the
+    // verb resolver consults this to bridge to whatever the app actually bound. Read-only.
+
+    /// <inheritdoc/>
+    public bool IsRegistered(Callsign callsign)
+    {
+        lock (appCallsignGate)
+        {
+            return appCallsigns.ContainsKey(callsign);
+        }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyCollection<Callsign> RegisteredCallsigns()
+    {
+        lock (appCallsignGate)
+        {
+            return appCallsigns.Keys.ToArray();
         }
     }
 
