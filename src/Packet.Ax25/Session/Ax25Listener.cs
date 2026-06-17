@@ -340,9 +340,24 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// (<see cref="Ax25SessionQuirks.Ax25Spec48DmRejectionDegradesToV20"/>) fallbacks
     /// degrading to v2.0 for peers that can't); <c>false</c> initiates a plain v2.0
     /// (SABM / mod-8) connect. This is the per-call override of the listener's
-    /// <see cref="Ax25ListenerOptions.PreferExtendedConnect"/> default.
+    /// <see cref="Ax25ListenerOptions.PreferExtendedConnect"/> default. The pre-connect
+    /// XID probe follows the listener's <see cref="Ax25ListenerOptions.PreConnectXidNegotiatesSrej"/>
+    /// default; use
+    /// <see cref="ConnectAsync(Callsign, Callsign, bool, bool, CancellationToken)"/> to
+    /// override that per dial too.
     /// </summary>
-    public async Task<Ax25Session> ConnectAsync(Callsign remote, Callsign local, bool extended, CancellationToken ct = default)
+    public Task<Ax25Session> ConnectAsync(Callsign remote, Callsign local, bool extended, CancellationToken ct = default)
+        => ConnectAsync(remote, local, extended, CurrentSessionParameters.PreConnectXidNegotiatesSrej, ct);
+
+    /// <summary>
+    /// As <see cref="ConnectAsync(Callsign, Callsign, bool, CancellationToken)"/>, but also
+    /// overrides the listener's <see cref="Ax25ListenerOptions.PreConnectXidNegotiatesSrej"/>
+    /// per dial. <paramref name="preConnectXidNegotiatesSrej"/> only takes effect on a mod-8
+    /// dial (<paramref name="extended"/> = <c>false</c>) — the v2.2/SABME path negotiates XID
+    /// post-UA. The node's per-peer capability cache uses this to skip the pre-SABM XID probe
+    /// for a neighbour it already knows does not answer one (go-back-N), or to force it.
+    /// </summary>
+    public async Task<Ax25Session> ConnectAsync(Callsign remote, Callsign local, bool extended, bool preConnectXidNegotiatesSrej, CancellationToken ct = default)
     {
         EnsureNotDisposed();
         if (!IsRunning)
@@ -379,7 +394,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         // (SrejXidViaNetsim). Safe regardless of peer: if no XID response arrives in
         // the budget, we fall through to a plain SABM (go-back-N link). Skipped on
         // the extended (SABME) path — that uses the figc4.6 post-UA MDL negotiation.
-        if (!extended && CurrentSessionParameters.PreConnectXidNegotiatesSrej)
+        if (!extended && preConnectXidNegotiatesSrej)
         {
             await NegotiateSrejBeforeConnectAsync(cached, ct).ConfigureAwait(false);
         }

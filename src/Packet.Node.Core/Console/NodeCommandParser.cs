@@ -97,6 +97,16 @@ public static class NodeCommandParser
         {
             return ParseConnect(rest, trimmed);
         }
+        // CAP(ABILITIES) — the per-peer capability cache. CONNECT and the CAP family both start
+        // with 'C', so a bare "C" is ambiguous: it MUST stay CONNECT (checked above) and never
+        // trigger CAP. Require ≥2 chars AND a "CA" stem so only an explicit CAP-family verb
+        // matches — any prefix of CAPABILITIES (CA/CAP/CAPA/…), plus the plural "CAPS" (which is
+        // not a prefix of CAPABILITIES). Bare ⇒ list (read-only); "CAP CLEAR <id>" ⇒ forget
+        // (sysop); anything else after CAP ⇒ a typed usage error.
+        if (upper.Length >= 2 && (Matches(upper, "CAPABILITIES") || upper == "CAPS"))
+        {
+            return ParseCapabilities(rest);
+        }
         if (Matches(upper, "BYE") || Matches(upper, "DISCONNECT"))
         {
             return new ByeCommand();
@@ -208,6 +218,36 @@ public static class NodeCommandParser
             "DOWN" => new PortPowerCommand(id, false),
             _ => new MalformedPort(usage),
         };
+    }
+
+    // CAP / CAPS          → list the per-peer capability cache (read-only)
+    // CAP CLEAR <port:peer> → forget one cached record (sysop)
+    private static NodeCommand ParseCapabilities(string rest)
+    {
+        const string usage = "Usage: CAP  (list) | CAP CLEAR <port:peer>";
+        if (string.IsNullOrWhiteSpace(rest))
+        {
+            return new CapabilitiesCommand();
+        }
+
+        int ws = IndexOfWhitespace(rest);
+        string sub = ws < 0 ? rest : rest[..ws];
+        if (!sub.Equals("CLEAR", StringComparison.OrdinalIgnoreCase))
+        {
+            return new MalformedCapability(usage);
+        }
+
+        string target = ws < 0 ? string.Empty : rest[(ws + 1)..].Trim();
+        int ws2 = IndexOfWhitespace(target);
+        if (ws2 >= 0)
+        {
+            target = target[..ws2];   // first token after CLEAR is the id; extras ignored
+        }
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return new MalformedCapability("Usage: CAP CLEAR <port:peer>");
+        }
+        return new ClearCapabilityCommand(target);
     }
 
     private static NodeCommand ParseConnect(string rest, string rawLine)

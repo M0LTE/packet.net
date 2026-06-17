@@ -142,4 +142,56 @@ public class Ax25ListenerPreferV22ConnectTests
         UBase(first!).Should().Be(XidBase,
             "with PreConnectXidNegotiatesSrej on, a mod-8 dial leads with an XID command to negotiate SREJ before the SABM");
     }
+
+    // --- the 5-arg overload's per-call preConnectXidNegotiatesSrej param ----------------------
+    // The per-peer capability cache dials through ConnectAsync(remote, local, extended,
+    // preConnectXidNegotiatesSrej, ct) so it can SKIP the pre-connect XID for a neighbour it has
+    // learned does not answer one — overriding the listener's default. These two tests prove the
+    // per-call param wins over the listener default in both directions.
+
+    [Fact]
+    public async Task Per_call_preConnectXid_false_skips_the_XID_and_leads_with_SABM_even_when_listener_default_is_on()
+    {
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            PreferExtendedConnect = false,        // mod-8 dial …
+            PreConnectXidNegotiatesSrej = true,   // … listener DEFAULT would lead with an XID …
+        });
+        await listener.StartAsync();
+
+        // … but this dial overrides it off per-call (the cache's known-non-XID-answerer path).
+        _ = listener.ConnectAsync(PeerCall, LocalCall, extended: false, preConnectXidNegotiatesSrej: false);
+
+        // The FIRST frame is the SABM, NOT an XID — the per-call param overrode the listener default.
+        await modem.SentFrames.WaitForCountAsync(1, TimeSpan.FromSeconds(2));
+        Ax25Frame.TryParse(modem.SentFrames[0].Span, out var first).Should().BeTrue();
+        UBase(first!).Should().Be(SabmBase,
+            "a per-call preConnectXidNegotiatesSrej:false must skip the pre-connect XID and lead with the SABM, " +
+            "even when the listener default enables the XID probe");
+    }
+
+    [Fact]
+    public async Task Per_call_preConnectXid_true_emits_the_XID_even_when_listener_default_is_off()
+    {
+        var modem = new LoopbackModem();
+        await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = LocalCall,
+            PreferExtendedConnect = false,        // mod-8 dial …
+            PreConnectXidNegotiatesSrej = false,  // … listener DEFAULT would lead with the SABM …
+        });
+        await listener.StartAsync();
+
+        // … but this dial forces the XID probe on per-call.
+        _ = listener.ConnectAsync(PeerCall, LocalCall, extended: false, preConnectXidNegotiatesSrej: true);
+
+        // The FIRST frame is the XID command — the per-call param overrode the listener default.
+        await modem.SentFrames.WaitForCountAsync(1, TimeSpan.FromSeconds(2));
+        Ax25Frame.TryParse(modem.SentFrames[0].Span, out var first).Should().BeTrue();
+        UBase(first!).Should().Be(XidBase,
+            "a per-call preConnectXidNegotiatesSrej:true must lead with an XID command, " +
+            "even when the listener default disables the pre-connect XID probe");
+    }
 }

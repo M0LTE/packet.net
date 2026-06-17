@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Packet.Core;
 using Packet.Node.Core.Applications;
 using Packet.Node.Core.Auth;
+using Packet.Node.Core.Capabilities;
 
 namespace Packet.Node.Core.Console;
 
@@ -198,6 +199,18 @@ public sealed partial class NodeCommandService : INodeApplication
 
             case ReloadCommand:
                 await HandleReloadAsync(connection, sysop, ct).ConfigureAwait(false);
+                return DispatchOutcome.Continue;
+
+            case CapabilitiesCommand:
+                await WriteLineAsync(connection, CapabilitiesText(), ct).ConfigureAwait(false);
+                return DispatchOutcome.Continue;
+
+            case ClearCapabilityCommand clear:
+                await HandleClearCapabilityAsync(connection, clear, sysop, ct).ConfigureAwait(false);
+                return DispatchOutcome.Continue;
+
+            case MalformedCapability badCap:
+                await WriteLineAsync(connection, badCap.Reason, ct).ConfigureAwait(false);
                 return DispatchOutcome.Continue;
 
             case UnknownCommand unknown:
@@ -411,6 +424,59 @@ public sealed partial class NodeCommandService : INodeApplication
         return sb.ToString();
     }
 
+    // The per-peer AX.25 capability cache (read-only; no elevation — it leaks no secret, only
+    // which neighbours speak v2.2 / answer an XID). One line per (port, peer):
+    //   port:peer  v2.2|v2.0|v2.2?  SREJ|REJ|SREJ?  probed <h:mm:ss>  [refused <h:mm:ss>]
+    // A null (never-probed) dimension renders with a trailing "?" (v2.2? / SREJ?); LastRefused is
+    // shown only when set. Ordered by id for a stable display.
+    private string CapabilitiesText()
+    {
+        var cache = env.Capabilities;
+        if (cache is null)
+        {
+            return "Capabilities: (cache not available)";
+        }
+
+        var records = cache.All();
+        if (records.Count == 0)
+        {
+            return "Capabilities: (nothing learned yet)";
+        }
+
+        var now = clock.GetUtcNow();
+        var sb = new StringBuilder("Peer capabilities:");
+        foreach (var r in records
+                     .OrderBy(r => r.PortId, StringComparer.Ordinal)
+                     .ThenBy(r => r.Peer, StringComparer.Ordinal))
+        {
+            sb.Append('\n').Append("  ").Append(r.PortId).Append(':').Append(r.Peer)
+              .Append("  ").Append(Extended(r.SupportsExtended))
+              .Append("  ").Append(Srej(r.SupportsSrejViaXid))
+              .Append("  probed ").Append(RelativeAgo(now, r.LastProbed));
+            if (r.LastRefused is { } refused)
+            {
+                sb.Append("  refused ").Append(RelativeAgo(now, refused));
+            }
+        }
+        return sb.ToString();
+
+        // bool? → label: true=positive, false=negative, null=unknown ("?").
+        static string Extended(bool? v) => v switch { true => "v2.2", false => "v2.0", null => "v2.2?" };
+        static string Srej(bool? v) => v switch { true => "SREJ", false => "REJ", null => "SREJ?" };
+    }
+
+    // Format a past instant as a relative "h:mm:ss" ago string (matches the REST/MCP
+    // projections' style — PdnReadApi.RelativeAgo). A future/zero instant clamps to "0:00:00".
+    private static string RelativeAgo(DateTimeOffset now, DateTimeOffset then)
+    {
+        var ago = now - then;
+        if (ago < TimeSpan.Zero)
+        {
+            ago = TimeSpan.Zero;
+        }
+        return $"{(int)ago.TotalHours}:{ago.Minutes:D2}:{ago.Seconds:D2}";
+    }
+
     // Surface the learned NET/ROM routing table (read-only). Shows the directly-
     // heard neighbours and, for each known destination, its best route(s):
     // alias:callsign via best-neighbour at quality (obsolescence). This is the
@@ -474,6 +540,7 @@ public sealed partial class NodeCommandService : INodeApplication
           .Append("  C[onnect] <call>   connect to a station\n")
           .Append("  N[odes]            this node + the NET/ROM table\n")
           .Append("  P[orts]            list the radio ports\n")
+          .Append("  CAP[s]             peer AX.25 capability cache\n")
           .Append("  I[nfo]             node info and version\n")
           .Append("  B[ye] / D          disconnect\n")
           .Append("  H[elp] / ?         this help");
@@ -488,6 +555,7 @@ public sealed partial class NodeCommandService : INodeApplication
               .Append("  SESSIONS           list active sessions\n")
               .Append("  KICK <id>          disconnect a session\n")
               .Append("  PORT <id> UP|DOWN  enable/disable a port\n")
+              .Append("  CAP CLEAR <id>     forget a peer capability\n")
               .Append("  RELOAD             re-read the config file");
         }
         else if (available)
@@ -634,6 +702,43 @@ public sealed partial class NodeCommandService : INodeApplication
         var result = await env.Sysop!.Operations.ReloadAsync(ct).ConfigureAwait(false);
         LogSysopCommand("RELOAD", connection.PeerId);
         await WriteLineAsync(connection, result.Message, ct).ConfigureAwait(false);
+    }
+
+    // CAP CLEAR <port:peer> — forget one cached capability record. Operate-scoped (it mutates
+    // node state — the next dial to that peer re-probes — but persists nothing config-level, so
+    // operate, not admin, matching KICK). The target is the same port:peer id CAP renders.
+    private async Task HandleClearCapabilityAsync(INodeConnection connection, ClearCapabilityCommand clear, SysopSession sysop, CancellationToken ct)
+    {
+        if (!await RequireElevatedAsync(connection, sysop, AuthScopes.Operate, ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var cache = env.Capabilities;
+        if (cache is null)
+        {
+            await WriteLineAsync(connection, "Capability cache not available on this node.", ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Split the id on the LAST ':' — a callsign carries no colon, but a port id could; the
+        // peer is the final component and the port is everything before it.
+        int sep = clear.Target.LastIndexOf(':');
+        if (sep <= 0 || sep == clear.Target.Length - 1)
+        {
+            await WriteLineAsync(connection, "Usage: CAP CLEAR <port:peer>", ct).ConfigureAwait(false);
+            return;
+        }
+        string portId = clear.Target[..sep];
+        string peer = clear.Target[(sep + 1)..];
+
+        bool forgotten = cache.Forget(portId, peer);
+        LogSysopCommand("CAP-CLEAR", clear.Target);
+        await WriteLineAsync(connection,
+            forgotten
+                ? $"Forgot capability for {portId}:{peer}."
+                : $"No cached capability for {portId}:{peer}.",
+            ct).ConfigureAwait(false);
     }
 
     // The gate every privileged command passes through: the session must be wired for

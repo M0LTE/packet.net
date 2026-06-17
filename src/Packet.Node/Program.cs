@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Packet.Node.Api;
 using Packet.Node.Core.Auth;
 using Packet.Node.Core.Beacons;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.Hosting;
@@ -74,6 +75,18 @@ var routingStore = new SqliteNetRomRoutingStore(
     dbPath,
     bootstrapLoggers.CreateLogger<SqliteNetRomRoutingStore>());
 builder.Services.AddSingleton<INetRomRoutingStore>(routingStore);
+
+// The per-peer AX.25 capability cache (same pdn.db, same resilient discipline). Program.cs
+// composes services manually (it does not call AddPacketNode), so — like BeaconService and the
+// other stores — both the durable store AND the cache service are registered eagerly here; the
+// deployed node thus gets the pdn.db-backed variant.
+var peerCapabilityStore = new SqlitePeerCapabilityStore(
+    dbPath,
+    bootstrapLoggers.CreateLogger<SqlitePeerCapabilityStore>());
+builder.Services.AddSingleton<IPeerCapabilityStore>(peerCapabilityStore);
+builder.Services.AddSingleton(sp => new PeerCapabilityCache(
+    sp.GetService<IPeerCapabilityStore>(),
+    sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
 // --- Web control-API auth foundation (default-OFF behind management.auth.enabled) ---
 //
@@ -601,6 +614,13 @@ app.MapPdnPortsApi();
 // win over /api/{**rest} regardless of order. (Auth is a later step — unauthenticated,
 // node binds 127.0.0.1.)
 app.MapPdnSessionsApi();
+
+// The per-peer AX.25 capability-cache action API (operate-gated): DELETE /api/v1/capabilities/{id}
+// forgets one learned (port, peer) record so the next dial re-probes it. The READ side
+// (GET /api/v1/capabilities) is part of MapPdnReadApi's read group above. Mapped beside the
+// session actions and before the catch-all; the specific route wins over /api/{**rest}. The
+// forget is audited (clear_capability). See PdnCapabilitiesApi.
+app.MapPdnCapabilitiesApi();
 
 // The browser node command console (admin-gated): POST /api/v1/console opens a new node
 // command shell over an in-process loopback bridge (the same NodeCommandService the telnet

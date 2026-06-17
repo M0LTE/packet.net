@@ -8,6 +8,7 @@ using Packet.NetRom;
 using Packet.NetRom.Routing;
 using Packet.NetRom.Transport;
 using Packet.NetRom.Wire;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 
@@ -73,6 +74,14 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     private readonly INetRomRoutingStore? store;
     private readonly ITimer? persistTimer;
 
+    // The per-peer AX.25 capability cache (optional). Null ⇒ today's behaviour exactly:
+    // interlinks dial hard-coded mod-8 with the listener's pre-connect-XID default, and
+    // nothing is recorded. Non-null ⇒ each interlink dial consults PlanDial for the
+    // version + XID probe and records the OUTCOME of a RETURNED dial (never on a throw —
+    // a dial that throws yielded no link of either version, so it carries no capability
+    // signal; that is the correctness hinge).
+    private readonly PeerCapabilityCache? capabilityCache;
+
     // The INP3 routing overlay (link timing + RIF ingest/emit + triggered updates).
     // Null ⇔ INP3 disabled ⇔ the node is byte-for-byte today: no Inp3Engine, no
     // Inp3UpdateScheduler, no INP3 timer, no SendL3Rtt/Advertise/NeighbourDown wiring.
@@ -135,7 +144,12 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     /// service dials the listener directly (the unit-test path, where no supervisor
     /// console competes).
     /// </summary>
-    public Func<string, Callsign, CancellationToken, Task<Ax25Session>>? OpenInterlink { get; set; }
+    /// <remarks>
+    /// Carries the <see cref="PeerDialPlan"/> the service computed from the per-peer
+    /// capability cache (version + pre-connect-XID), so the supervisor's claim-aware
+    /// dial uses the very same plan the direct-fallback path does.
+    /// </remarks>
+    public Func<string, Callsign, PeerDialPlan, CancellationToken, Task<Ax25Session>>? OpenInterlink { get; set; }
 
     /// <summary>The circuit manager (null when NET/ROM connect is disabled). Exposed
     /// for the outbound connector + tests.</summary>
@@ -167,13 +181,15 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         NetRomConfig config,
         TimeProvider? timeProvider = null,
         ILogger<NetRomService>? logger = null,
-        INetRomRoutingStore? store = null)
+        INetRomRoutingStore? store = null,
+        PeerCapabilityCache? capabilityCache = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         routing = this.config.EffectiveRouting;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.logger = logger ?? NullLogger<NetRomService>.Instance;
         this.store = store;
+        this.capabilityCache = capabilityCache;
 
         routingOptions = ResolveRoutingOptions(config);
         circuitOptions = ResolveCircuitOptions(config);
@@ -860,6 +876,14 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     // result TrySendOverInterlinkBytes would have returned (true = an interlink was up).
     internal Func<Callsign, byte[], bool>? interlinkSendSinkForTest;
 
+    // Test seam (InternalsVisibleTo Packet.Node.Tests): drive ONE interlink dial directly,
+    // exercising the capability-cache wiring in EnsureInterlinkAsync (PlanDial → the dial →
+    // RecordOutcome-on-return / no-record-on-throw) without standing up the full L4 circuit
+    // machinery a public ConnectCircuitAsync would pull in. Behaviour-identical to the dial
+    // ConnectCircuitAsync performs; it just stops once the interlink is up (or rethrows).
+    internal Task EnsureInterlinkForTestAsync(Callsign neighbour, CancellationToken ct = default)
+        => EnsureInterlinkAsync(neighbour, ct);
+
     // The shared neighbour-down path. With INP3 off (inp3 == null) this is EXACTLY today's
     // table.MarkNeighbourDown — the L4 dial-failure failover, byte-for-byte. With INP3 on it
     // additionally drops the engine's per-neighbour timing state and escalates every
@@ -1015,6 +1039,15 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             throw new InvalidOperationException("no NET/ROM port available to open an interlink.");
         }
 
+        // Consult the per-peer capability cache for this dial. The default (no cache)
+        // preserves today's behaviour exactly: extended:false (mod-8 NET/ROM
+        // infrastructure) + PreConnectXid:true (the listener's pre-connect-XID default,
+        // which the no-arg ConnectAsync overload was honouring). A learned positive lets
+        // a known-extended neighbour go straight to SABME, and a learned non-XID-answerer
+        // skips the pre-connect XID it would only stall on.
+        var plan = capabilityCache?.PlanDial(attachment.PortId, neighbour.ToString(), PeerDialPolicy.Interlink)
+            ?? new PeerDialPlan(Extended: false, PreConnectXid: true);
+
         // Dial the interlink. Prefer the supervisor's claim-aware hook (so no console
         // is started against the neighbour — see OpenInterlink); fall back to a direct
         // listener dial when no supervisor is wired (unit tests). A dial that fails
@@ -1028,16 +1061,18 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         try
         {
             session = OpenInterlink is { } open
-                ? await open(attachment.PortId, neighbour, ct).ConfigureAwait(false)
-                // NET/ROM interlinks are mod-8 infrastructure: dial v2.0 (SABM) explicitly,
+                ? await open(attachment.PortId, neighbour, plan, ct).ConfigureAwait(false)
+                // NET/ROM interlinks are mod-8 infrastructure by default: dial v2.0 (SABM),
                 // NOT the listener's PreferExtendedConnect default. The NET/ROM neighbour
                 // population is overwhelmingly v2.0/mod-8 (BPQ/XRouter), and a peer that
                 // silently ignores our SABME (e.g. BPQ's AXUDP NET/ROM port) makes the dial
                 // exhaust N2 and throw instead of FRMR-degrading — breaking circuit
-                // origination. Prefer-extended is for the user's point-to-point CONNECT, not
-                // the L3/L4 plumbing. (Could go adaptive later via the per-peer capability
-                // cache, packet.net §5.G.)
-                : await attachment.Listener.ConnectAsync(neighbour, attachment.Listener.MyCall, extended: false, ct).ConfigureAwait(false);
+                // origination. The per-peer capability cache (above) makes this adaptive:
+                // a neighbour learned-extended dials SABME, and a known non-XID-answerer
+                // skips the pre-connect XID — but with no cache the plan is the conservative
+                // mod-8 + pre-connect-XID default, byte-for-byte today's behaviour.
+                : await attachment.Listener.ConnectAsync(
+                    neighbour, attachment.Listener.MyCall, plan.Extended, plan.PreConnectXid, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1046,6 +1081,14 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
             LogNeighbourDown(downText, dropped);
             throw;
         }
+        // The dial RETURNED a session — record the outcome (plan-aware: what we dialled +
+        // what the resulting link observed). This is reached ONLY on a returned dial; the
+        // catch above rethrows, so a dial that throws never records (no link ⇒ no signal).
+        capabilityCache?.RecordOutcome(
+            attachment.PortId, neighbour.ToString(),
+            dialedExtended: plan.Extended, observedIsExtended: session.Context.IsExtended,
+            dialedPreConnectXid: plan.PreConnectXid, observedSrejEnabled: session.Context.SrejEnabled);
+
         // Tap the session for inbound NET/ROM (the tap is idempotent — TryAdd guards
         // it — so OnSessionAccepted firing for the dial too is harmless).
         OnSessionAccepted(attachment.PortId, session);

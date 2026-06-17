@@ -152,6 +152,42 @@ public class NodeCommandParserTests
     public void Parses_reload(string line) =>
         NodeCommandParser.Parse(line).Should().BeOfType<ReloadCommand>();
 
+    // ─── CAP — the per-peer capability cache ────────────────────────────
+
+    [Theory]
+    [InlineData("CAP")]
+    [InlineData("caps")]
+    [InlineData("CAPS")]
+    [InlineData("CAPABILITIES")]
+    [InlineData("CA")]    // unambiguous ≥2-char prefix of the CAP family
+    [InlineData("CAPA")]  // a longer prefix of CAPABILITIES
+    public void Bare_cap_lists_the_capability_cache(string line) =>
+        NodeCommandParser.Parse(line).Should().BeOfType<CapabilitiesCommand>();
+
+    [Fact]
+    public void Bare_C_is_still_connect_not_cap()
+    {
+        // "C" alone is a prefix of BOTH CONNECT and the CAP family; it must stay CONNECT (and
+        // therefore be MalformedConnect with no callsign), never become a CAP command.
+        NodeCommandParser.Parse("C").Should().BeOfType<MalformedConnect>();
+        NodeCommandParser.Parse("C M0LTE-1").Should().BeOfType<ConnectCommand>();
+    }
+
+    [Theory]
+    [InlineData("CAP CLEAR gb7rdg:M0LTE-1", "gb7rdg:M0LTE-1")]
+    [InlineData("cap clear gb7rdg:M0LTE-1", "gb7rdg:M0LTE-1")]
+    [InlineData("CAPS CLEAR gb7rdg:M0LTE-1 extra", "gb7rdg:M0LTE-1")]  // extras after the id are ignored
+    public void Parses_cap_clear(string line, string target) =>
+        NodeCommandParser.Parse(line).Should().BeOfType<ClearCapabilityCommand>().Which.Target.Should().Be(target);
+
+    [Theory]
+    [InlineData("CAP CLEAR")]           // CLEAR with no id
+    [InlineData("CAP CLEAR   ")]
+    [InlineData("CAP FROBNICATE")]      // an unknown sub-verb
+    [InlineData("CAP gb7rdg:M0LTE-1")]  // an arg that isn't CLEAR
+    public void Cap_with_a_bad_argument_is_malformed(string line) =>
+        NodeCommandParser.Parse(line).Should().BeOfType<MalformedCapability>();
+
     [Fact]
     public void Over_long_line_is_truncated_and_still_classified()
     {
@@ -212,6 +248,10 @@ public class NodeCommandParserTests
             // RELOAD use the usual unambiguous-prefix rule.
             (firstTokenUpper.Length >= 2 &&
                 (IsPrefixOf(firstTokenUpper, "SYSOP") || IsPrefixOf(firstTokenUpper, "SESSIONS"))) ||
+            // The CAP family: a ≥2-char CA-stem prefix of CAPABILITIES, or the plural "CAPS"
+            // (mirrors the parser — bare "C" stays CONNECT, never CAP).
+            (firstTokenUpper.Length >= 2 &&
+                (IsPrefixOf(firstTokenUpper, "CAPABILITIES") || firstTokenUpper == "CAPS")) ||
             IsPrefixOf(firstTokenUpper, "KICK") || IsPrefixOf(firstTokenUpper, "PORT") ||
             IsPrefixOf(firstTokenUpper, "RELOAD");
 

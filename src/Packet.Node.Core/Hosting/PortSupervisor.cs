@@ -6,6 +6,7 @@ using Packet.Core;
 using Packet.Kiss;
 using Packet.Node.Core.Applications;
 using Packet.Node.Core.Beacons;
+using Packet.Node.Core.Capabilities;
 using Packet.Node.Core.Configuration;
 using Packet.Node.Core.Console;
 using Packet.Node.Core.NetRom;
@@ -53,6 +54,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     // Optional application launcher, threaded into each per-connection console env so an
     // inbound user can launch a registered app by its verb. Null = no app platform wired.
     private readonly IApplicationHost? applicationHost;
+    // Optional per-peer AX.25 capability cache, threaded into every Ax25OutboundConnector
+    // this supervisor constructs so a user CONNECT consults it for the dial version + XID
+    // probe and records the outcome. Null = today's behaviour (each connector dials via the
+    // listener defaults + records nothing). Interlinks consult the cache in NetRomService.
+    private readonly PeerCapabilityCache? capabilityCache;
     // App callsigns the node answers for on behalf of an external program (the RHPv2 server's
     // `bind`): callsign → registration. Applied to running listeners as local aliases, re-applied
     // when a port (re)starts, and routed in OnSessionAccepted (an inbound session whose Local is
@@ -79,7 +85,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         NodeTelemetry? telemetry = null,
         BeaconService? beacons = null,
         SysopContext? sysopContext = null,
-        IApplicationHost? applicationHost = null)
+        IApplicationHost? applicationHost = null,
+        PeerCapabilityCache? capabilityCache = null)
     {
         this.config = config ?? throw new ArgumentNullException(nameof(config));
         this.transportFactory = transportFactory ?? throw new ArgumentNullException(nameof(transportFactory));
@@ -87,6 +94,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         this.sysopContext = sysopContext;
         this.applicationHost = applicationHost;
+        this.capabilityCache = capabilityCache;
         logger = this.loggerFactory.CreateLogger<PortSupervisor>();
         // Optional live telemetry: when present, each port that comes up has its
         // frame-trace tap subscribed (and unsubscribed on teardown) so the node's
@@ -120,8 +128,12 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     // Dial an interlink AX.25 session to a neighbour with the outbound claim held, so
     // OnSessionAccepted does NOT start a node console against the dialled neighbour
     // (an interlink is NET/ROM datagrams, not console text). Mirrors how
-    // Ax25OutboundConnector claims a console connect-out.
-    private async Task<Ax25Session> OpenInterlinkAsync(string portId, Callsign neighbour, CancellationToken ct)
+    // Ax25OutboundConnector claims a console connect-out. The service hands us the
+    // PeerDialPlan it computed from the per-peer capability cache (version + pre-connect
+    // XID); we just dial it. The default plan (no cache) is mod-8 + the listener's
+    // pre-connect-XID default — byte-for-byte today's behaviour.
+    private async Task<Ax25Session> OpenInterlinkAsync(
+        string portId, Callsign neighbour, PeerDialPlan plan, CancellationToken ct)
     {
         RunningPort? port;
         lock (ports) ports.TryGetValue(portId, out port);
@@ -129,11 +141,9 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             ?? throw new InvalidOperationException($"NET/ROM interlink: port '{portId}' is not running.");
 
         using var ticket = ClaimOutbound(neighbour);
-        // NET/ROM interlinks dial v2.0 (SABM) explicitly — NOT the listener's
-        // PreferExtendedConnect default. See NetRomService.OpenInterlink dial site for the
-        // rationale (mod-8 neighbour population; a SABME-ignoring peer would exhaust N2 and
-        // break circuit origination). Prefer-extended is for the user's point-to-point CONNECT.
-        return await listener.ConnectAsync(neighbour, listener.MyCall, extended: false, ct).ConfigureAwait(false);
+        return await listener
+            .ConnectAsync(neighbour, listener.MyCall, plan.Extended, plan.PreConnectXid, ct)
+            .ConfigureAwait(false);
     }
 
     // Run the node command service over an inbound connection (used for NET/ROM L4
@@ -144,7 +154,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     {
         Callsign user = Callsign.TryParse(connection.PeerId, out var u) ? u : default;
         var connector = netRom is not null ? new Packet.Node.Core.NetRom.NetRomOutboundConnector(netRom, fallback: null, user) : null;
-        var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, CreateConnectRouter(connector));
+        var env = new NodeConsoleEnvironment(config, connector, netRom, sysopContext, applicationHost, CreateConnectRouter(connector), capabilityCache);
         var service = new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifecycle.Token);
         await service.RunAsync(connection, linked.Token).ConfigureAwait(false);
@@ -192,7 +202,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
     {
         RunningPort? port;
         lock (ports) ports.TryGetValue(portId, out port);
-        return port is null ? null : new Ax25OutboundConnector(port.Id, port.Listener, r => ClaimOutbound(r), localOverride);
+        return port is null ? null : new Ax25OutboundConnector(port.Id, port.Listener, r => ClaimOutbound(r), localOverride, capabilityCache);
     }
 
     /// <summary>
@@ -377,7 +387,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
         {
             first = ports.Values.OrderBy(p => p.Id, StringComparer.Ordinal).FirstOrDefault();
         }
-        var ax25 = first is null ? null : new Ax25OutboundConnector(first.Id, first.Listener, r => ClaimOutbound(r));
+        var ax25 = first is null ? null : new Ax25OutboundConnector(first.Id, first.Listener, r => ClaimOutbound(r), localOverride: null, cache: capabilityCache);
 
         // A telnet dial-in has no callsign of its own; a NET/ROM-routed `connect`
         // originates on behalf of this node. Wrap with NET/ROM routing when enabled
@@ -595,7 +605,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
             effectiveAx25, port.Compat, myCall,
             restartT1OnTxComplete: effectiveKiss?.T1FromTxComplete == true);
         var listener = new Ax25Listener(modem, options, timeProvider);
-        var connector = new Ax25OutboundConnector(port.Id, listener, r => ClaimOutbound(r));
+        var connector = new Ax25OutboundConnector(port.Id, listener, r => ClaimOutbound(r), localOverride: null, cache: capabilityCache);
         listener.SessionAccepted += (_, e) => OnSessionAccepted(listener, connector, e.Session);
 
         try
@@ -844,7 +854,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable
                     // enabled) so `connect <alias>` reaches a distant node; the
                     // dialling user is this inbound peer.
                     var routed = WrapWithNetRom(connector, session.Context.Remote);
-                    var env = new NodeConsoleEnvironment(config, routed, netRom, sysopContext, applicationHost, CreateConnectRouter(routed));
+                    var env = new NodeConsoleEnvironment(config, routed, netRom, sysopContext, applicationHost, CreateConnectRouter(routed), capabilityCache);
                     var service = new NodeCommandService(env, loggerFactory.CreateLogger<NodeCommandService>(), timeProvider);
                     await service.RunAsync(connection, lifecycle.Token).ConfigureAwait(false);
                 }

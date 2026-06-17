@@ -64,3 +64,19 @@ public sealed record LinkStats(
 
 /// <summary>A node log line for the dashboard tail.</summary>
 public sealed record LogLine(string T, string Lvl, string Msg);
+
+/// <summary>One learned per-peer AX.25 capability record, projected for the operator
+/// surface (the web Capabilities screen + the MCP read tool). Mirrors the live
+/// <c>PeerCapabilityCache</c> record, with the two <see cref="DateTimeOffset"/> instants
+/// rendered as relative-ago strings (the NetRom row's "h:mm:ss" style) so the client
+/// renders them without a clock of its own. The nullable bools carry the cache's
+/// three-state meaning: <c>true</c>/<c>false</c> = learned, <c>null</c> = never probed
+/// (the UI shows a "v2.2?" / "SREJ?" unknown badge). <see cref="LastRefused"/> is null
+/// when the peer never refused/degraded an extended dial.</summary>
+public sealed record PeerCapability(
+    string PortId,
+    string Peer,
+    bool? SupportsExtended,
+    bool? SupportsSrejViaXid,
+    string LastProbed,
+    string? LastRefused);

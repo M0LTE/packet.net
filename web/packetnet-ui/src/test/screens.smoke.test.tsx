@@ -16,6 +16,7 @@ import { Sessions } from "@/screens/sessions";
 import { Console } from "@/screens/console";
 import { Apps } from "@/screens/apps";
 import { Routes } from "@/screens/routes";
+import { Capabilities } from "@/screens/capabilities";
 import { Ports } from "@/screens/ports";
 import { Config } from "@/screens/config";
 import { Users } from "@/screens/users";
@@ -90,6 +91,15 @@ describe("screens render without crashing", () => {
     const { container } = mount(<Ports />);
     expect(container.firstChild).toBeTruthy();
     await waitFor(() => expect(screen.getAllByText(/Ports/i).length).toBeGreaterThan(0));
+  });
+
+  it("Capabilities renders the per-peer capability cache", async () => {
+    const { container } = mount(<Capabilities />);
+    expect(container.firstChild).toBeTruthy();
+    // The mock fixtures seed three peers; the title renders immediately and a learned
+    // peer row arrives once the (mock-async) query resolves — wait for the row.
+    expect(screen.getAllByText(/Capabilities/i).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByText("M0LTE")).toBeInTheDocument());
   });
 
   it("Config renders the editor", async () => {

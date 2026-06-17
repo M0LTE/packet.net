@@ -6,7 +6,7 @@
 // ============================================================
 import type {
   NodeConfig, NetRomRoutingSnapshot, NodeStatus, PortStatus, SessionInfo,
-  LinkStats, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
+  LinkStats, PeerCapability, MonitorEvent, FrameType, ApplyImpact, NinoMode, RadioProfile,
   ChannelMode, LinkDifficulty, PortSetup, ParamHelp, NinoTest,
   User, LogLine, ToggleHelp, FieldHelp, NodeApp, AppPackage, AvailableApp,
   TailscaleStatus, SystemInfo, NetRomRouting,
@@ -179,6 +179,17 @@ export const LINK_STATS: LinkStats[] = [
   { portId: "vhf-1", peer: "2E0XYZ", smoothedRttMs: 1880, retries: 3, rejCount: 5, srejCount: 2, framesIn: 88, framesOut: 71 },
   { portId: "uhf-2", peer: "G4APL-1", smoothedRttMs: 740, retries: 1, rejCount: 0, srejCount: 0, framesIn: 9011, framesOut: 8804 },
   { portId: "link-dn", peer: "G8PZT-7", smoothedRttMs: 38, retries: 0, rejCount: 0, srejCount: 0, framesIn: 210442, framesOut: 198330 },
+];
+
+// The learned per-peer AX.25 capability cache (GET /api/v1/capabilities). One row per
+// (port, peer); the booleans are three-state so the screen demos every badge: a v2.2 peer
+// that answered SREJ-via-XID, a peer that degraded an extended dial (v2.0 + a refusal stamp),
+// and a never-probed peer (both unknown → the "?" badges). The relative-ago strings match the
+// server's "h:mm:ss" style. The Forget action removes a row in mock mode (see api.clearCapability).
+export const CAPABILITIES: PeerCapability[] = [
+  { portId: "vhf-1", peer: "M0LTE", supportsExtended: true, supportsSrejViaXid: true, lastProbed: "0:02:14", lastRefused: null },
+  { portId: "vhf-1", peer: "2E0XYZ", supportsExtended: false, supportsSrejViaXid: false, lastProbed: "1:41:08", lastRefused: "1:41:08" },
+  { portId: "uhf-2", peer: "G4APL-1", supportsExtended: null, supportsSrejViaXid: null, lastProbed: "5:09:52", lastRefused: null },
 ];
 
 export const LOG_TAIL: LogLine[] = [
