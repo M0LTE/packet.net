@@ -116,7 +116,7 @@ public static class PdnReadApi
         v1.MapGet("/log", () => Results.Ok(Array.Empty<LogLine>()));
     }
 
-    private static NodeStatus BuildStatus(
+    internal static NodeStatus BuildStatus(
         NodeHostedService host, IConfigProvider config, TimeProvider clock, TrafficLogService? traffic)
     {
         var current = config.Current;

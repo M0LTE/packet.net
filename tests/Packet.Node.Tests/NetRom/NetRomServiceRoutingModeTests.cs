@@ -51,6 +51,22 @@ public sealed class NetRomServiceRoutingModeTests
         svc.Circuits.Should().NotBeNull();
     }
 
+    // The /metrics forwarding bucket (#457): a freshly-built service has forwarded nothing, so
+    // every counter is zero. (The increment paths are wire-driven and covered through the
+    // ForwardDatagram path / the exporter's all-zero endpoint assertion.)
+    [Fact]
+    public void ForwardingStats_start_at_zero()
+    {
+        using var svc = Build(new NetRomConfig { Enabled = true, Routing = NetRomRouting.Transit });
+        var stats = svc.ForwardingStats;
+        stats.ForwardedFrames.Should().Be(0);
+        stats.ForwardedBytes.Should().Be(0);
+        stats.DroppedTtlExpired.Should().Be(0);
+        stats.DroppedLooped.Should().Be(0);
+        stats.DroppedNoRoute.Should().Be(0);
+        stats.DroppedTotal.Should().Be(0);
+    }
+
     [Fact]
     public void Disabled_node_never_routes_even_with_transit_requested()
     {

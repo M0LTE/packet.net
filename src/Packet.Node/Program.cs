@@ -587,6 +587,13 @@ totpGroup.RequireAuthorization(PdnAuthPolicies.Read);
 // 127.0.0.1 by default. The live SSE feed for the monitor is step 1b.)
 app.MapPdnReadApi();
 
+// Prometheus exporter (GET /metrics, #457): the same listener, the same Read scope
+// gate as the REST read surface (so unauthenticated when management.auth.enabled is
+// off — localhost-scrape posture — and read-scoped once on). Hand-rolled exposition
+// text derived from the SAME live counters /api/v1/links projects; bounded label
+// cardinality (per-port only). See docs/observability.md.
+app.MapPdnMetrics();
+
 // Slice 3 step 1b: the live SSE frame feed the web monitor's EventSource
 // consumes (GET /api/v1/events). Mapped after the read API and before the
 // catch-all; the specific route wins over /api/{**rest} regardless of order.

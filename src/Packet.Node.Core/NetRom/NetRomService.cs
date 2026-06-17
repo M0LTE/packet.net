@@ -105,10 +105,35 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
     private Callsign nodeCall;
     private bool nodeCallSet;
 
+    // L3 transit-forwarding throughput counters (the /metrics exporter's "forwarding"
+    // bucket — #457). Bumped only on the transit-forward path (ForwardDatagram); a
+    // datagram addressed to us terminates here and never touches these. Interlocked
+    // because ForwardDatagram runs on listener pump threads. Bytes are the encoded
+    // NET/ROM datagram length (the L3 PDU forwarded on toward the destination).
+    private long forwardedFrames;
+    private long forwardedBytes;
+    private long droppedTtl;
+    private long droppedLooped;
+    private long droppedNoRoute;
+
     private int disposed;
 
     /// <inheritdoc/>
     public bool Enabled => config.Enabled;
+
+    /// <summary>
+    /// A snapshot of the L3 transit-forwarding throughput counters (frames/bytes forwarded
+    /// + the three drop reasons), for the Prometheus <c>/metrics</c> exporter's forwarding
+    /// bucket (#457). All-zero on an endpoint-only / disabled node (nothing is ever forwarded).
+    /// The counters are monotonic for the lifetime of the service (process uptime), which is the
+    /// counter semantics Prometheus expects.
+    /// </summary>
+    public NetRomForwardingStats ForwardingStats => new(
+        ForwardedFrames: Interlocked.Read(ref forwardedFrames),
+        ForwardedBytes: Interlocked.Read(ref forwardedBytes),
+        DroppedTtlExpired: Interlocked.Read(ref droppedTtl),
+        DroppedLooped: Interlocked.Read(ref droppedLooped),
+        DroppedNoRoute: Interlocked.Read(ref droppedNoRoute));
 
     /// <summary>True if NET/ROM L4 connect-routing is enabled (interlinks + circuits) —
     /// the routing role opens connected-mode interlinks (<see cref="NetRomRouting.Endpoint"/>
@@ -821,18 +846,28 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
         switch (decision.Outcome)
         {
             case NetRomForwarding.ForwardOutcome.DropTtlExpired:
+                Interlocked.Increment(ref droppedTtl);
                 LogForwardTtlExpired(destText);
                 return;
             case NetRomForwarding.ForwardOutcome.DropLooped:
+                Interlocked.Increment(ref droppedLooped);
                 LogForwardLoop(destText);
                 return;
             case NetRomForwarding.ForwardOutcome.DropNoRoute:
+                Interlocked.Increment(ref droppedNoRoute);
                 LogForwardNoRoute(destText);
                 return;
         }
 
         var neighbour = decision.NextHop;
         var forwarded = decision.Packet;
+
+        // Count the forward once the decision resolved a next hop — the datagram is on its way
+        // toward the destination whether the interlink is hot (sent now) or cold (dialled then
+        // sent). Bytes are the encoded L3 PDU length. A cold interlink that ultimately can't be
+        // raised is rare and still counts as a forward attempt accepted by routing.
+        Interlocked.Increment(ref forwardedFrames);
+        Interlocked.Add(ref forwardedBytes, forwarded.ToBytes().Length);
 
         // If the interlink is already up, send now (in order); otherwise dial it on a
         // background task and send when it comes up.
@@ -1325,4 +1360,26 @@ public sealed partial class NetRomService : INetRomRoutingView, IDisposable, IAs
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "NET/ROM: inbound circuit console for {OriginatingUser} faulted.")]
     private partial void LogConsoleFault(Exception ex, string originatingUser);
+}
+
+/// <summary>
+/// An immutable read of the node's L3 transit-forwarding throughput counters — the
+/// "forwarding" bucket of the Prometheus <c>/metrics</c> exporter (#457). All counts are
+/// monotonic over the service lifetime (process uptime), the semantics Prometheus
+/// counters expect. All-zero on an endpoint-only or NET/ROM-disabled node.
+/// </summary>
+/// <param name="ForwardedFrames">Transit datagrams routed onward toward their destination.</param>
+/// <param name="ForwardedBytes">Total encoded NET/ROM PDU bytes of those forwarded datagrams.</param>
+/// <param name="DroppedTtlExpired">Datagrams discarded because the hop-limit TTL reached zero.</param>
+/// <param name="DroppedLooped">Datagrams discarded because they had looped back to their own origin.</param>
+/// <param name="DroppedNoRoute">Datagrams discarded because no onward route to the destination was known.</param>
+public sealed record NetRomForwardingStats(
+    long ForwardedFrames,
+    long ForwardedBytes,
+    long DroppedTtlExpired,
+    long DroppedLooped,
+    long DroppedNoRoute)
+{
+    /// <summary>Total datagrams dropped on the forward path, across all three drop reasons.</summary>
+    public long DroppedTotal => DroppedTtlExpired + DroppedLooped + DroppedNoRoute;
 }

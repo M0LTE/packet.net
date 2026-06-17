@@ -1,0 +1,404 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Packet.Node.Core.Configuration;
+using Packet.Node.Core.Hosting;
+using Packet.Node.Core.NetRom;
+using Packet.Node.Core.Telemetry;
+
+namespace Packet.Node.Api;
+
+/// <summary>
+/// The Prometheus text-exposition exporter (<c>GET /metrics</c>, #457). A hand-rolled
+/// <see cref="PrometheusTextWriter"/> formats the node's live counters into the
+/// <see href="https://prometheus.io/docs/instrumenting/exposition_formats/">text exposition
+/// format</see> — no Prometheus client dependency is taken (the formatter is &lt;200 lines and
+/// avoids a new package; see docs/observability.md for the rationale).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Single source of truth.</b> Every value is read from the SAME live state that backs the
+/// REST/SSE <c>/api/v1/*</c> telemetry: the <see cref="NodeTelemetry"/> frame tap (per-port frame
+/// totals, per-link byte/REJ/SREJ rollups), the live <see cref="Ax25Session"/> timer state (RC /
+/// SRTT / queue depth, via <see cref="PdnReadApi.SessionTimers"/>), the NET/ROM forwarding
+/// counters (<see cref="NetRomService.ForwardingStats"/>), and <see cref="PdnReadApi.BuildStatus"/>
+/// / <see cref="PdnReadApi.BuildPorts"/> for node health. There is no second counter store.
+/// </para>
+/// <para>
+/// <b>Bounded cardinality.</b> The only label used is <c>port</c> (one value per <em>configured</em>
+/// port — a closed set the operator controls). Per-link counters (which are keyed by remote
+/// callsign and therefore unbounded as random stations are heard) are <em>aggregated up to the
+/// port</em> before export, so a busy channel can never blow up the series count. There is
+/// deliberately no <c>peer</c> / <c>callsign</c> label anywhere in <c>/metrics</c>; per-peer detail
+/// stays on the bounded-by-request <c>/api/v1/links</c> JSON surface.
+/// </para>
+/// <para>
+/// <b>Exposure posture.</b> <c>/metrics</c> is mapped on the same Kestrel listener as the REST API
+/// and is gated by the same <see cref="PdnAuthPolicies.Read"/> scope policy — so it is unauthenticated
+/// when <c>management.auth.enabled</c> is off (the node binds 127.0.0.1 by default, the standard
+/// localhost-scrape posture) and requires a <c>read</c>-scoped token once auth is turned on, exactly
+/// like the rest of the read surface. Documented in docs/observability.md.
+/// </para>
+/// </remarks>
+public static class PdnMetricsApi
+{
+    /// <summary>The metric-name namespace prefix — every series is <c>pdn_*</c>.</summary>
+    private const string Ns = "pdn_";
+
+    // Node start instant on the monotonic clock, captured once at module load so the
+    // process_start_time export is wall-clock independent (repo rule §2.7).
+    private static readonly long StartTimestamp = Stopwatch.GetTimestamp();
+
+    /// <summary>
+    /// Map <c>GET /metrics</c>. Called from the composition root beside the other read endpoints.
+    /// </summary>
+    public static void MapPdnMetrics(this WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        _ = StartTimestamp;   // touch at startup so the start instant is module-load, not first-scrape
+
+        app.MapGet("/metrics", (NodeHostedService host, IConfigProvider config, TimeProvider clock,
+                [FromServices] Packet.Node.Core.Traffic.TrafficLogService? traffic) =>
+            {
+                var body = Render(host, config, clock, traffic);
+                // text/plain; version=0.0.4 is the Prometheus exposition content type a scraper expects.
+                return Results.Text(body, "text/plain; version=0.0.4; charset=utf-8");
+            })
+            .RequireAuthorization(PdnAuthPolicies.Read)
+            .WithName("metrics");
+    }
+
+    /// <summary>
+    /// Render the full exposition document. Pure over the supplied state — exposed (internal) so a
+    /// test can format a known node and assert the output without standing up Kestrel.
+    /// </summary>
+    internal static string Render(
+        NodeHostedService host, IConfigProvider config, TimeProvider clock,
+        Packet.Node.Core.Traffic.TrafficLogService? traffic)
+    {
+        var w = new PrometheusTextWriter();
+
+        WriteNodeHealth(w, host, config, clock, traffic);
+        WritePortAndLinkStats(w, host, config);
+        WriteForwarding(w, host);
+
+        return w.ToString();
+    }
+
+    // ─── node health bucket ───────────────────────────────────────────────────
+
+    private static void WriteNodeHealth(
+        PrometheusTextWriter w, NodeHostedService host, IConfigProvider config, TimeProvider clock,
+        Packet.Node.Core.Traffic.TrafficLogService? traffic)
+    {
+        var status = PdnReadApi.BuildStatus(host, config, clock, traffic);
+
+        // Build/version info: the conventional info gauge (value 1, the data is in the labels).
+        w.Help(Ns + "build_info", "Node build/version info (constant 1; see labels).");
+        w.Type(Ns + "build_info", "gauge");
+        w.Sample(Ns + "build_info", 1,
+            ("version", status.Version),
+            ("callsign", status.Callsign),
+            ("alias", status.Alias ?? string.Empty));
+
+        w.Help(Ns + "uptime_seconds", "Node process uptime in seconds.");
+        w.Type(Ns + "uptime_seconds", "gauge");
+        w.Sample(Ns + "uptime_seconds", status.UptimeSeconds);
+
+        w.Help(Ns + "ports_total", "Number of configured radio ports.");
+        w.Type(Ns + "ports_total", "gauge");
+        w.Sample(Ns + "ports_total", status.PortsTotal);
+
+        w.Help(Ns + "ports_up", "Number of configured radio ports currently up.");
+        w.Type(Ns + "ports_up", "gauge");
+        w.Sample(Ns + "ports_up", status.PortsUp);
+
+        w.Help(Ns + "sessions", "Number of active connected-mode sessions across all ports.");
+        w.Type(Ns + "sessions", "gauge");
+        w.Sample(Ns + "sessions", status.SessionCount);
+
+        w.Help(Ns + "netrom_neighbours", "Directly-heard NET/ROM neighbours.");
+        w.Type(Ns + "netrom_neighbours", "gauge");
+        w.Sample(Ns + "netrom_neighbours", status.Netrom.Neighbours);
+
+        w.Help(Ns + "netrom_destinations", "Known NET/ROM destinations in the routing table.");
+        w.Type(Ns + "netrom_destinations", "gauge");
+        w.Sample(Ns + "netrom_destinations", status.Netrom.Destinations);
+
+        // Process/runtime stats (no extra dependency — System.Diagnostics + GC).
+        using var proc = Process.GetCurrentProcess();
+
+        w.Help(Ns + "process_resident_memory_bytes", "Resident (working-set) memory of the node process, in bytes.");
+        w.Type(Ns + "process_resident_memory_bytes", "gauge");
+        w.Sample(Ns + "process_resident_memory_bytes", proc.WorkingSet64);
+
+        w.Help(Ns + "process_cpu_seconds_total", "Total CPU time consumed by the node process, in seconds.");
+        w.Type(Ns + "process_cpu_seconds_total", "counter");
+        w.Sample(Ns + "process_cpu_seconds_total", proc.TotalProcessorTime.TotalSeconds);
+
+        w.Help(Ns + "process_threads", "Number of OS threads in the node process.");
+        w.Type(Ns + "process_threads", "gauge");
+        w.Sample(Ns + "process_threads", proc.Threads.Count);
+
+        w.Help(Ns + "process_start_time_seconds", "Node process start time as Unix epoch seconds.");
+        w.Type(Ns + "process_start_time_seconds", "gauge");
+        // Derived from the monotonic start instant + the current wall clock, so it is stable
+        // across scrapes without storing DateTime.Now in logic (§2.7).
+        double upSeconds = (clock.GetTimestamp() - StartTimestamp) / (double)Stopwatch.Frequency;
+        double startEpoch = clock.GetUtcNow().ToUnixTimeMilliseconds() / 1000.0 - Math.Max(0, upSeconds);
+        w.Sample(Ns + "process_start_time_seconds", startEpoch);
+
+        w.Help(Ns + "dotnet_gc_heap_bytes", "Managed GC heap size in bytes (GC.GetTotalMemory).");
+        w.Type(Ns + "dotnet_gc_heap_bytes", "gauge");
+        w.Sample(Ns + "dotnet_gc_heap_bytes", GC.GetTotalMemory(forceFullCollection: false));
+
+        // Traffic log writer health — the loss counter (writer behind), never the radio path's.
+        w.Help(Ns + "traffic_log_dropped_frames_total", "Frames the persistent traffic-log writer dropped (writer behind).");
+        w.Type(Ns + "traffic_log_dropped_frames_total", "counter");
+        w.Sample(Ns + "traffic_log_dropped_frames_total", status.Traffic.Dropped);
+    }
+
+    // ─── per-port / per-link bucket (aggregated to the port — bounded cardinality) ─────
+
+    private static void WritePortAndLinkStats(PrometheusTextWriter w, NodeHostedService host, IConfigProvider config)
+    {
+        var ports = PdnReadApi.BuildPorts(host, config);
+
+        // Per-link counters keyed by (port, peer) rolled up to the port: peer is a remote
+        // callsign, so a per-peer label would be unbounded — we sum to the bounded port label.
+        var perPort = new Dictionary<string, LinkRollup>(StringComparer.Ordinal);
+        foreach (var link in host.Telemetry.Links())
+        {
+            var roll = perPort.TryGetValue(link.PortId, out var existing) ? existing : new LinkRollup();
+            roll.FramesIn += link.FramesIn;
+            roll.FramesOut += link.FramesOut;
+            roll.BytesIn += link.BytesIn;
+            roll.BytesOut += link.BytesOut;
+            roll.Rej += link.RejCount;
+            roll.Srej += link.SrejCount;
+            perPort[link.PortId] = roll;
+        }
+
+        // Live session-state roll-up per port (retries = current RC, queue depth + outstanding
+        // I-frames) from the connected sessions on that port — the monitor-v2 source.
+        var sessionRoll = new Dictionary<string, SessionRollup>(StringComparer.Ordinal);
+        var supervisor = host.Supervisor;
+        if (supervisor is not null)
+        {
+            foreach (var portId in supervisor.RunningPortIds)
+            {
+                var rp = supervisor.GetPort(portId);
+                if (rp is null)
+                {
+                    continue;
+                }
+                var roll = new SessionRollup();
+                foreach (var session in rp.Listener.ActiveSessions)
+                {
+                    var ctx = session.Context;
+                    roll.Retries += ctx.RC;
+                    roll.QueueDepth += ctx.IFrameQueue.Count;
+                    roll.Outstanding += ctx.SentIFrames.Count;
+                }
+                sessionRoll[portId] = roll;
+            }
+        }
+
+        w.Help(Ns + "port_up", "Port up (1) / not up (0).");
+        w.Type(Ns + "port_up", "gauge");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_up", string.Equals(p.State, "up", StringComparison.Ordinal) ? 1 : 0, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_sessions", "Active connected-mode sessions on the port.");
+        w.Type(Ns + "port_sessions", "gauge");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_sessions", p.SessionCount, ("port", p.Id));
+        }
+
+        // Frame totals come from the per-port frame tap directly (PortStatus), independent of
+        // whether any (port,peer) link row exists.
+        w.Help(Ns + "port_frames_received_total", "AX.25 frames received on the port.");
+        w.Type(Ns + "port_frames_received_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_frames_received_total", p.FramesIn, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_frames_transmitted_total", "AX.25 frames transmitted on the port.");
+        w.Type(Ns + "port_frames_transmitted_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_frames_transmitted_total", p.FramesOut, ("port", p.Id));
+        }
+
+        // Byte totals + REJ/SREJ come from the per-link rollup (summed across peers on the port).
+        w.Help(Ns + "port_info_bytes_received_total", "AX.25 information-field bytes received on the port (summed over peers).");
+        w.Type(Ns + "port_info_bytes_received_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_info_bytes_received_total", Roll(perPort, p.Id).BytesIn, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_info_bytes_transmitted_total", "AX.25 information-field bytes transmitted on the port (summed over peers).");
+        w.Type(Ns + "port_info_bytes_transmitted_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_info_bytes_transmitted_total", Roll(perPort, p.Id).BytesOut, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_rej_total", "REJ (go-back-N reject) frames seen on the port (summed over peers).");
+        w.Type(Ns + "port_rej_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_rej_total", Roll(perPort, p.Id).Rej, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_srej_total", "SREJ (selective reject) frames seen on the port (summed over peers).");
+        w.Type(Ns + "port_srej_total", "counter");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_srej_total", Roll(perPort, p.Id).Srej, ("port", p.Id));
+        }
+
+        // Live session-state gauges (current retries / queue depth / outstanding unacked I-frames).
+        w.Help(Ns + "port_retries", "Sum of the current retry counter (RC) over the port's live sessions.");
+        w.Type(Ns + "port_retries", "gauge");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_retries", SessionRoll(sessionRoll, p.Id).Retries, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_tx_queue_depth", "Sum of pending (unsent) I-frames queued over the port's live sessions.");
+        w.Type(Ns + "port_tx_queue_depth", "gauge");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_tx_queue_depth", SessionRoll(sessionRoll, p.Id).QueueDepth, ("port", p.Id));
+        }
+
+        w.Help(Ns + "port_outstanding_iframes", "Sum of sent-but-unacknowledged I-frames over the port's live sessions.");
+        w.Type(Ns + "port_outstanding_iframes", "gauge");
+        foreach (var p in ports)
+        {
+            w.Sample(Ns + "port_outstanding_iframes", SessionRoll(sessionRoll, p.Id).Outstanding, ("port", p.Id));
+        }
+    }
+
+    // ─── forwarding throughput bucket ──────────────────────────────────────────
+
+    private static void WriteForwarding(PrometheusTextWriter w, NodeHostedService host)
+    {
+        var f = host.NetRom?.ForwardingStats
+                ?? new NetRomForwardingStats(0, 0, 0, 0, 0);
+
+        w.Help(Ns + "netrom_forwarded_frames_total", "NET/ROM transit datagrams forwarded toward their destination.");
+        w.Type(Ns + "netrom_forwarded_frames_total", "counter");
+        w.Sample(Ns + "netrom_forwarded_frames_total", f.ForwardedFrames);
+
+        w.Help(Ns + "netrom_forwarded_bytes_total", "NET/ROM transit datagram bytes forwarded.");
+        w.Type(Ns + "netrom_forwarded_bytes_total", "counter");
+        w.Sample(Ns + "netrom_forwarded_bytes_total", f.ForwardedBytes);
+
+        // Drops broken out by reason as one series with a bounded `reason` label (3 closed values).
+        w.Help(Ns + "netrom_forward_drops_total", "NET/ROM transit datagrams dropped on the forward path, by reason.");
+        w.Type(Ns + "netrom_forward_drops_total", "counter");
+        w.Sample(Ns + "netrom_forward_drops_total", f.DroppedTtlExpired, ("reason", "ttl_expired"));
+        w.Sample(Ns + "netrom_forward_drops_total", f.DroppedLooped, ("reason", "looped"));
+        w.Sample(Ns + "netrom_forward_drops_total", f.DroppedNoRoute, ("reason", "no_route"));
+    }
+
+    private static LinkRollup Roll(Dictionary<string, LinkRollup> map, string portId)
+        => map.TryGetValue(portId, out var r) ? r : new LinkRollup();
+
+    private static SessionRollup SessionRoll(Dictionary<string, SessionRollup> map, string portId)
+        => map.TryGetValue(portId, out var r) ? r : new SessionRollup();
+
+    private sealed class LinkRollup
+    {
+        public long FramesIn;
+        public long FramesOut;
+        public long BytesIn;
+        public long BytesOut;
+        public long Rej;
+        public long Srej;
+    }
+
+    private sealed class SessionRollup
+    {
+        public long Retries;
+        public long QueueDepth;
+        public long Outstanding;
+    }
+}
+
+/// <summary>
+/// A tiny hand-rolled Prometheus text-exposition writer (#457): emits <c># HELP</c> / <c># TYPE</c>
+/// header lines and value samples with optional bounded labels, escaping label values per the
+/// exposition spec (backslash, double-quote, newline). One <c>HELP</c>/<c>TYPE</c> pair precedes
+/// each metric's samples. Deliberately minimal — it avoids taking a Prometheus client dependency
+/// for a read-only scrape surface (see PdnMetricsApi remarks). Not thread-safe; build one per request.
+/// </summary>
+internal sealed class PrometheusTextWriter
+{
+    private readonly StringBuilder sb = new();
+
+    /// <summary>Emit a <c># HELP &lt;metric&gt; &lt;text&gt;</c> line.</summary>
+    public void Help(string metric, string help)
+        => sb.Append("# HELP ").Append(metric).Append(' ').Append(EscapeHelp(help)).Append('\n');
+
+    /// <summary>Emit a <c># TYPE &lt;metric&gt; &lt;type&gt;</c> line (counter|gauge|…).</summary>
+    public void Type(string metric, string type)
+        => sb.Append("# TYPE ").Append(metric).Append(' ').Append(type).Append('\n');
+
+    /// <summary>Emit one sample line: <c>metric{labels} value</c>.</summary>
+    public void Sample(string metric, double value, params (string Name, string Value)[] labels)
+    {
+        sb.Append(metric);
+        if (labels.Length > 0)
+        {
+            sb.Append('{');
+            for (int i = 0; i < labels.Length; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.Append(labels[i].Name).Append("=\"").Append(EscapeLabel(labels[i].Value)).Append('"');
+            }
+            sb.Append('}');
+        }
+        sb.Append(' ').Append(Format(value)).Append('\n');
+    }
+
+    public override string ToString() => sb.ToString();
+
+    // Integral values render without a decimal point; non-integral use round-trip ("R") so a
+    // double like CPU seconds reaches the scraper losslessly. Always invariant culture.
+    private static string Format(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return "0";
+        }
+        if (value == Math.Floor(value) && Math.Abs(value) < 1e15)
+        {
+            return ((long)value).ToString(CultureInfo.InvariantCulture);
+        }
+        return value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    // HELP text: only backslash + newline are special.
+    private static string EscapeHelp(string s)
+        => s.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
+
+    // Label values: backslash, double-quote, newline.
+    private static string EscapeLabel(string s)
+        => s.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal);
+}
