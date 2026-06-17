@@ -23,17 +23,16 @@ esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 proj="$root/src/Packet.Node/Packet.Node.csproj"
-ui="$root/web/packetnet-ui"
 pub="$root/artifacts/node/$rid"
 stage="$root/artifacts/deb/$rid"
 out="$root/artifacts/packetnet_${version}_${arch}.deb"
 
-echo "==> build the web UI (Vite SPA -> $ui/dist)"
-# The node serves this SPA from {ContentRoot}/wwwroot; it's gitignored/built here
-# (not carried by `dotnet publish`), so build it before staging the .deb tree.
-# A fresh CI checkout runs `npm ci` once; a dev box reuses its node_modules;
-# per-arch calls in the publish loop only rebuild dist (cheap).
-( cd "$ui" && { [ -d node_modules ] || npm ci; } && VITE_API_MODE=live npm run build )
+# The node serves the Vite SPA from {ContentRoot}/wwwroot. The publish itself builds
+# it (VITE_API_MODE=live) and emits it into the publish output's wwwroot/ — the
+# Packet.Node.csproj BuildWebUi target (#468); npm ci + vite build run as part of
+# `dotnet publish` below. (Previously this script built the SPA by hand; that left a
+# bare `dotnet publish` shipping no/stale wwwroot. The csproj is now the single source
+# of truth, so a plain publish — not just this script — produces a current live UI.)
 
 # PDN_FAST=1: a faster publish for the dev deploy loop — drops R2R (crossgen2) and
 # single-file bundling, at the cost of a slightly slower cold start (fine for the
@@ -54,10 +53,14 @@ echo "==> stage .deb tree for $arch"
 rm -rf "$stage"
 install -d "$stage/opt/packetnet/app" "$stage/lib/systemd/system" \
            "$stage/etc/packetnet" "$stage/DEBIAN"
+# The publish output already carries the built SPA under wwwroot/ (the BuildWebUi
+# csproj target — VITE_API_MODE=live), so copying $pub stages it at
+# {ContentRoot=/opt/packetnet/app}/wwwroot with no separate step. Guard it: a publish
+# that somehow produced no UI must never silently ship an empty wwwroot.
 cp -a "$pub/." "$stage/opt/packetnet/app/"
-# The SPA: served from {ContentRoot=/opt/packetnet/app}/wwwroot.
-install -d "$stage/opt/packetnet/app/wwwroot"
-cp -a "$ui/dist/." "$stage/opt/packetnet/app/wwwroot/"
+[ -f "$stage/opt/packetnet/app/wwwroot/index.html" ] || {
+  echo "publish produced no wwwroot/index.html — the web UI didn't build (BuildWebUi)" >&2; exit 1
+}
 cp "$root/packaging/packetnet.service" "$stage/lib/systemd/system/packetnet.service"
 cp "$root/packaging/packetnet.yaml"    "$stage/etc/packetnet/packetnet.yaml"
 

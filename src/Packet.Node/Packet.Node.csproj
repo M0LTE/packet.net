@@ -48,4 +48,90 @@
     <InternalsVisibleTo Include="Packet.Node.Tests" />
   </ItemGroup>
 
+  <!-- ============================================================
+       Web UI (the wwwroot SPA) — built as part of `dotnet publish`.
+
+       The node serves the React/Vite control panel (web/packetnet-ui) as static
+       files from {ContentRoot}/wwwroot (see Program.cs UseStaticFiles /
+       MapFallbackToFile). The SPA's source is NOT tracked C# Content — it's a
+       separate Vite app, and the built wwwroot/ is gitignored. Historically the
+       packaging scripts (build-deb.sh / docker-image.sh) ran the vite build by
+       hand before staging, which meant a bare `dotnet publish` produced a node
+       with NO wwwroot (or a stale, wrong-API-mode one) — silently. This target
+       closes that footgun (#468): a clean `dotnet publish` now builds the SPA in
+       the correct LIVE API mode and emits it into the publish output's wwwroot,
+       with no manual step.
+
+       Gated to publish only (not plain build/test) so the C# inner loop stays
+       fast and node/npm isn't required for library work. Set BuildWebUi=false to
+       skip it (e.g. publishing on a host with no Node toolchain, having staged
+       wwwroot by other means). VITE_API_MODE=live bakes the shipped artifacts to
+       talk to the real /api/v1 backend rather than the mock data layer. -->
+  <PropertyGroup>
+    <BuildWebUi Condition="'$(BuildWebUi)' == ''">true</BuildWebUi>
+    <WebUiProjectDir>$(MSBuildProjectDirectory)/../../web/packetnet-ui</WebUiProjectDir>
+    <WebUiDistDir>$(WebUiProjectDir)/dist</WebUiDistDir>
+    <!-- npm shells out via cmd on Windows; bare `npm` on *nix. -->
+    <NpmExe Condition="'$(NpmExe)' == '' and '$(OS)' == 'Windows_NT'">npm.cmd</NpmExe>
+    <NpmExe Condition="'$(NpmExe)' == ''">npm</NpmExe>
+  </PropertyGroup>
+
+  <!-- Build the SPA (in live API mode) and feed the result into the publish output
+       as plain files under wwwroot/. Runs before ComputeFilesToPublish so the built
+       assets are picked up by the publish copy. -->
+  <Target Name="BuildWebUi"
+          Condition="'$(BuildWebUi)' == 'true'"
+          BeforeTargets="ComputeFilesToPublish"
+          Inputs="$(WebUiProjectDir)/package-lock.json"
+          Outputs="$(WebUiProjectDir)/node_modules/.package-lock.json">
+    <Error Condition="!Exists('$(WebUiProjectDir)/package.json')"
+           Text="Web UI source not found at $(WebUiProjectDir). Set BuildWebUi=false to publish without it (and stage wwwroot another way)." />
+    <!-- npm ci only when node_modules is missing/out-of-date (Inputs/Outputs above
+         skip this target entirely when node_modules is already current). A fresh
+         checkout / CI runs it once; a dev box reuses its install. -->
+    <Message Importance="high" Text="BuildWebUi: npm ci in $(WebUiProjectDir)" />
+    <Exec Command="&quot;$(NpmExe)&quot; ci" WorkingDirectory="$(WebUiProjectDir)" />
+  </Target>
+
+  <!-- The vite build itself: always run on publish (cheap relative to npm ci) so the
+       shipped wwwroot reflects the current SPA source. Kept separate from BuildWebUi
+       so the npm-ci Inputs/Outputs incremental check doesn't skip the rebuild. -->
+  <Target Name="_ViteBuildWebUi"
+          Condition="'$(BuildWebUi)' == 'true'"
+          AfterTargets="BuildWebUi"
+          BeforeTargets="ComputeFilesToPublish">
+    <Message Importance="high" Text="BuildWebUi: vite build (VITE_API_MODE=live) -> $(WebUiDistDir)" />
+    <!-- Clean stale output first so a removed/renamed source asset can't survive. -->
+    <RemoveDir Directories="$(WebUiDistDir)" />
+    <Exec Command="&quot;$(NpmExe)&quot; run build"
+          WorkingDirectory="$(WebUiProjectDir)"
+          EnvironmentVariables="VITE_API_MODE=live" />
+    <Error Condition="!Exists('$(WebUiDistDir)')"
+           Text="vite build did not produce $(WebUiDistDir)." />
+    <!-- Inject the built SPA into the publish output as plain files under wwwroot/.
+         The node reads {ContentRoot}/wwwroot at runtime; these are content-addressed
+         static files (no static-web-assets manifest needed), matching what the .deb
+         stages. ComputeFilesToPublish (which we run before) consumes ResolvedFileToPublish. -->
+    <ItemGroup>
+      <_WebUiDistFile Include="$(WebUiDistDir)/**/*" />
+      <ResolvedFileToPublish Include="@(_WebUiDistFile)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <!-- Wipe any pre-existing wwwroot in the publish OUTPUT before the publish copy, so
+       a re-publish into a reused -o directory can't leave orphaned hashed assets from a
+       prior SPA build behind (the "no leftover stale output" criterion, #468). The .deb /
+       docker paths stage into a fresh tree, but a bare `dotnet publish -o <existing>` does
+       not clean its output by default. Hooks _CopyResolvedFilesToPublishPreserveNewest
+       (the actual copy, run as a dependency of CopyFilesToPublishDirectory) so the wipe
+       lands BEFORE the fresh files are written, not after. -->
+  <Target Name="_CleanPublishWebRoot"
+          Condition="'$(BuildWebUi)' == 'true' and '$(PublishDir)' != ''"
+          BeforeTargets="_CopyResolvedFilesToPublishPreserveNewest">
+    <RemoveDir Directories="$(PublishDir)wwwroot" />
+  </Target>
+
 </Project>
