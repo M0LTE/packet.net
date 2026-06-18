@@ -14,10 +14,11 @@ case "$1" in
       deluser --system packetnet || true
     fi
     # The legacy /etc YAML is no longer a dpkg-tracked conffile (config-in-DB dropped it
-    # from packaging/conffiles), so dpkg won't auto-remove it on purge — remove it (and the
-    # migration sibling) explicitly, then drop the dir if it is now empty. A pre-0.17 install
-    # whose YAML was imported into pdn.db leaves these orphaned files behind otherwise.
-    rm -f /etc/packetnet/packetnet.yaml /etc/packetnet/packetnet.yaml.migrated
+    # from packaging/conffiles), so dpkg won't auto-remove it on purge — remove it
+    # explicitly, then drop the dir if it is now empty. A pre-0.17 install whose YAML was
+    # imported into pdn.db leaves it orphaned otherwise. (The migration marker is
+    # .config-migrated in the StateDirectory, cleaned by the rm -rf /var/lib/packetnet above.)
+    rm -f /etc/packetnet/packetnet.yaml
     rmdir /etc/packetnet 2>/dev/null || true
     ;;
   remove)

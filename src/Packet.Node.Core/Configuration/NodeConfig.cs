@@ -19,9 +19,17 @@ namespace Packet.Node.Core.Configuration;
 /// </remarks>
 public sealed record NodeConfig
 {
+    /// <summary>The schema version the running code produces and understands — the single
+    /// source of truth. <see cref="SchemaVersion"/> defaults to it, the store stamps it on
+    /// every <c>Save</c>, and the load-time migration chain
+    /// (<see cref="NodeConfigSchemaMigrations"/>) targets it. When a schema bump changes the
+    /// persisted JSON shape: bump this AND register one <c>vN → vN+1</c> migration.</summary>
+    public const int CurrentSchemaVersion = 1;
+
     /// <summary>Schema version of the persisted config. Bumped when the shape
-    /// changes incompatibly; lets a future loader migrate older blobs.</summary>
-    public int SchemaVersion { get; init; } = 1;
+    /// changes incompatibly; lets a future loader migrate older blobs. Defaults to
+    /// <see cref="CurrentSchemaVersion"/> — a config built in code is always at current.</summary>
+    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     /// <summary>Station identity — the callsign every <see cref="Ports"/> entry
     /// listens as, plus optional human-facing metadata.</summary>

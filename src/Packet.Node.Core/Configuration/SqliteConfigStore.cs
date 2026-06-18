@@ -57,14 +57,38 @@ public sealed partial class SqliteConfigStore : ISqliteConfigStore
     private readonly TimeProvider clock;
     private readonly ILogger<SqliteConfigStore> logger;
 
+    // The schema-migration policy: the version the loader targets and the registry of
+    // vN→vN+1 transforms. Production pins these to the running code's single source of truth
+    // (NodeConfig.CurrentSchemaVersion + NodeConfigSchemaMigrations.Registry). The internal
+    // ctor lets tests drive the load-time migrate-and-log path with a synthetic current
+    // (e.g. v2) + a synthetic registry, because CurrentSchemaVersion is 1 with no real
+    // migration registered yet — so the seam is proven, not stubbed.
+    private readonly int targetSchemaVersion;
+    private readonly IReadOnlyDictionary<int, NodeConfigSchemaMigrations.Migration> migrations;
+
     /// <summary>Open (creating if absent) the config store at <paramref name="dbPath"/>
     /// and ensure its schema. A schema/open failure is logged, not thrown — the node
     /// still boots, the provider just runs on its seed/in-memory config for the run.</summary>
     public SqliteConfigStore(string dbPath, TimeProvider? clock = null, ILogger<SqliteConfigStore>? logger = null)
+        : this(dbPath, NodeConfig.CurrentSchemaVersion, NodeConfigSchemaMigrations.Registry, clock, logger)
+    {
+    }
+
+    /// <summary>Test seam: construct with an explicit migration target + registry so the
+    /// load-time <c>schema_ver &lt; current</c> migrate-and-log path can be exercised while
+    /// the running code's <see cref="NodeConfig.CurrentSchemaVersion"/> is still 1.</summary>
+    internal SqliteConfigStore(
+        string dbPath,
+        int targetSchemaVersion,
+        IReadOnlyDictionary<int, NodeConfigSchemaMigrations.Migration> migrations,
+        TimeProvider? clock = null,
+        ILogger<SqliteConfigStore>? logger = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dbPath);
         this.clock = clock ?? TimeProvider.System;
         this.logger = logger ?? NullLogger<SqliteConfigStore>.Instance;
+        this.targetSchemaVersion = targetSchemaVersion;
+        this.migrations = migrations ?? throw new ArgumentNullException(nameof(migrations));
         connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
         EnsureSchema();
     }
@@ -119,10 +143,28 @@ public sealed partial class SqliteConfigStore : ISqliteConfigStore
             return null;
         }
 
+        var storedVer = (int)row.SchemaVer;
+
         try
         {
-            var config = NodeConfigJson.Deserialize(row.Payload);
-            return (config, (int)row.SchemaVer);
+            if (storedVer == targetSchemaVersion)
+            {
+                // Common path: the blob is already at the running schema — deserialise as-is.
+                return (NodeConfigJson.Deserialize(row.Payload), storedVer);
+            }
+
+            // The blob predates (or postdates) the running schema. Transform the raw JSON to
+            // the current shape FIRST — so a renamed/restructured field is handled without the
+            // old typed model — then deserialise through the current type. A GREATER (future)
+            // schema makes Migrate throw NodeConfigSchemaException: the boot-fails-on-unknown-
+            // config fail-safe, which propagates (it is NOT a degrade-to-reseed).
+            var migrated = NodeConfigSchemaMigrations.Migrate(
+                NodeConfigJson.ParseObject(row.Payload), storedVer, targetSchemaVersion, migrations);
+            var config = NodeConfigJson.Deserialize(migrated);
+            LogMigratedSchema(storedVer, targetSchemaVersion, connectionString);
+            // Report the CURRENT version: the loaded config has been brought forward, and the
+            // provider persists it at current on the next write (lazy upgrade of the stored row).
+            return (config, targetSchemaVersion);
         }
         catch (JsonException ex)
         {
@@ -200,6 +242,10 @@ public sealed partial class SqliteConfigStore : ISqliteConfigStore
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Config store: the persisted blob did not deserialise ({Db}); treating as no persisted config.")]
     private partial void LogDeserializeFailed(Exception ex, string db);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Config store: migrated the persisted config schema v{FromVer}→v{ToVer} ({Db}); the upgraded shape persists on the next config write.")]
+    private partial void LogMigratedSchema(int fromVer, int toVer, string db);
 
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Config store: a write failed ({Db}); the config change was NOT persisted.")]
