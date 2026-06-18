@@ -1,4 +1,7 @@
+using System.Text.Json.Nodes;
 using FsCheck.Xunit;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Packet.Node.Core.Configuration;
 
@@ -105,8 +108,142 @@ public sealed class SqliteConfigStoreTests : IDisposable
         got.Tailscale.Should().Be(config.Tailscale);
     }
 
+    // --- Forward schema migration (#488) ---
+
+    /// <summary>Write a raw node_config row at an arbitrary <paramref name="schemaVer"/> and
+    /// payload, as a pre-existing DB at some schema would have on disk. Bypasses Save (which
+    /// always stamps the running version) so a test can synthesise an older/newer blob.</summary>
+    private static void WriteRawRow(string dbPath, int schemaVer, string payload)
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS node_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1), schema_ver INTEGER NOT NULL,
+                format TEXT NOT NULL, payload TEXT NOT NULL, updated_utc TEXT NOT NULL);
+            INSERT INTO node_config (id, schema_ver, format, payload, updated_utc)
+            VALUES (1, $ver, 'json', $payload, '2026-01-01T00:00:00.0000000+00:00')
+            ON CONFLICT(id) DO UPDATE SET schema_ver = $ver, payload = $payload;
+            """;
+        cmd.Parameters.AddWithValue("$ver", schemaVer);
+        cmd.Parameters.AddWithValue("$payload", payload);
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Load_at_current_schema_reports_the_current_version_and_does_not_migrate()
+    {
+        var store = NewStore();
+        store.Save(new NodeConfig { Identity = new Identity { Callsign = "M0LTE-1" } }).Should().BeTrue();
+
+        var loaded = store.Load();
+        loaded!.Value.SchemaVer.Should().Be(NodeConfig.CurrentSchemaVersion);
+        loaded.Value.Config.Identity.Callsign.Should().Be("M0LTE-1");
+    }
+
+    [Fact]
+    public void Load_of_a_GREATER_future_schema_throws_the_boot_fail_safe()
+    {
+        // A v2 blob written by a newer build, then this (v1) build boots onto it: never run
+        // on, nor clobber, a future schema. The store throws (it propagates to boot fail).
+        var path = Path.Combine(dir, "future.db");
+        WriteRawRow(path, schemaVer: NodeConfig.CurrentSchemaVersion + 1,
+            payload: "{\"schemaVersion\":2,\"identity\":{\"callsign\":\"M0LTE-1\"}}");
+        var store = new SqliteConfigStore(path, new FakeTimeProvider());
+
+        var act = () => store.Load();
+        act.Should().Throw<NodeConfigSchemaException>().WithMessage("*NEWER than this build understands*");
+    }
+
+    [Fact]
+    public void Load_of_an_OLDER_blob_runs_the_registered_migration_loads_and_logs_the_rendered_line()
+    {
+        // current = 1 with no real migration yet, so drive the store with a SYNTHETIC current
+        // (v2) + a v1→v2 registry to prove the load-time migrate-and-log path end-to-end. The
+        // migration adds a grid that the loaded NodeConfig must then carry.
+        var path = Path.Combine(dir, "older.db");
+        WriteRawRow(path, schemaVer: 1,
+            payload: "{\"schemaVersion\":1,\"identity\":{\"callsign\":\"M0LTE-1\"}}");
+
+        var registry = new Dictionary<int, NodeConfigSchemaMigrations.Migration>
+        {
+            [1] = root => { root["identity"]!.AsObject()["grid"] = "IO91wm"; return root; },
+        };
+        var log = new CapturingStoreLogger();
+        var store = new SqliteConfigStore(path, targetSchemaVersion: 2, registry, new FakeTimeProvider(), log);
+
+        var loaded = store.Load();
+
+        loaded.Should().NotBeNull();
+        loaded!.Value.SchemaVer.Should().Be(2, "the loaded config has been brought forward to the target");
+        loaded.Value.Config.Identity.Callsign.Should().Be("M0LTE-1");
+        loaded.Value.Config.Identity.Grid.Should().Be("IO91wm", "the v1→v2 migration's edit is present in the loaded config");
+
+        // Capturing-logger discipline: assert the RENDERED migration line, not just behaviour
+        // (a LoggerMessage arg-swap would still load but render a garbled v→v line).
+        log.Messages.Should().ContainSingle(m =>
+            m.Level == LogLevel.Information && m.Text.Contains("migrated the persisted config schema v1→v2"));
+    }
+
+    [Fact]
+    public void Load_at_the_target_with_a_registry_present_is_idempotent_no_migration_log()
+    {
+        // A blob already at the (synthetic) target v2 must NOT re-run the v1→v2 migration on a
+        // subsequent load — the migration is not re-applied once at current.
+        var path = Path.Combine(dir, "already-current.db");
+        WriteRawRow(path, schemaVer: 2,
+            payload: "{\"schemaVersion\":2,\"identity\":{\"callsign\":\"M0LTE-1\"}}");
+
+        var ran = 0;
+        var registry = new Dictionary<int, NodeConfigSchemaMigrations.Migration>
+        {
+            [1] = root => { ran++; return root; },
+        };
+        var log = new CapturingStoreLogger();
+        var store = new SqliteConfigStore(path, targetSchemaVersion: 2, registry, new FakeTimeProvider(), log);
+
+        var loaded = store.Load();
+
+        loaded!.Value.SchemaVer.Should().Be(2);
+        ran.Should().Be(0, "a blob already at the target is not re-migrated");
+        log.Messages.Should().NotContain(m => m.Text.Contains("migrated the persisted config schema"));
+    }
+
+    [Fact]
+    public void A_corrupt_blob_still_degrades_to_null_not_a_schema_throw()
+    {
+        // The migration seam must not change the corrupt-blob degrade path: malformed JSON is
+        // still surfaced as null (re-seed), distinct from the schema fail-safe (throw).
+        var path = Path.Combine(dir, "corrupt.db");
+        WriteRawRow(path, schemaVer: NodeConfig.CurrentSchemaVersion, payload: "{ not json");
+        var store = new SqliteConfigStore(path, new FakeTimeProvider());
+
+        store.Load().Should().BeNull("a corrupt blob degrades to a re-seed, it does not throw");
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+    }
+
+    /// <summary>An in-memory ILogger over the store, recording the rendered message + level so
+    /// a test can assert the RENDERED "migrated schema" line (capturing-logger discipline).</summary>
+    private sealed class CapturingStoreLogger : ILogger<SqliteConfigStore>
+    {
+        public List<(LogLevel Level, string Text)> Messages { get; } = new();
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Add((logLevel, formatter(state, exception)));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }

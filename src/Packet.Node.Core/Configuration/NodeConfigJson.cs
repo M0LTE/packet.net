@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Packet.Node.Core.Configuration;
 
@@ -57,5 +58,29 @@ public static class NodeConfigJson
         ArgumentNullException.ThrowIfNull(json);
         return JsonSerializer.Deserialize<NodeConfig>(json, Options)
                ?? throw new JsonException("the persisted config blob deserialised to null.");
+    }
+
+    /// <summary>Parse a canonical JSON blob into a mutable <see cref="JsonObject"/> — the form
+    /// the schema-migration chain (<see cref="NodeConfigSchemaMigrations"/>) transforms before
+    /// the blob is deserialised through the current typed model. Throws
+    /// (<see cref="JsonException"/>) on malformed JSON or a non-object root.</summary>
+    public static JsonObject ParseObject(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        var node = JsonNode.Parse(json)
+                   ?? throw new JsonException("the persisted config blob parsed to null.");
+        return node as JsonObject
+               ?? throw new JsonException("the persisted config blob is not a JSON object.");
+    }
+
+    /// <summary>Deserialise an already-parsed (and possibly schema-migrated)
+    /// <see cref="JsonNode"/> into a <see cref="NodeConfig"/>, using the SAME canonical
+    /// options as the string overload. Throws (<see cref="JsonException"/>) on an
+    /// incompatible shape or an unknown transport <c>kind</c>.</summary>
+    public static NodeConfig Deserialize(JsonNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return node.Deserialize<NodeConfig>(Options)
+               ?? throw new JsonException("the persisted config node deserialised to null.");
     }
 }
