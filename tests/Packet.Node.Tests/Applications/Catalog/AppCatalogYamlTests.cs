@@ -35,9 +35,9 @@ public class AppCatalogYamlTests
         var bpqchat = doc.Apps.Single(a => a.Id == "bpqchat");
         bpqchat.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
         bpqchat.Artifact.Deb!.Debs.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
-        bpqchat.Version.Should().Be("0.1.1");
+        bpqchat.Version.Should().Be("0.2.1");
         bpqchat.Artifact.Deb.Debs["linux-arm64"].Sha256.Should()
-            .Be("721462a23ff66f35dbbcaa6acf8f1784fbeb64453171b556a887e98f5dc88e61");
+            .Be("dea1cf745e1752943a7b8e150db66f2f44dc3539b78a26cf2f00818384fe1bee");
 
         var convers = doc.Apps.Single(a => a.Id == "convers");
         convers.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
@@ -45,7 +45,7 @@ public class AppCatalogYamlTests
 
         var bbs = doc.Apps.Single(a => a.Id == "bbs");
         bbs.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
-        bbs.Version.Should().Be("0.2.34");
+        bbs.Version.Should().Be("0.2.35");
         bbs.Artifact.Deb!.Debs.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
     }
 
