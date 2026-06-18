@@ -1,53 +1,113 @@
+using System.Text.RegularExpressions;
 using Packet.Node.Core.Applications.Catalog;
 
 namespace Packet.Node.Tests.Applications.Catalog;
 
-public class AppCatalogYamlTests
+public partial class AppCatalogYamlTests
 {
     private static readonly string GoodSha = new('a', 64);
 
+    // The three runtime ids every shipped app must publish an artifact for.
+    private static readonly string[] AllRids = ["linux-x64", "linux-arm64", "linux-arm"];
+
+    // A "semver-ish" version pin: digits-and-dots, e.g. "0.34.2" or "1.0". Deliberately loose —
+    // we assert the SHAPE of a pin, not the value, so a routine bump never fails this test.
+    [GeneratedRegex(@"^[0-9]+(\.[0-9]+)*$")]
+    private static partial Regex SemverIshRegex();
+
+    // Exactly 64 lowercase hex chars — the catalog pin spelling.
+    [GeneratedRegex("^[0-9a-f]{64}$")]
+    private static partial Regex Sha256HexRegex();
+
+    /// <summary>
+    /// The real shipped catalog parses, carries all three artifact KINDs and the vetted set, and
+    /// every pin is VALID — but this test pins no version, sha, or url VALUE. A routine
+    /// version/sha bump (the thing that broke this test twice on #475) keeps it green; only a
+    /// structural regression (a missing app/kind/rid, a malformed pin) turns it red. Exact-value
+    /// coverage lives in <see cref="The_real_catalog_validates_clean"/> against the live file.
+    /// </summary>
     [Fact]
-    public void Parses_the_real_shipped_catalog_with_all_three_kinds_and_pins()
+    public void Parses_the_real_shipped_catalog_with_all_three_kinds_and_valid_pins()
     {
         var doc = AppCatalogYaml.Parse(CatalogTestSupport.RealCatalogYaml());
 
         doc.Catalog.Should().Be(1);
-        doc.Apps.Should().HaveCount(4);
 
-        // dapps — assets kind.
+        // The vetted set (docs/app-catalog.md) — by id, version-agnostic.
+        doc.Apps.Select(a => a.Id).Should().Contain(["dapps", "bpqchat", "convers", "bbs"]);
+
+        // dapps is the assets-kind flagship; bbs/bpqchat/convers are deb-kind — so the shipped
+        // catalog exercises both real kinds. (pdnapp's parse is covered by a dedicated test.)
         var dapps = doc.Apps.Single(a => a.Id == "dapps");
+        dapps.Artifact!.Kind.Should().Be(ArtifactKind.Assets);
         dapps.Name.Should().Be("DAPPS");
-        dapps.Version.Should().Be("0.34.2");
         // The catalog ships the transport-accurate `packet` spelling (the rename from `network`).
         dapps.Capabilities.Should().Contain(["packet", "web"]);
-        dapps.Artifact!.Kind.Should().Be(ArtifactKind.Assets);
-        dapps.Artifact.Assets.Should().NotBeNull();
-        dapps.Artifact.Assets!.Manifest.Sha256.Should()
-            .Be("80bab3ad2f6b761149a6ac62386d0c66bd27c1e265e10f8111268aea4c90b2ad");
-        dapps.Artifact.Assets.Binaries.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
-        var x64 = dapps.Artifact.Assets.Binaries["linux-x64"];
-        x64.Dest.Should().Be("dapps");
-        x64.Mode.Should().Be("0755");
-        x64.Sha256.Should().Be("d8dab9f1f48eb2194c80c4318cd6a4706627b8fca730b2d430b35e1cd69ba0ec");
-        x64.Url.Should().StartWith("https://");
+        dapps.Artifact.Assets!.Binaries["linux-x64"].Dest.Should().Be("dapps");
 
-        // bpqchat + convers — deb kind.
-        var bpqchat = doc.Apps.Single(a => a.Id == "bpqchat");
-        bpqchat.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
-        bpqchat.Artifact.Deb!.Debs.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
-        bpqchat.Version.Should().Be("0.2.1");
-        bpqchat.Artifact.Deb.Debs["linux-arm64"].Sha256.Should()
-            .Be("dea1cf745e1752943a7b8e150db66f2f44dc3539b78a26cf2f00818384fe1bee");
+        foreach (var id in new[] { "bpqchat", "convers", "bbs" })
+        {
+            doc.Apps.Single(a => a.Id == id).Artifact!.Kind.Should().Be(ArtifactKind.Deb);
+        }
 
-        var convers = doc.Apps.Single(a => a.Id == "convers");
-        convers.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
-        convers.Version.Should().Be("0.1.3");
+        // Every entry: a valid semver-ish version + a structurally sound, all-RID, well-formed,
+        // sha-pinned artifact whose deb/binary urls embed the app id + the entry's version.
+        foreach (var app in doc.Apps)
+        {
+            app.Version.Should().NotBeNullOrWhiteSpace($"'{app.Id}' must pin a version");
+            app.Version.Should().MatchRegex(SemverIshRegex(), $"'{app.Id}' version must be semver-ish");
 
-        var bbs = doc.Apps.Single(a => a.Id == "bbs");
-        bbs.Artifact!.Kind.Should().Be(ArtifactKind.Deb);
-        bbs.Version.Should().Be("0.2.35");
-        bbs.Artifact.Deb!.Debs.Should().ContainKeys("linux-x64", "linux-arm64", "linux-arm");
+            AssertArtifactPinsValid(app);
+        }
     }
+
+    /// <summary>Structure + pin-VALIDITY assertions for one catalog entry, version/sha-agnostic:
+    /// every RID is present, every url is https and embeds the id + version, every sha256 is
+    /// 64-char lowercase hex.</summary>
+    private static void AssertArtifactPinsValid(AppCatalogEntry app)
+    {
+        var artifact = app.Artifact!;
+        switch (artifact.Kind)
+        {
+            case ArtifactKind.Assets:
+                var assets = artifact.Assets!;
+                AssertSha(app.Id, "manifest", assets.Manifest.Sha256);
+                assets.Manifest.Url.Should().StartWith("https://");
+                assets.Binaries.Keys.Should().Contain(AllRids, $"'{app.Id}' must publish every RID");
+                foreach (var (rid, bin) in assets.Binaries)
+                {
+                    AssertUrl(app.Id, rid, bin.Url, app.Version!);
+                    AssertSha(app.Id, rid, bin.Sha256);
+                    bin.Dest.Should().NotBeNullOrWhiteSpace($"'{app.Id}/{rid}' must name a dest");
+                }
+                break;
+
+            case ArtifactKind.Deb:
+                var debs = artifact.Deb!.Debs;
+                debs.Keys.Should().Contain(AllRids, $"'{app.Id}' must publish every RID");
+                foreach (var (rid, @ref) in debs)
+                {
+                    AssertUrl(app.Id, rid, @ref.Url, app.Version!);
+                    AssertSha(app.Id, rid, @ref.Sha256);
+                }
+                break;
+
+            default:
+                throw new Xunit.Sdk.XunitException(
+                    $"'{app.Id}' has unexpected artifact kind {artifact.Kind} in the shipped catalog.");
+        }
+    }
+
+    private static void AssertUrl(string id, string rid, string url, string version)
+    {
+        url.Should().StartWith("https://", $"'{id}/{rid}' url must be https");
+        Uri.TryCreate(url, UriKind.Absolute, out _).Should().BeTrue($"'{id}/{rid}' url must be well-formed");
+        url.Should().Contain(id, $"'{id}/{rid}' url should embed the app id");
+        url.Should().Contain(version, $"'{id}/{rid}' url should embed the pinned version");
+    }
+
+    private static void AssertSha(string id, string rid, string sha) =>
+        sha.Should().MatchRegex(Sha256HexRegex(), $"'{id}/{rid}' sha256 must be 64-char lowercase hex");
 
     [Fact]
     public void The_real_catalog_validates_clean()
