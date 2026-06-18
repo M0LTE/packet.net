@@ -55,14 +55,13 @@ dpkg -s packetnet 2>/dev/null | grep -q "^Status: install ok installed" || fail 
 # systemd surgery (packet.net#469). Bounding set is pinned to the same single cap.
 grep -q "^AmbientCapabilities=CAP_NET_BIND_SERVICE\b"     /lib/systemd/system/packetnet.service || fail "unit missing AmbientCapabilities=CAP_NET_BIND_SERVICE (cannot bind privileged ports)"
 grep -q "^CapabilityBoundingSet=CAP_NET_BIND_SERVICE\b"   /lib/systemd/system/packetnet.service || fail "unit missing CapabilityBoundingSet=CAP_NET_BIND_SERVICE (ambient cap would be outside the bounding set)"
-[ -f /etc/packetnet/packetnet.yaml ]         || fail "conffile missing"
-id packetnet >/dev/null 2>&1                 || fail "postinst did not create the packetnet user"
-# The management API rewrites the conffile in place, so postinst must hand the
-# config dir + file to the service user (the unix-perms half of the config-write
-# fix; ReadWritePaths=/etc/packetnet on the unit is the sandbox half).
-[ "$(stat -c %U /etc/packetnet)" = packetnet ]                || fail "/etc/packetnet not owned by packetnet (config-write would fail)"
-[ "$(stat -c %U /etc/packetnet/packetnet.yaml)" = packetnet ] || fail "conffile not owned by packetnet (config-write would fail)"
-echo "  ok: installed; binary+unit+conffile present; user created (owns its config dir); systemctl correctly skipped"
+# Config now lives in pdn.db under the systemd StateDirectory (/var/lib/packetnet),
+# NOT a dpkg conffile (#473) — so the package ships no /etc/packetnet; instead a
+# read-only template at /usr/share seeds the DB on first boot. The dpkg conffile
+# (and its upgrade prompt) is gone by design.
+[ -f /usr/share/packetnet/packetnet.yaml.example ] || fail "config template missing (config-in-DB bootstrap, #473)"
+id packetnet >/dev/null 2>&1                        || fail "postinst did not create the packetnet user"
+echo "  ok: installed; binary+unit+config-template present; user created; systemctl correctly skipped"
 
 echo "== 3. binary boots + serves /healthz on a bare base =="
 export DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/pnx HOME=/root
