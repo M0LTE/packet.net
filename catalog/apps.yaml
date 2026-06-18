@@ -62,7 +62,7 @@ apps:
   # The Debian arch maps from the RID: linux-x64→amd64, linux-arm64→arm64, linux-arm→armhf.
   - id: bpqchat
     name: BPQ Chat
-    version: "0.1.1"
+    version: "0.2.1"
     description: "BPQ-Chat-compatible chat node — RF + web chat, peering with the BPQ Chat network."
     icon: chat
     capabilities: [packet, web]
@@ -71,14 +71,14 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_amd64.deb
-          sha256: 11f0b0eac02e9326fc418dd5c51e64021912946bb71ee8e50d81a07124f71959
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.2.1/pdn-bpqchat_0.2.1_amd64.deb
+          sha256: 3918c712014ed4960f4933bf5a28fd1dd5c2cd55eb5befd8b61438bd14fe0fa0
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_arm64.deb
-          sha256: 721462a23ff66f35dbbcaa6acf8f1784fbeb64453171b556a887e98f5dc88e61
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.2.1/pdn-bpqchat_0.2.1_arm64.deb
+          sha256: dea1cf745e1752943a7b8e150db66f2f44dc3539b78a26cf2f00818384fe1bee
         linux-arm:
-          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.1.1/pdn-bpqchat_0.1.1_armhf.deb
-          sha256: f8332352d7974f576734ac169d3fda0fd6d95bd2fb191d063f6a135d63113b24
+          url: https://github.com/packet-net/pdn-bpqchat/releases/download/v0.2.1/pdn-bpqchat_0.2.1_armhf.deb
+          sha256: 3917b63af6137624f367f73b38624df47304d7f654f9a6d53640fa07b8f7581d
 
   - id: convers
     name: Convers
@@ -102,7 +102,7 @@ apps:
 
   - id: bbs
     name: BBS
-    version: "0.2.34"
+    version: "0.2.35"
     description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale. Renders inside the pdn panel (slot UI mode), styled to match and following the panel's theme. Binds <node>-<ssid> + the BBS alias; mail addresses are SSID-less. Sysop forwarding dashboard; reverse collection."
     icon: mail
     capabilities: [packet, web]
@@ -111,11 +111,11 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.34/pdn-bbs_0.2.34_amd64.deb
-          sha256: e19f0f70da3227d28da60785d0bdb4bb7c650152e4f3632a32731fb731173b09
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_amd64.deb
+          sha256: 5215129343fc3bb3629b252e48683c9aab4f06c2045c3ae34a25cc813bffd747
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.34/pdn-bbs_0.2.34_arm64.deb
-          sha256: 18506c52b3432879a993240f345c725a11c1d7618d2feed99bd0aa4abe8b6b47
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_arm64.deb
+          sha256: b6baf3aaacaaba6ff4ebe90cd3f5042e7cee7aac9f30c8f435aa962291c5d0ac
         linux-arm:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.34/pdn-bbs_0.2.34_armhf.deb
-          sha256: 524a5799298037cd4eb32409e5d11a229fa0da5f9b8c4b30da70261d29f037a6
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_armhf.deb
+          sha256: fd2272976d51dfb54ccdb9a56031e81758bf08282c263a50ed69a9099f4e7354
