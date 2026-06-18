@@ -10,10 +10,13 @@
 # A mismatched hash is a hard refusal — never a staged file. "Vetted" means we
 # chose the version + the hash, exactly like the old build-deb.sh DAPPS pins.
 #
-# TO ADD/BUMP an app: set the release tag in each `url:`, take each asset's
-# sha256 from `gh release view <tag> -R <repo> --json assets`, and update the
-# `version:` to the release tag. (See docs/app-catalog.md § O3 for a future
-# regen script.)
+# TO BUMP an app to its latest release: run `scripts/regen-catalog.sh` (or
+# `scripts/regen-catalog.sh --app <id>` for one). It pulls each asset's recorded
+# sha256 digest + url from the latest GitHub release and rewrites version/url/
+# sha256 in place, preserving these comments. `--check` is the drift guard;
+# `--print` prints the block to paste. See docs/app-catalog.md § Catalog
+# maintenance. To ADD a new app, hand-write its entry (name/description/icon/
+# capabilities/homepage + an artifact stub) once, then let regen fill the pins.
 #
 # CAPABILITIES: free-form strings shown to the owner as the install/enable trust
 # prompt (not enforced in v1). Conventional values: `session`, `packet`, `web`.
