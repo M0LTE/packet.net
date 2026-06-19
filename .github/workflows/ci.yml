@@ -139,11 +139,16 @@ jobs:
           flock -s /tmp/pdn-ci-heavy.lock bash -c '
             dotnet restore Packet.NET.slnx
             dotnet list Packet.NET.slnx package --vulnerable --include-transitive 2>&1 | tee vuln.txt
-            if grep -E "^[[:space:]]*>[[:space:]]" vuln.txt; then
+            # GHSA-2m69-gcr7-jv3q is a SQLite-native advisory on the transitive
+            # SQLitePCLRaw.lib.e_sqlite3 (via Microsoft.Data.Sqlite) with NO published fixed
+            # version — also NuGetAuditSuppress-ed in Directory.Build.props. dotnet list does
+            # not honour that suppression, so ignore this one advisory here too; remove when a
+            # patched bundle ships. ANY OTHER vulnerable package still fails the gate.
+            if grep -E "^[[:space:]]*>[[:space:]]" vuln.txt | grep -vq "GHSA-2m69-gcr7-jv3q"; then
               echo "::error::Vulnerable NuGet packages detected (see the scan output above)."
               exit 1
             fi
-            echo "No vulnerable packages."
+            echo "No blocking vulnerable packages."
           '
 
       - name: upload scan output
