@@ -858,6 +858,11 @@ public sealed record ManagementConfig
     /// endpoints and the SPA all serve unauthenticated. With it on, a JWT bearer
     /// token is required and the per-endpoint scope gates enforce.</summary>
     public AuthConfig Auth { get; init; } = new();
+
+    /// <summary>LAN discovery: advertise this node over mDNS / DNS-SD (<c>_pdn._tcp</c>) so the
+    /// pdn mobile app (and other LAN tools) can find it on the local network. Default-OFF; see
+    /// <see cref="MdnsConfig"/>.</summary>
+    public MdnsConfig Mdns { get; init; } = new();
 }
 
 /// <summary>
@@ -1107,6 +1112,47 @@ public sealed record HttpConfig
 
     /// <summary>TCP port for the web server.</summary>
     public int Port { get; init; } = 8080;
+}
+
+/// <summary>
+/// LAN discovery via mDNS / DNS-SD. When enabled the node advertises an
+/// <c>_pdn._tcp</c> service on the local link so the pdn mobile app (and any DNS-SD
+/// browser) can find it without typing an address.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Default-OFF</b> (matching the node's posture for anything it emits): a stock node
+/// advertises nothing until the operator opts in. Discovery is also only useful once
+/// <see cref="HttpConfig.Bind"/> is a LAN address — with a loopback bind the advertised
+/// endpoint would be unreachable, so the advertiser stays dormant (with a log line)
+/// rather than publish an address that won't connect.
+/// </para>
+/// <para>
+/// <b>The callsign is the identity.</b> Multiple nodes commonly share one LAN, so the
+/// advert carries the node's <see cref="Identity.Callsign"/> in a <c>cs</c> TXT record
+/// (the canonical identity the client keys on) AND as the default service instance name
+/// (so even a plain browser shows distinct entries). The <see cref="Identity.Alias"/>,
+/// if set, rides a <c>name</c> TXT as a friendly label, and the node version a <c>v</c> TXT.
+/// </para>
+/// <para>
+/// <b>Mechanism + portability.</b> Registration goes through the system mDNS daemon
+/// (<c>avahi-publish</c>) — the conflict-free path on the Linux hosts the node deb
+/// targets (no second responder fighting Avahi for port 5353). Where <c>avahi-publish</c>
+/// is absent (a host without Avahi, or a non-Linux dev box) the advertiser logs once and
+/// stays dormant; the node is unaffected and manual add-by-address still works in the app.
+/// </para>
+/// </remarks>
+public sealed record MdnsConfig
+{
+    /// <summary>Whether to advertise this node on the LAN over mDNS (<c>_pdn._tcp</c>).
+    /// Default <c>false</c>.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>The DNS-SD service instance name (the label a browser shows). Optional;
+    /// defaults to the node's <see cref="Identity.Callsign"/> so multiple nodes on one LAN
+    /// stay distinguishable. The callsign also rides the <c>cs</c> TXT record as the
+    /// canonical identity (instance names are user/Bonjour-renamable on collision).</summary>
+    public string? InstanceName { get; init; }
 }
 
 /// <summary>

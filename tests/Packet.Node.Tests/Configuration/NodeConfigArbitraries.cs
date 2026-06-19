@@ -178,6 +178,21 @@ public static class NodeConfigArbitraries
                 SessionStatusIntervalSecs = sessionSecs,
             });
 
+    private static Gen<MdnsConfig> MdnsGen() =>
+        Gen.OneOf(
+            Gen.Constant(new MdnsConfig()),
+            // Only VALID names (the round-trip generates configs that must pass the validator):
+            // no leading '-', no control chars, ≤63 bytes; a space is fine for a DNS-SD label.
+            from enabled in Gen.Elements(false, true)
+            from instance in Gen.Elements<string?>(null, "Hilltop", "RDG node", "M0LTE-7")
+            select new MdnsConfig { Enabled = enabled, InstanceName = instance });
+
+    // Vary only Mdns; the other management sub-configs keep their valid defaults, so the
+    // round-trip exercises the new mdns block without re-deriving all of ManagementConfig.
+    private static Gen<ManagementConfig> ManagementGen() =>
+        from mdns in MdnsGen()
+        select new ManagementConfig { Mdns = mdns };
+
     private static Gen<NodeConfig> NodeConfigGen() =>
         from call in CallsignGen()
         from nPorts in Gen.Choose(0, 4)
@@ -186,6 +201,7 @@ public static class NodeConfigArbitraries
         from traffic in TrafficGen()
         from tailscale in TailscaleGen()
         from oarc in OarcGen()
+        from management in ManagementGen()
         select new NodeConfig
         {
             SchemaVersion = Packet.Node.Core.Configuration.NodeConfig.CurrentSchemaVersion,
@@ -195,6 +211,7 @@ public static class NodeConfigArbitraries
             Traffic = traffic,
             Tailscale = tailscale,
             Oarc = oarc,
+            Management = management,
         };
 
     public static Arbitrary<NodeConfig> NodeConfig() => Arb.From(NodeConfigGen());

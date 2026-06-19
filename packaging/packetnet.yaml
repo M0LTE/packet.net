@@ -70,6 +70,16 @@ management:
   http:
     bind: 127.0.0.1
     port: 8080
+  # LAN discovery: advertise this node over mDNS / DNS-SD (_pdn._tcp) so the pdn mobile app
+  # (and other DNS-SD browsers) find it without typing an address. Off by default. REQUIRES
+  # http.bind above to be a LAN address (e.g. 0.0.0.0) — with the loopback default the advert
+  # would point at an unreachable endpoint, so it stays dormant (a startup log line says so).
+  # Needs the avahi daemon + tools (a Recommends of the .deb). The node callsign rides a `cs`
+  # TXT record and is the default service instance name, so multiple nodes on one LAN stay
+  # distinguishable; set instanceName only to override the displayed label.
+  # mdns:
+  #   enabled: true
+  #   # instanceName: Hilltop
   # Optional HTTPS listener. Off by default; pdn is HTTP-first (TLS is the edge's job).
   # The blessed remote / passkey path is Tailscale (see the `tailscale:` block below and
   # docs/network-access.md) — it gives a real, browser-trusted cert with no public DNS,

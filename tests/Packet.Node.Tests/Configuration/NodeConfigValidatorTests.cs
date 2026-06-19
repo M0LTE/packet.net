@@ -32,6 +32,27 @@ public class NodeConfigValidatorTests
         Validator.Validate(Valid(TcpPort("vhf"))).IsValid.Should().BeTrue();
     }
 
+    [Fact]
+    public void Accepts_a_valid_mdns_instance_name()
+    {
+        var config = Valid() with { Management = new ManagementConfig { Mdns = new MdnsConfig { Enabled = true, InstanceName = "Hilltop node" } } };
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Rejects_an_mdns_instance_name_starting_with_dash()
+    {
+        var config = Valid() with { Management = new ManagementConfig { Mdns = new MdnsConfig { InstanceName = "-evil" } } };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Rejects_an_over_long_mdns_instance_name()
+    {
+        var config = Valid() with { Management = new ManagementConfig { Mdns = new MdnsConfig { InstanceName = new string('x', 64) } } };
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("M0LTE-1", true)]
     [InlineData("G7XYZ", true)]
