@@ -540,6 +540,21 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<Packet.Node.Core.Tailscale.TailscaleSidecarHostedService>());
 
+// LAN discovery: advertise _pdn._tcp over mDNS (management.mdns, default-off) so the pdn
+// mobile app finds the node on the local network. Infra, not an app: it supervises an
+// avahi-publish child, self-gates on enabled + a non-loopback web bind, carries the node
+// callsign as the `cs` TXT + service instance name (so multiple nodes on one LAN stay
+// distinguishable), and degrades to dormant where avahi-publish is absent. See
+// docs/plan.md (mDNS) + Packet.Node.Core.Discovery.
+builder.Services.AddSingleton(sp =>
+    new Packet.Node.Core.Discovery.MdnsAdvertiserHostedService(
+        sp.GetRequiredService<IConfigProvider>(),
+        sp.GetRequiredService<TimeProvider>(),
+        NodeCommandService.Version,
+        sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<Packet.Node.Core.Discovery.MdnsAdvertiserHostedService>());
+
 // Phase 8: the in-process MCP tool surface + live backend. The HTTP transport is
 // mounted below (MapPdnMcp) only when mcp.sse.enabled; stdio is the `pdn mcp`
 // subcommand. Registering the services is harmless when unused. See docs/mcp-design.md.

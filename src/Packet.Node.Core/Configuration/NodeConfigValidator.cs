@@ -708,6 +708,20 @@ public sealed class ManagementValidator : AbstractValidator<ManagementConfig>
         // no passkey is enrolled, but a bad RP id / origin should still be rejected at
         // config-apply rather than only blowing up the first ceremony).
         RuleFor(m => m.Auth.WebAuthn).NotNull().SetValidator(new WebAuthnConfigValidator());
+
+        // mDNS / DNS-SD advertisement. A set InstanceName becomes a single DNS-SD service
+        // instance label AND an avahi-publish positional, so it must fit RFC 6763's 63-octet
+        // limit and never lead with '-' (which avahi-publish would read as an option) or carry
+        // control characters. Checked always — inert when disabled, but a bad name should be
+        // rejected at config-apply, not silently break the advert later.
+        RuleFor(m => m.Mdns.InstanceName!)
+            .Must(n => System.Text.Encoding.UTF8.GetByteCount(n) <= 63)
+            .When(m => !string.IsNullOrWhiteSpace(m.Mdns.InstanceName))
+            .WithMessage("management.mdns.instanceName must be at most 63 bytes.");
+        RuleFor(m => m.Mdns.InstanceName!)
+            .Must(n => !n.StartsWith('-') && !n.Any(char.IsControl))
+            .When(m => !string.IsNullOrWhiteSpace(m.Mdns.InstanceName))
+            .WithMessage("management.mdns.instanceName must not start with '-' or contain control characters.");
     }
 }
 
