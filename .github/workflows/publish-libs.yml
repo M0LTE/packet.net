@@ -7,11 +7,11 @@ name: publish-libs
 #
 # Today's publish set:
 #   Packet.Core
-#   Packet.Kiss.Abstractions
 #   Packet.Kiss
 #   Packet.Kiss.Serial
 #   Packet.Kiss.NinoTnc
 #   Packet.Ax25
+#   Packet.Ax25.Transport.Abstractions
 #
 # Add more by appending to the `projects:` array below and giving
 # each csproj the same PackageId / Title / Description / Tags shape
@@ -70,11 +70,11 @@ jobs:
       matrix:
         project:
           - Packet.Core
-          - Packet.Kiss.Abstractions
           - Packet.Kiss
           - Packet.Kiss.Serial
           - Packet.Kiss.NinoTnc
           - Packet.Ax25
+          - Packet.Ax25.Transport.Abstractions
     env:
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
       VERSION: ${{ needs.resolve-version.outputs.version }}

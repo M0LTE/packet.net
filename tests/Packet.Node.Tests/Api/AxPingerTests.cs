@@ -275,7 +275,7 @@ public sealed class AxPingerTests
                 var echo = Ax25Frame.Test(
                     destination: f.Source.Callsign, source: Peer, info: f.Info.Span,
                     isCommand: false, pollFinal: false);
-                _ = b.SendFrameAsync(echo.ToBytes());
+                _ = b.SendAsync(echo.ToBytes());
             }
         };
 

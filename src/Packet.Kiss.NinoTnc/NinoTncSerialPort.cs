@@ -1,36 +1,42 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Packet.Ax25.Transport;
 using Packet.Kiss;
 using Packet.Kiss.Serial;
 
 namespace Packet.Kiss.NinoTnc;
 
 /// <summary>
-/// A NinoTNC USB-CDC serial connection that speaks KISS and the NinoTNC-flavoured
+/// A NinoTNC USB-CDC serial connection that speaks KISS, the neutral
+/// <see cref="IAx25Transport"/> seam (with both the <see cref="ITxCompletionTransport"/> and
+/// <see cref="ICsmaChannelParams"/> capabilities), and the NinoTNC-flavoured
 /// SETHW command. Built on top of <see cref="KissSerialModem"/> for the generic
 /// serial-port plumbing; this class adds ACKMODE TX-completion correlation,
 /// NinoTNC frame classification, and SETHW mode switching. Inbound KISS frames
-/// are surfaced through <see cref="ReadFramesAsync"/> and
+/// are surfaced through <see cref="ReadFramesAsync"/> / <see cref="ReceiveAsync"/> and
 /// <see cref="FrameReceived"/>; ACKMODE transmit-completion echoes are correlated
-/// through <see cref="SendFrameWithAckAsync"/>.
+/// through <see cref="SendFrameWithAckAsync"/> / <see cref="SendAwaitingCompletionAsync"/>.
 /// </summary>
-public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposable
+public sealed class NinoTncSerialPort : IAx25Transport, ITxCompletionTransport, ICsmaChannelParams, IAsyncDisposable, IDisposable
 {
     /// <summary>The NinoTNC's documented USB-serial baud rate.</summary>
     public const int DefaultBaudRate = 57600;
 
     private readonly KissSerialModem modem;
     private readonly Channel<KissFrame> inbound;
-    private readonly ConcurrentDictionary<ushort, TaskCompletionSource<AckModeReceipt>> pendingAcks = new();
+    private readonly ConcurrentDictionary<ushort, TaskCompletionSource<DateTimeOffset>> pendingAcks = new();
     private readonly CancellationTokenSource dispatchCts = new();
+    private readonly TimeProvider clock;
 
     private Task? dispatchLoop;
     private int ackSequenceCursor;
     private int disposed;
 
-    private NinoTncSerialPort(KissSerialModem modem)
+    private NinoTncSerialPort(KissSerialModem modem, TimeProvider? timeProvider)
     {
         this.modem = modem;
+        clock = timeProvider ?? TimeProvider.System;
         inbound = Channel.CreateUnbounded<KissFrame>(new UnboundedChannelOptions
         {
             SingleReader = false,
@@ -66,10 +72,16 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
     /// <summary>
     /// Open the named serial port at 57 600 8N1 and start the background read pump.
     /// </summary>
-    public static NinoTncSerialPort Open(string portName, int baudRate = DefaultBaudRate)
+    /// <param name="portName">The serial port to open (e.g. "COM6" or "/dev/ttyACM0").</param>
+    /// <param name="baudRate">The serial baud rate.</param>
+    /// <param name="timeProvider">
+    /// Clock used to stamp inbound frames' <see cref="Ax25InboundFrame.ReceivedAt"/> on the
+    /// <see cref="IAx25Transport"/> seam. Null uses the system clock.
+    /// </param>
+    public static NinoTncSerialPort Open(string portName, int baudRate = DefaultBaudRate, TimeProvider? timeProvider = null)
     {
-        var inner = KissSerialModem.Open(portName, baudRate);
-        var tnc = new NinoTncSerialPort(inner);
+        var inner = KissSerialModem.Open(portName, baudRate, timeProvider);
+        var tnc = new NinoTncSerialPort(inner, timeProvider);
         tnc.dispatchLoop = Task.Run(() => tnc.DispatchFramesAsync(tnc.dispatchCts.Token));
         return tnc;
     }
@@ -82,6 +94,20 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
         inbound.Reader.ReadAllAsync(cancellationToken);
 
     /// <summary>
+    /// <see cref="IAx25Transport"/>: async stream of inbound AX.25 frames, pre-filtered to KISS
+    /// Data (non-Data KISS commands — TX-Test echoes, diagnostics — are dropped here).
+    /// </summary>
+    public async IAsyncEnumerable<Ax25InboundFrame> ReceiveAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var kiss in ReadFramesAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (kiss.Command != KissCommand.Data) continue;
+            yield return new Ax25InboundFrame(kiss.Payload, kiss.Port, clock.GetUtcNow());
+        }
+    }
+
+    /// <summary>
     /// Send a plain KISS data frame (command 0x00). Returns once the bytes
     /// have been handed to the underlying stream; transmission over-the-air
     /// has *not* happened yet. Use <see cref="SendFrameWithAckAsync"/> when
@@ -91,22 +117,43 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
         modem.SendFrameAsync(ax25Bytes, cancellationToken);
 
     /// <summary>
+    /// <see cref="IAx25Transport"/>: send one AX.25 frame body (KISS Data, cmd 0x00),
+    /// fire-and-forget. Same path as <see cref="SendFrameAsync"/>.
+    /// </summary>
+    public Task SendAsync(ReadOnlyMemory<byte> ax25, CancellationToken cancellationToken = default) =>
+        SendFrameAsync(ax25, cancellationToken);
+
+    /// <summary>
+    /// <see cref="ITxCompletionTransport"/>: send an AX.25 frame in ACKMODE and await its
+    /// TX-completion as the neutral <see cref="TxCompletion"/> (the 16-bit sequence tag is
+    /// auto-assigned and stays an internal wire artefact). NotSupported / Timeout propagate
+    /// unchanged.
+    /// </summary>
+    public Task<TxCompletion> SendAwaitingCompletionAsync(
+        ReadOnlyMemory<byte> ax25, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+        => SendFrameWithAckAsync(ax25, timeout, sequenceTag: null, cancellationToken);
+
+    /// <summary>
     /// Send an ACKMODE frame (command 0x0C) and await the TNC's TX-completion
-    /// echo. If <paramref name="sequenceTag"/> is <c>null</c>, an internal
-    /// counter assigns a unique value.
+    /// echo, resolving with a <see cref="TxCompletion"/> that times the round
+    /// trip. If <paramref name="sequenceTag"/> is <c>null</c>, an internal
+    /// counter assigns a unique value. This is the KISS-specific entry point
+    /// that lets a caller pin the 16-bit sequence tag;
+    /// <see cref="SendAwaitingCompletionAsync"/> is the neutral
+    /// <see cref="ITxCompletionTransport"/> form that auto-assigns it.
     /// </summary>
     /// <param name="ax25Bytes">AX.25 frame to transmit.</param>
     /// <param name="timeout">Maximum time to wait for the echo. Defaults to 30 s.</param>
     /// <param name="sequenceTag">Caller-supplied 16-bit tag, or <c>null</c> to auto-assign.</param>
     /// <param name="cancellationToken">Cancels the wait (does not un-queue the frame at the TNC).</param>
-    public async Task<AckModeReceipt> SendFrameWithAckAsync(
+    public async Task<TxCompletion> SendFrameWithAckAsync(
         ReadOnlyMemory<byte> ax25Bytes,
         TimeSpan? timeout = null,
         ushort? sequenceTag = null,
         CancellationToken cancellationToken = default)
     {
         ushort tag = sequenceTag ?? NextSequenceTag();
-        var tcs = new TaskCompletionSource<AckModeReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!pendingAcks.TryAdd(tag, tcs))
         {
             throw new InvalidOperationException($"sequence tag 0x{tag:X4} already has a pending ACK; pick a unique tag");
@@ -140,8 +187,8 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
             }
         }).ConfigureAwait(false);
 
-        var receipt = await tcs.Task.ConfigureAwait(false);
-        return receipt with { Queued = queuedAt };
+        var completedAt = await tcs.Task.ConfigureAwait(false);
+        return new TxCompletion(queuedAt, completedAt);
     }
 
     /// <summary>
@@ -208,7 +255,9 @@ public sealed class NinoTncSerialPort : IKissModem, IAsyncDisposable, IDisposabl
         if (KissAckMode.TryParseAcknowledgement(frame, out var tag) &&
             pendingAcks.TryRemove(tag, out var tcs))
         {
-            tcs.TrySetResult(new AckModeReceipt(tag, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            // Complete the waiter with the echo-arrival instant; the sender
+            // pairs it with the real submit time to build the TxCompletion.
+            tcs.TrySetResult(DateTimeOffset.UtcNow);
             inbound.Writer.TryWrite(frame);
             FrameReceived?.Invoke(this, frame);
             return;

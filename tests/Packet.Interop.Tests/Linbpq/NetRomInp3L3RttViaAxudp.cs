@@ -112,7 +112,7 @@ public class NetRomInp3L3RttViaAxudp
 
         using var cts = new CancellationTokenSource(LearnTimeRouteBudget + TimeSpan.FromSeconds(90));
 
-        await using var modem = new AxudpKissModem(new IPEndPoint(IPAddress.Loopback, BpqAxudpPort), PdnLocalPort);
+        await using var modem = new AxudpFrameTransport(new IPEndPoint(IPAddress.Loopback, BpqAxudpPort), PdnLocalPort);
         await using var listener = new Ax25Listener(modem, new Ax25ListenerOptions { MyCall = OurCall });
 
         // pdn with INP3 ON. Connect=true is required for the Inp3Host to be constructed (it rides
