@@ -10,10 +10,10 @@ Each library is its own NuGet package (or planned package). They compose: the no
 
 | Path | Purpose | NuGet |
 | --- | --- | --- |
-| `src/Packet.Core/` | Shared primitives (Callsign, Ax25Address, KissFrame) | [`Packet.Core`](https://www.nuget.org/packages/Packet.Core) |
+| `src/Packet.Core/` | Shared primitives (Callsign, Ax25Address) | [`Packet.Core`](https://www.nuget.org/packages/Packet.Core) |
+| `src/Packet.Ax25.Transport.Abstractions/` | Frame-transport contract (`IAx25Transport`, `Ax25InboundFrame`, optional `ITxCompletionTransport` / `ICsmaChannelParams`) | [`Packet.Ax25.Transport.Abstractions`](https://www.nuget.org/packages/Packet.Ax25.Transport.Abstractions) |
 | `src/Packet.Ax25/` | AX.25 v2.2 frame codec + connected-mode session machine + `Ax25Listener` | [`Packet.Ax25`](https://www.nuget.org/packages/Packet.Ax25) |
-| `src/Packet.Kiss.Abstractions/` | KISS modem interface | [`Packet.Kiss.Abstractions`](https://www.nuget.org/packages/Packet.Kiss.Abstractions) |
-| `src/Packet.Kiss/` | KISS framing, ACKMODE, multi-drop, TCP transport | [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) |
+| `src/Packet.Kiss/` | KISS framing, ACKMODE, multi-drop, TCP transport (`KissFrame`, `KissTcpClient`) | [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) |
 | `src/Packet.Aprs/` | APRS frame codec | _not yet published_ |
 | `src/Packet.Agw/` | AGW (SV2AGW) client | _not yet published_ |
 | `src/Packet.Axudp/` | AXUDP transport | _not yet published_ |

@@ -159,6 +159,67 @@ c.Connect(originatingUser: myUser);
 sequencing, and reassembly — the same division of labour as `Ax25Session` one
 layer down: you `Send` bytes and handle `DataReceived`, it owns the protocol.
 
+## Wiring it onto your AX.25 stack
+
+The pieces above are pure NET/ROM logic; they don't know about AX.25. Three short
+bits of glue connect them to the `Ax25Listener` from chapters 5–6. NET/ROM L3
+rides **connected-mode I-frames with PID `0xCF`** between adjacent nodes, so the
+glue is all about that boundary.
+
+**Inbound — turn a session's data into a `NetRomPacket`.** On every AX.25 session
+the node accepts (chapter 6), watch for NET/ROM payloads and feed them to the L4
+circuit layer (or to forwarding, for transit traffic):
+
+```csharp
+session.DataLinkSignalEmitted += (_, signal) =>
+{
+    if (signal is DataLinkDataIndication { Pid: Ax25Frame.PidNetRom } d &&
+        NetRomPacket.TryParse(d.Info.Span, out var packet))
+    {
+        circuits.OnPacket(packet);   // addressed to us → the circuit layer
+        // …or NetRomForwarding.Decide(packet, …) for traffic in transit
+    }
+};
+```
+
+**Outbound — put a `NetRomPacket` back on the wire.** The `SendPacket` sink ships
+a packet to its next-hop neighbour. A neighbour link (an *interlink*) is just an
+ordinary connected-mode AX.25 session to that node — opened with `ConnectAsync`
+(chapter 5) and held up — so you transmit by sending the packet's bytes as a
+PID-`0xCF` I-frame over it:
+
+```csharp
+circuits.SendPacket = packet =>
+{
+    Ax25Session interlink = InterlinkTo(packet.Network.Destination);  // your routing → neighbour session
+    listener.SendData(interlink, packet.ToBytes(), Ax25Frame.PidNetRom);
+};
+```
+
+!!! warning "Interlink management is the real remaining work"
+    `InterlinkTo` above is the one piece this guide leaves to you: resolving the
+    next-hop neighbour from the routing snapshot, dialing and **holding open** an
+    AX.25 session to it, and re-establishing it when it drops. That session
+    lifecycle — not the NET/ROM logic — is the bulk of a production node, and it's
+    exactly what `Packet.Node.Core`'s `NetRomService` exists to do
+    ([chapter 8](08-beyond.md)). Everything else on this page is complete; this is
+    the seam where you either write that management or adopt the host's.
+
+**Advertising — broadcast what you can reach.** A node that participates (rather
+than only observing) periodically sends its own NODES broadcast, built from the
+table. `Build` returns one or more UI-frame payloads (a NODES frame caps at 11
+entries, so a large table spills across several):
+
+```csharp
+var entries = routing.BuildAdvertisement(obsoleteMinimum: 1);
+foreach (byte[] frame in NodesBroadcastBuilder.Build(senderAlias: "XYZ", entries))
+    await listener.SendUiAsync(new Callsign("NODES"), frame, Ax25Frame.PidNetRom);
+routing.Sweep();   // age out stale routes on the same timer
+```
+
+With those three snippets plus the ingestion loop at the top of the chapter, every
+byte path in the diagram below is one you can actually write.
+
 ## How it all stacks up
 
 Putting the whole guide together, a NET/ROM-capable node is:

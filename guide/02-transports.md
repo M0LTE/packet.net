@@ -201,6 +201,7 @@ diagnostics. It implements `IAx25Transport` plus **both** capabilities.
 
 ```csharp
 using Packet.Ax25.Transport;
+using Packet.Kiss;             // Ax25FrameReceivedEvent et al. live here
 using Packet.Kiss.NinoTnc;
 
 await using var tnc = NinoTncSerialPort.Open("/dev/ttyACM0");
