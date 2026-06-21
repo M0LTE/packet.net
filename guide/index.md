@@ -18,9 +18,10 @@ You should be comfortable with:
 - The basic idea of AX.25 (callsigns, frames, connected vs. connectionless), at
   the "I have read the front matter of the spec" level. You do not need to know
   the state machine — the engine owns that.
-- Having a TNC, a software modem (Dire Wolf, QtSoundModem, the NinoTNC), or an
-  AGW/AXUDP endpoint you can talk to. Most examples can also be exercised against
-  a loopback or the interop stack without hardware.
+- Having a TNC — a hardware modem like the NinoTNC, or a software modem like
+  Dire Wolf or QtSoundModem — or an AGW/AXUDP endpoint you can talk to. Most
+  examples can also be exercised against a loopback or the interop stack without
+  hardware.
 
 ## The shape of the engine
 
