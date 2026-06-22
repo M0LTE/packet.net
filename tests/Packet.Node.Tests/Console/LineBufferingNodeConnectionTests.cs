@@ -23,7 +23,11 @@ public sealed class LineBufferingNodeConnectionTests
         while (true)
         {
             var chunk = await c.ReadAsync();
-            if (chunk.IsEmpty) break;
+            if (chunk.IsEmpty)
+            {
+                break;
+            }
+
             lines.Add(Encoding.ASCII.GetString(chunk.Span));
         }
         return lines;

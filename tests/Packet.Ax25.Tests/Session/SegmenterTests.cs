@@ -34,14 +34,19 @@ public class SegmenterTests
     public void Roundtrip_Figure_Literal_Recovers_Original(int payloadSize)
     {
         var payload = new byte[payloadSize];
-        for (int i = 0; i < payloadSize; i++) payload[i] = (byte)((i * 31) & 0xFF);  // deterministic non-trivial pattern
+        for (int i = 0; i < payloadSize; i++)
+        {
+            payload[i] = (byte)((i * 31) & 0xFF);  // deterministic non-trivial pattern
+        }
 
         var segments = Segmenter.Segment(payload, maxInfoFieldBytes: 256);   // innerPid: null = figure-literal
 
         byte[]? completed = null;
         var reassembler = new Reassembler();
         foreach (var seg in segments)
+        {
             completed = reassembler.Push(seg);
+        }
 
         completed.Should().NotBeNull($"the last segment must produce a completed payload for size {payloadSize}");
         completed!.Length.Should().Be(payloadSize);
@@ -61,7 +66,11 @@ public class SegmenterTests
     public void Roundtrip_Inner_Pid_Recovers_Original_And_The_L3_Pid(int payloadSize)
     {
         var payload = new byte[payloadSize];
-        for (int i = 0; i < payloadSize; i++) payload[i] = (byte)((i * 31 + 7) & 0xFF);
+        for (int i = 0; i < payloadSize; i++)
+        {
+            payload[i] = (byte)((i * 31 + 7) & 0xFF);
+        }
+
         const byte l3Pid = Ax25Frame.PidNetRom;   // a non-default L3 PID, to prove it survives
 
         var segments = Segmenter.Segment(payload, maxInfoFieldBytes: 256, innerPid: l3Pid);
@@ -69,7 +78,9 @@ public class SegmenterTests
         byte[]? completed = null;
         var reassembler = new Reassembler(expectInnerPid: true);
         foreach (var seg in segments)
+        {
             completed = reassembler.Push(seg);
+        }
 
         completed.Should().NotBeNull($"the last segment must produce a completed payload for size {payloadSize}");
         completed!.Length.Should().Be(payloadSize);

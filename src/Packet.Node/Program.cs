@@ -785,9 +785,13 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ctx =>
     {
         if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+        {
             ctx.Context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        }
         else if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
+        {
             ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        }
     },
 });
 // Deep-link fallback (e.g. /monitor, /apps) also returns index.html — keep it no-cache too.

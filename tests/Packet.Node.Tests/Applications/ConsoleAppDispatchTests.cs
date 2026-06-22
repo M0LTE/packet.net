@@ -29,7 +29,11 @@ public sealed class ConsoleAppDispatchTests
     // Drive the console with scripted lines, ending the session so RunAsync returns.
     private static async Task RunWith(NodeCommandService svc, DriveableConnection conn, params string[] lines)
     {
-        foreach (var line in lines) conn.Inject(line + "\r");
+        foreach (var line in lines)
+        {
+            conn.Inject(line + "\r");
+        }
+
         await svc.RunAsync(conn).WaitAsync(TimeSpan.FromSeconds(15));
     }
 

@@ -34,14 +34,14 @@ var opts = ParseArgs(args);
 
 return opts.Mode switch
 {
-    "oneshot"          => await OneshotMode.RunAsync(opts),
-    "collect"          => await CollectMode.RunAsync(opts),
-    "analyse"          => await AnalyseMode.RunAsync(opts),
-    "direwolf"         => await DirewolfMode.RunAsync(opts),
+    "oneshot" => await OneshotMode.RunAsync(opts),
+    "collect" => await CollectMode.RunAsync(opts),
+    "analyse" => await AnalyseMode.RunAsync(opts),
+    "direwolf" => await DirewolfMode.RunAsync(opts),
     "direwolf_rewrite" => await DirewolfRewriteMode.RunAsync(opts),
-    "differential"     => await DifferentialMode.RunAsync(opts),
+    "differential" => await DifferentialMode.RunAsync(opts),
     "bpq_differential" => await BpqDifferentialMode.RunAsync(opts),
-    _                  => Fail($"unknown mode: {opts.Mode}"),
+    _ => Fail($"unknown mode: {opts.Mode}"),
 };
 
 static int Fail(string msg) { Console.Error.WriteLine($"# {msg}"); return 1; }
@@ -61,7 +61,7 @@ static Options ParseArgs(string[] args)
         {
             "collect" => Path.Combine("data", "aprs-is"),
             "analyse" => Path.Combine("artifacts", "aprs-is-analysis", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
-            _         => Path.Combine("artifacts", "aprs-is-spike", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
+            _ => Path.Combine("artifacts", "aprs-is-spike", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")),
         },
         FilenamePrefix = "aprs-is",
         Quiet = false,

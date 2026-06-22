@@ -29,7 +29,7 @@ namespace Packet.Interop.Tests.Agw;
 public class LinbpqAgwFidelityTests
 {
     private const string Host = "127.0.0.1";
-    private const int    AgwPort = 8000;
+    private const int AgwPort = 8000;
     // BPQ's AGW listener binds a few seconds after HTTP goes healthy, and
     // under host-CPU contention the first round-trip to it can lag. 30 s
     // gives generous headroom; the calls return as soon as BPQ answers.

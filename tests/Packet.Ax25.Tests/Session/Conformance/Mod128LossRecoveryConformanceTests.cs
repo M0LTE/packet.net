@@ -47,16 +47,39 @@ public class Mod128LossRecoveryConformanceTests
         var dropped = false;
         h.Link.Drop = f =>
         {
-            if (dropped) return false;
-            if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Ns != 2) return false;            // mode-aware 7-bit N(S)
+            if (dropped)
+            {
+                return false;
+            }
+
+            if (!f.Source.Callsign.Equals(h.A.Context.Local))
+            {
+                return false;
+            }
+
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Ns != 2)
+            {
+                return false;            // mode-aware 7-bit N(S)
+            }
+
             dropped = true;
             return true;
         };
 
-        for (byte i = 0; i < 6; i++) h.Submit(h.A, i);
-        for (int r = 0; r < 40 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < 6; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
+        for (int r = 0; r < 40 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(Enumerable.Range(0, 6).Select(i => (byte)i),
             "go-back-N recovery in the 7-bit space must deliver all six payloads in order");
@@ -72,16 +95,39 @@ public class Mod128LossRecoveryConformanceTests
         var dropped = false;
         h.Link.Drop = f =>
         {
-            if (dropped) return false;
-            if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Ns != 3) return false;
+            if (dropped)
+            {
+                return false;
+            }
+
+            if (!f.Source.Callsign.Equals(h.A.Context.Local))
+            {
+                return false;
+            }
+
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Ns != 3)
+            {
+                return false;
+            }
+
             dropped = true;
             return true;
         };
 
-        for (byte i = 0; i < 6; i++) h.Submit(h.A, i);
-        for (int r = 0; r < 40 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < 6; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
+        for (int r = 0; r < 40 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(Enumerable.Range(0, 6).Select(i => (byte)i),
             "selective recovery in the 7-bit space must deliver all six payloads in order");
@@ -100,8 +146,15 @@ public class Mod128LossRecoveryConformanceTests
         var dropsLeft = 4;
         h.Link.Drop = _ => { if (dropsLeft > 0 && rng.NextDouble() < 0.5) { dropsLeft--; return true; } return false; };
 
-        for (byte i = 0; i < 8; i++) h.Submit(h.A, i);
-        for (int r = 0; r < 80 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < 8; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
+        for (int r = 0; r < 80 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.AssertConverged();
     }
@@ -132,17 +185,40 @@ public class Mod128LossRecoveryConformanceTests
         var dropped = false;
         h.Link.Drop = f =>
         {
-            if (dropped) return false;
-            if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Ns != 0) return false;            // N(S)=0 — the frame straddling the wrap
+            if (dropped)
+            {
+                return false;
+            }
+
+            if (!f.Source.Callsign.Equals(h.A.Context.Local))
+            {
+                return false;
+            }
+
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Ns != 0)
+            {
+                return false;            // N(S)=0 — the frame straddling the wrap
+            }
+
             dropped = true;
             return true;
         };
 
         // Eight frames from seed: N(S) = 124,125,126,127,0,1,2,3 — wraps the ring.
-        for (byte i = 0; i < 8; i++) h.Submit(h.A, (byte)(0x40 + i));
-        for (int r = 0; r < 60 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < 8; i++)
+        {
+            h.Submit(h.A, (byte)(0x40 + i));
+        }
+
+        for (int r = 0; r < 60 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(Enumerable.Range(0, 8).Select(i => (byte)(0x40 + i)),
             "recovery across the 127→0 window wrap must deliver every payload in order");

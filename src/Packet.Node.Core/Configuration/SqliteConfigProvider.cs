@@ -109,7 +109,11 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
     /// <inheritdoc/>
     public NodeConfig Current
     {
-        get { lock (gate) return current; }
+        get { lock (gate)
+            {
+                return current;
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -117,7 +121,11 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
     {
         ArgumentNullException.ThrowIfNull(listener);
         var sub = new Subscription(this, listener);
-        lock (gate) subscriptions.Add(sub);
+        lock (gate)
+        {
+            subscriptions.Add(sub);
+        }
+
         return sub;
     }
 
@@ -144,7 +152,10 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
         NodeConfig applied;
         lock (gate)
         {
-            if (disposed) return false;
+            if (disposed)
+            {
+                return false;
+            }
 
             // Persist-before-advance: a DB write failure must NOT advance Current (the node
             // never runs on un-persisted config). Surface it as a failed apply.
@@ -335,7 +346,11 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
     private void RaiseOnChange(NodeConfig applied)
     {
         Subscription[] snapshot;
-        lock (gate) snapshot = subscriptions.ToArray();
+        lock (gate)
+        {
+            snapshot = subscriptions.ToArray();
+        }
+
         foreach (var sub in snapshot)
         {
             try
@@ -391,7 +406,11 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
     {
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
         }
         // No watcher / timer to tear down — the strictly-simpler DB provider holds no OS
@@ -413,7 +432,10 @@ public sealed partial class SqliteConfigProvider : IWritableConfigProvider, IDis
 
         public void Dispose()
         {
-            lock (owner.gate) owner.subscriptions.Remove(this);
+            lock (owner.gate)
+            {
+                owner.subscriptions.Remove(this);
+            }
         }
     }
 }

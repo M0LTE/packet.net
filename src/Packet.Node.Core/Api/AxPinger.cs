@@ -269,8 +269,15 @@ public static class AxPinger
             {
                 ok++;
                 sum += rtt;
-                if (rtt < min) min = rtt;
-                if (rtt > max) max = rtt;
+                if (rtt < min)
+                {
+                    min = rtt;
+                }
+
+                if (rtt > max)
+                {
+                    max = rtt;
+                }
             }
         }
 

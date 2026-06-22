@@ -77,7 +77,10 @@ public static class Segmenter
     public static IReadOnlyList<byte[]> Segment(ReadOnlySpan<byte> payload, int maxInfoFieldBytes, byte? innerPid = null)
     {
         if (innerPid is null)
+        {
             return SegmentFigureLiteral(payload, maxInfoFieldBytes);
+        }
+
         return SegmentWithInnerPid(payload, maxInfoFieldBytes, innerPid.Value);
     }
 
@@ -88,17 +91,21 @@ public static class Segmenter
     private static byte[][] SegmentFigureLiteral(ReadOnlySpan<byte> payload, int maxInfoFieldBytes)
     {
         if (maxInfoFieldBytes < 2)
+        {
             throw new ArgumentOutOfRangeException(nameof(maxInfoFieldBytes),
                 "must be at least 2 (1 byte for the segment control byte + at least 1 byte of payload)");
+        }
 
         var perSegment = maxInfoFieldBytes - 1;
         var segmentCount = payload.Length == 0
             ? 1
             : (payload.Length + perSegment - 1) / perSegment;
         if (segmentCount > MaxSegments)
+        {
             throw new ArgumentException(
                 $"payload of {payload.Length} bytes would need {segmentCount} segments at N1={maxInfoFieldBytes}; max is {MaxSegments}",
                 nameof(payload));
+        }
 
         var result = new byte[segmentCount][];
         for (int i = 0; i < segmentCount; i++)
@@ -112,7 +119,10 @@ public static class Segmenter
             var segment = new byte[1 + thisLen];
             segment[0] = header;
             if (thisLen > 0)
+            {
                 payload.Slice(offset, thisLen).CopyTo(segment.AsSpan(1));
+            }
+
             result[i] = segment;
         }
         return result;
@@ -129,8 +139,10 @@ public static class Segmenter
     private static byte[][] SegmentWithInnerPid(ReadOnlySpan<byte> payload, int maxInfoFieldBytes, byte innerPid)
     {
         if (maxInfoFieldBytes < 3)
+        {
             throw new ArgumentOutOfRangeException(nameof(maxInfoFieldBytes),
                 "must be at least 3 for the inner-PID format (1 byte F/X control + 1 byte inner PID + at least 1 byte of payload on the first segment)");
+        }
 
         var perSegment = maxInfoFieldBytes - 1;               // subsequent-segment data capacity (F/X + data)
         var firstSegmentCapacity = maxInfoFieldBytes - 2;     // first-segment data capacity (F/X + inner PID + data)
@@ -141,11 +153,17 @@ public static class Segmenter
         // carries the inner PID.
         var budget = payload.Length + 1;
         var segmentCount = (budget + perSegment - 1) / perSegment;
-        if (segmentCount < 1) segmentCount = 1;
+        if (segmentCount < 1)
+        {
+            segmentCount = 1;
+        }
+
         if (segmentCount > MaxSegments)
+        {
             throw new ArgumentException(
                 $"payload of {payload.Length} bytes (plus 1 inner-PID octet) would need {segmentCount} segments at N1={maxInfoFieldBytes}; max is {MaxSegments}",
                 nameof(payload));
+        }
 
         var result = new byte[segmentCount][];
         var offset = 0;
@@ -159,7 +177,10 @@ public static class Segmenter
                 segment[0] = (byte)(FirstBit | (remaining & CountMask));
                 segment[1] = innerPid;
                 if (thisLen > 0)
+                {
                     payload.Slice(offset, thisLen).CopyTo(segment.AsSpan(2));
+                }
+
                 result[i] = segment;
                 offset += thisLen;
             }
@@ -169,7 +190,10 @@ public static class Segmenter
                 var segment = new byte[1 + thisLen];
                 segment[0] = (byte)(remaining & CountMask);
                 if (thisLen > 0)
+                {
                     payload.Slice(offset, thisLen).CopyTo(segment.AsSpan(1));
+                }
+
                 result[i] = segment;
                 offset += thisLen;
             }
@@ -244,7 +268,9 @@ public sealed class Reassembler
     public byte[]? Push(ReadOnlySpan<byte> infoField)
     {
         if (infoField.Length < 1)
+        {
             throw new ArgumentException("segment info field must be at least 1 byte (the control byte)", nameof(infoField));
+        }
 
         var header = infoField[0];
         var isFirst = (header & Segmenter.FirstBit) != 0;
@@ -254,9 +280,12 @@ public sealed class Reassembler
         if (isFirst && expectInnerPid)
         {
             if (infoField.Length < 2)
+            {
                 throw new ArgumentException(
                     "first segment of an inner-PID series must be at least 2 bytes (the F/X control byte + the inner-PID octet)",
                     nameof(infoField));
+            }
+
             pendingPid = infoField[1];
             data = infoField.Slice(2).ToArray();
         }
@@ -269,7 +298,10 @@ public sealed class Reassembler
         {
             accumulated.Clear();
             expectedRemaining = remaining;
-            if (!expectInnerPid) pendingPid = null;
+            if (!expectInnerPid)
+            {
+                pendingPid = null;
+            }
         }
         else if (expectedRemaining < 0)
         {
@@ -288,10 +320,17 @@ public sealed class Reassembler
 
         accumulated.Add(data);
 
-        if (remaining != 0) return null;
+        if (remaining != 0)
+        {
+            return null;
+        }
 
         var totalLen = 0;
-        foreach (var chunk in accumulated) totalLen += chunk.Length;
+        foreach (var chunk in accumulated)
+        {
+            totalLen += chunk.Length;
+        }
+
         var result = new byte[totalLen];
         var offset = 0;
         foreach (var chunk in accumulated)

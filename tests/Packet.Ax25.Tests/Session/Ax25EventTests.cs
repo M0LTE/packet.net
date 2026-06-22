@@ -6,14 +6,14 @@ namespace Packet.Ax25.Tests.Session;
 public class Ax25EventTests
 {
     [Theory]
-    [InlineData(typeof(DlConnectRequest),    "DL_CONNECT_request")]
+    [InlineData(typeof(DlConnectRequest), "DL_CONNECT_request")]
     [InlineData(typeof(DlDisconnectRequest), "DL_DISCONNECT_request")]
-    [InlineData(typeof(DlFlowOffRequest),    "DL_FLOW_OFF_request")]
-    [InlineData(typeof(DlFlowOnRequest),     "DL_FLOW_ON_request")]
+    [InlineData(typeof(DlFlowOffRequest), "DL_FLOW_OFF_request")]
+    [InlineData(typeof(DlFlowOnRequest), "DL_FLOW_ON_request")]
     // IFramePopsOffQueue covered separately — its constructor takes (Data, Pid).
-    [InlineData(typeof(T1Expiry),            "T1_expiry")]
-    [InlineData(typeof(T2Expiry),            "T2_expiry")]
-    [InlineData(typeof(T3Expiry),            "T3_expiry")]
+    [InlineData(typeof(T1Expiry), "T1_expiry")]
+    [InlineData(typeof(T2Expiry), "T2_expiry")]
+    [InlineData(typeof(T3Expiry), "T3_expiry")]
     public void Event_Names_Match_Spec_Catalog(Type eventType, string expectedName)
     {
         var evt = (Ax25Event)Activator.CreateInstance(eventType)!;
@@ -46,8 +46,8 @@ public class Ax25EventTests
     {
         var frame = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("G7XYZ", 7),
-            info:        "x"u8);
+            source: new Callsign("G7XYZ", 7),
+            info: "x"u8);
 
         var evt = new IFrameReceived(frame);
         evt.Name.Should().Be("I_received");

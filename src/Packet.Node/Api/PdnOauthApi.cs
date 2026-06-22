@@ -56,7 +56,11 @@ public static class PdnOauthApi
 
         app.MapGet("/.well-known/oauth-protected-resource", (HttpContext ctx, IConfigProvider config) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
+
             var b = BaseUrl(ctx);
             return Results.Json(new Dictionary<string, object?>
             {
@@ -69,7 +73,11 @@ public static class PdnOauthApi
 
         app.MapGet("/.well-known/oauth-authorization-server", (HttpContext ctx, IConfigProvider config) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
+
             var b = BaseUrl(ctx);
             return Results.Json(new Dictionary<string, object?>
             {
@@ -90,7 +98,10 @@ public static class PdnOauthApi
 
         app.MapPost("/oauth/register", async (HttpContext ctx, IConfigProvider config, IOauthClientStore clients, IAuditLog audit, TimeProvider clock) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
 
             DcrRequest? body;
             try { body = await ctx.Request.ReadFromJsonAsync<DcrRequest>(); }
@@ -134,7 +145,10 @@ public static class PdnOauthApi
 
         app.MapGet("/oauth/authorize", (HttpContext ctx, IConfigProvider config, IOauthClientStore clients) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
 
             var q = ctx.Request.Query;
             var req = AuthorizeRequest.FromQuery(q);
@@ -161,7 +175,10 @@ public static class PdnOauthApi
 
         app.MapPost("/oauth/authorize", async (HttpContext ctx, IConfigProvider config, IOauthClientStore clients, IOauthCodeStore codes, IUserStore users, IAuditLog audit, [FromServices] LoginThrottle? throttle, TimeProvider clock) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
 
             var form = await ctx.Request.ReadFormAsync();
             var req = AuthorizeRequest.FromForm(form);
@@ -227,7 +244,10 @@ public static class PdnOauthApi
 
             var sep = req.RedirectUri.Contains('?', StringComparison.Ordinal) ? '&' : '?';
             var sb = new StringBuilder(req.RedirectUri).Append(sep).Append("code=").Append(Uri.EscapeDataString(code));
-            if (!string.IsNullOrEmpty(req.State)) sb.Append("&state=").Append(Uri.EscapeDataString(req.State));
+            if (!string.IsNullOrEmpty(req.State))
+            {
+                sb.Append("&state=").Append(Uri.EscapeDataString(req.State));
+            }
             // RFC 9207: identify the issuer in the authorization response so the client can
             // detect a mix-up attack (a code minted by a different AS than it expected).
             sb.Append("&iss=").Append(Uri.EscapeDataString(BaseUrl(ctx)));
@@ -238,8 +258,15 @@ public static class PdnOauthApi
 
         app.MapPost("/oauth/token", async (HttpContext ctx, IConfigProvider config, IOauthClientStore clients, IOauthCodeStore codes, IAuditLog audit, [FromServices] JwtTokenService? tokens, TimeProvider clock) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
-            if (tokens is null) return OauthError(StatusCodes.Status503ServiceUnavailable, "temporarily_unavailable", "Token signing is not configured.");
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
+
+            if (tokens is null)
+            {
+                return OauthError(StatusCodes.Status503ServiceUnavailable, "temporarily_unavailable", "Token signing is not configured.");
+            }
 
             var form = await ctx.Request.ReadFormAsync();
             if (!string.Equals(form["grant_type"], "authorization_code", StringComparison.Ordinal))
@@ -280,7 +307,10 @@ public static class PdnOauthApi
 
         app.MapPost("/oauth/revoke", async (HttpContext ctx, IConfigProvider config, IAuditLog audit, TimeProvider clock) =>
         {
-            if (!Enabled(config)) return Results.NotFound();
+            if (!Enabled(config))
+            {
+                return Results.NotFound();
+            }
             // The MCP access token is a stateless JWT — it cannot be individually revoked
             // (it expires on its own; rotate the signing key to invalidate all). Per RFC 7009
             // we still answer 200 for any token. Per-token revocation rides the refresh-token
@@ -311,7 +341,11 @@ public static class PdnOauthApi
     {
         var sep = redirectUri.Contains('?', StringComparison.Ordinal) ? '&' : '?';
         var sb = new StringBuilder(redirectUri).Append(sep).Append("error=").Append(Uri.EscapeDataString(error));
-        if (!string.IsNullOrEmpty(state)) sb.Append("&state=").Append(Uri.EscapeDataString(state));
+        if (!string.IsNullOrEmpty(state))
+        {
+            sb.Append("&state=").Append(Uri.EscapeDataString(state));
+        }
+
         return sb.ToString();
     }
 
@@ -379,12 +413,27 @@ public static class PdnOauthApi
         /// <summary>Returns an OAuth error code if a parameter is invalid, else null.</summary>
         public string? Validate()
         {
-            if (!string.Equals(ResponseType, "code", StringComparison.Ordinal)) return "unsupported_response_type";
-            if (!string.Equals(CodeChallengeMethod, OauthPkce.MethodS256, StringComparison.Ordinal)) return "invalid_request";
-            if (string.IsNullOrWhiteSpace(CodeChallenge)) return "invalid_request";
+            if (!string.Equals(ResponseType, "code", StringComparison.Ordinal))
+            {
+                return "unsupported_response_type";
+            }
+
+            if (!string.Equals(CodeChallengeMethod, OauthPkce.MethodS256, StringComparison.Ordinal))
+            {
+                return "invalid_request";
+            }
+
+            if (string.IsNullOrWhiteSpace(CodeChallenge))
+            {
+                return "invalid_request";
+            }
+
             foreach (var s in Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (s is not (ScopeRead or ScopeOperate)) return "invalid_scope";
+                if (s is not (ScopeRead or ScopeOperate))
+                {
+                    return "invalid_scope";
+                }
             }
             return null;
         }

@@ -100,7 +100,7 @@ public class Ax25SessionTests
         var unhandled = new List<Ax25Event>();
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         var dispatcher = new ActionDispatcher(
@@ -111,7 +111,7 @@ public class Ax25SessionTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Connected"]       = ConnectedFlowControlTransitions,
+                ["Connected"] = ConnectedFlowControlTransitions,
                 ["AwaitingRelease"] = Array.Empty<TransitionSpec>(),
             },
             initialState: "Connected",
@@ -212,8 +212,8 @@ public class Ax25SessionTests
         var (s, _, _, _, _, unhandled) = NewConnectedSession();
         var sabm = new SabmReceived(Ax25Frame.Ui(
             destination: new Callsign("M0LTE", 0),
-            source:      new Callsign("G7XYZ", 7),
-            info:        "x"u8));
+            source: new Callsign("G7XYZ", 7),
+            info: "x"u8));
 
         s.PostEvent(sabm);
 
@@ -228,7 +228,7 @@ public class Ax25SessionTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         var dispatcher = new ActionDispatcher(_ => { }, _ => { });

@@ -21,7 +21,7 @@ namespace Packet.Ax25.Tests.Session;
 public sealed class Ax25ListenerTestResponderTests
 {
     private static readonly Callsign LocalCall = new("M0LTE", 0);
-    private static readonly Callsign PeerCall  = new("G7XYZ", 7);
+    private static readonly Callsign PeerCall = new("G7XYZ", 7);
 
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(2);
 
@@ -104,7 +104,10 @@ public sealed class Ax25ListenerTestResponderTests
         var traced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.FrameTraced += (_, e) =>
         {
-            if (e.Direction == FrameDirection.Received) traced.TrySetResult();
+            if (e.Direction == FrameDirection.Received)
+            {
+                traced.TrySetResult();
+            }
         };
 
         // Inject a TEST RESPONSE (the echo to someone's axping) — NOT a command.
@@ -133,7 +136,10 @@ public sealed class Ax25ListenerTestResponderTests
         var traced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.FrameTraced += (_, e) =>
         {
-            if (e.Direction == FrameDirection.Received) traced.TrySetResult();
+            if (e.Direction == FrameDirection.Received)
+            {
+                traced.TrySetResult();
+            }
         };
 
         // TEST command addressed to a THIRD party, overheard on the shared channel.

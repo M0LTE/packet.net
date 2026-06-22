@@ -105,8 +105,15 @@ public static class ReconcilePlanner
             // Enabled toggled.
             if (oldPort.Enabled != newPort.Enabled)
             {
-                if (newPort.Enabled) enable.Add(newPort);
-                else disable.Add(newPort.Id);
+                if (newPort.Enabled)
+                {
+                    enable.Add(newPort);
+                }
+                else
+                {
+                    disable.Add(newPort.Id);
+                }
+
                 continue;   // the toggle subsumes any field change (we rebuild on enable)
             }
 

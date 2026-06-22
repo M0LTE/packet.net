@@ -25,9 +25,9 @@ namespace Packet.Ax25.Tests.Session;
 /// </remarks>
 public class Ax25ListenerTests
 {
-    private static readonly Callsign LocalCall  = new("M0LTE", 0);
-    private static readonly Callsign PeerCallA  = new("G7XYZ", 7);
-    private static readonly Callsign PeerCallB  = new("M5ABC", 3);
+    private static readonly Callsign LocalCall = new("M0LTE", 0);
+    private static readonly Callsign PeerCallA = new("G7XYZ", 7);
+    private static readonly Callsign PeerCallB = new("M5ABC", 3);
 
     [Fact]
     public async Task Listener_Accepts_Inbound_SABM_And_Fires_SessionAccepted()
@@ -83,8 +83,14 @@ public class Ax25ListenerTests
         listener.SessionAccepted += (_, e) =>
         {
             int count = Interlocked.Increment(ref acceptedCount);
-            if (count == 1) firstAccepted.TrySetResult(e.Session);
-            else            secondAccepted.TrySetResult(e.Session);
+            if (count == 1)
+            {
+                firstAccepted.TrySetResult(e.Session);
+            }
+            else
+            {
+                secondAccepted.TrySetResult(e.Session);
+            }
         };
 
         await listener.StartAsync();
@@ -164,7 +170,10 @@ public class Ax25ListenerTests
         listener.SessionAccepted += (_, e) =>
         {
             sessionsByPeer[e.Session.Context.Remote] = e.Session;
-            if (sessionsByPeer.Count == 2) bothAccepted.TrySetResult(true);
+            if (sessionsByPeer.Count == 2)
+            {
+                bothAccepted.TrySetResult(true);
+            }
         };
 
         await listener.StartAsync();
@@ -196,7 +205,10 @@ public class Ax25ListenerTests
         var gate = new object();
         listener.FrameTraced += (_, e) =>
         {
-            lock (gate) traced.Add((e.Direction, e.Frame));
+            lock (gate)
+            {
+                traced.Add((e.Direction, e.Frame));
+            }
         };
 
         await listener.StartAsync();
@@ -210,7 +222,10 @@ public class Ax25ListenerTests
         // Brief settle so the second TX-trace lands.
         await ListenerTestSupport.WaitFor(() =>
         {
-            lock (gate) return traced.Count >= 4;
+            lock (gate)
+            {
+                return traced.Count >= 4;
+            }
         }, TimeSpan.FromSeconds(2));
 
         lock (gate)

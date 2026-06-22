@@ -27,7 +27,11 @@ internal static class ListenerTestSupport
         var deadline = DateTimeOffset.UtcNow + budget;
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             await Task.Delay(20);
         }
         throw new TimeoutException($"condition did not become true within {budget}{(reason is null ? "" : $" — {reason}")}");
@@ -173,22 +177,36 @@ internal sealed class ObservableList<T>
             toComplete = waiters.ToList();
             waiters.Clear();
         }
-        foreach (var w in toComplete) w.TrySetResult(true);
+        foreach (var w in toComplete)
+        {
+            w.TrySetResult(true);
+        }
     }
 
     public int Count
     {
-        get { lock (gate) return items.Count; }
+        get { lock (gate)
+            {
+                return items.Count;
+            }
+        }
     }
 
     public T this[int i]
     {
-        get { lock (gate) return items[i]; }
+        get { lock (gate)
+            {
+                return items[i];
+            }
+        }
     }
 
     public List<T> SnapshotList()
     {
-        lock (gate) return items.ToList();
+        lock (gate)
+        {
+            return items.ToList();
+        }
     }
 
     public async Task WaitForCountAsync(int target, TimeSpan budget)
@@ -199,15 +217,26 @@ internal sealed class ObservableList<T>
             Task wait;
             lock (gate)
             {
-                if (items.Count >= target) return;
+                if (items.Count >= target)
+                {
+                    return;
+                }
+
                 var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 waiters.Add(tcs);
                 wait = tcs.Task;
             }
             var remaining = deadline - DateTimeOffset.UtcNow;
-            if (remaining <= TimeSpan.Zero) throw new TimeoutException($"only {Count}/{target} items after {budget}");
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException($"only {Count}/{target} items after {budget}");
+            }
+
             var done = await Task.WhenAny(wait, Task.Delay(remaining));
-            if (done != wait) throw new TimeoutException($"only {Count}/{target} items after {budget}");
+            if (done != wait)
+            {
+                throw new TimeoutException($"only {Count}/{target} items after {budget}");
+            }
         }
     }
 }
@@ -217,14 +246,22 @@ internal static class ListenerTestTaskExtensions
     public static async Task<T> WithTimeout<T>(this Task<T> task, TimeSpan budget)
     {
         var done = await Task.WhenAny(task, Task.Delay(budget));
-        if (done != task) throw new TimeoutException($"task did not complete within {budget}");
+        if (done != task)
+        {
+            throw new TimeoutException($"task did not complete within {budget}");
+        }
+
         return await task;
     }
 
     public static async Task WithTimeout(this Task task, TimeSpan budget)
     {
         var done = await Task.WhenAny(task, Task.Delay(budget));
-        if (done != task) throw new TimeoutException($"task did not complete within {budget}");
+        if (done != task)
+        {
+            throw new TimeoutException($"task did not complete within {budget}");
+        }
+
         await task;
     }
 }

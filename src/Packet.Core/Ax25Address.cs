@@ -114,8 +114,16 @@ public readonly record struct Ax25Address(Callsign Callsign, bool CrhBit, bool E
         // SSID byte: C/H | R | R | SSID(4) | E
         // R bits default to "11" per v2.2.
         byte ssidByte = (byte)(0x60 | ((Callsign.Ssid & 0x0F) << 1));
-        if (CrhBit) ssidByte |= 0x80;
-        if (ExtensionBit) ssidByte |= 0x01;
+        if (CrhBit)
+        {
+            ssidByte |= 0x80;
+        }
+
+        if (ExtensionBit)
+        {
+            ssidByte |= 0x01;
+        }
+
         destination[6] = ssidByte;
     }
 }

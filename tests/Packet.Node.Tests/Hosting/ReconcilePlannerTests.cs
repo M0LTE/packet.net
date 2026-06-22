@@ -19,13 +19,13 @@ public class ReconcilePlannerTests
 
     private static PortConfig Tcp(string id, int port = 8001, bool enabled = true,
         KissParams? kiss = null, Ax25PortParams? ax25 = null) => new()
-    {
-        Id = id,
-        Enabled = enabled,
-        Transport = new KissTcpTransport { Host = "127.0.0.1", Port = port },
-        Kiss = kiss,
-        Ax25 = ax25,
-    };
+        {
+            Id = id,
+            Enabled = enabled,
+            Transport = new KissTcpTransport { Host = "127.0.0.1", Port = port },
+            Kiss = kiss,
+            Ax25 = ax25,
+        };
 
     [Fact]
     public void Same_config_twice_is_a_noop()

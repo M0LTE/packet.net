@@ -31,10 +31,10 @@ namespace Packet.Interop.Tests.Netsim;
 [Collection(NetsimCollection.Name)]
 public class NetsimUiFrameScenarios
 {
-    private const string Host          = "127.0.0.1";
-    private const int    NodeAKissPort = 8100;
-    private const int    NodeBKissPort = 8101;
-    private const int    NetsimWebPort = 8080;
+    private const string Host = "127.0.0.1";
+    private const int NodeAKissPort = 8100;
+    private const int NodeBKissPort = 8101;
+    private const int NetsimWebPort = 8080;
     // 30s, not 15s, because the AFSK1200 software sim is CPU-heavy and under
     // host contention (four interop containers + test runner sharing a single
     // box) round-trip latency can spike above the original 15s budget. CI's
@@ -52,7 +52,7 @@ public class NetsimUiFrameScenarios
         // the docker stack isn't up (i.e. on a default `dotnet test`).
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
-        await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var sender = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
         await using var receiver = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
         await Task.Delay(200, cts.Token);
 
@@ -63,8 +63,8 @@ public class NetsimUiFrameScenarios
         var digis = new[] { new Callsign("WIDE1", 1), new Callsign("WIDE2", 2) };
         var outbound = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      ourSource,
-            info:        "via digis"u8,
+            source: ourSource,
+            info: "via digis"u8,
             digipeaters: digis);
         await sender.SendAsync(0, KissCommand.Data, outbound.ToBytes(), cts.Token);
 
@@ -80,7 +80,7 @@ public class NetsimUiFrameScenarios
     {
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
-        await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var sender = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
         await using var receiver = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
         await Task.Delay(200, cts.Token);
 
@@ -93,9 +93,9 @@ public class NetsimUiFrameScenarios
         var ourSource = new Callsign("PNNET", 9);
         var outbound = Ax25Frame.Ui(
             destination: new Callsign("NODES", 0),
-            source:      ourSource,
-            info:        info,
-            pid:         Ax25Frame.PidNetRom);
+            source: ourSource,
+            info: info,
+            pid: Ax25Frame.PidNetRom);
         await sender.SendAsync(0, KissCommand.Data, outbound.ToBytes(), cts.Token);
 
         var rx = await WaitForOurFrame(receiver, ourSource, cts.Token);
@@ -112,7 +112,7 @@ public class NetsimUiFrameScenarios
         // AprsPositionDecoder still extracts the same lat/lon.
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(RxBudget);
-        await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var sender = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
         await using var receiver = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
         await Task.Delay(200, cts.Token);
 
@@ -124,8 +124,8 @@ public class NetsimUiFrameScenarios
         var ourSource = new Callsign("PNAPRS", 9);
         var outbound = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      ourSource,
-            info:        aprsInfo);
+            source: ourSource,
+            info: aprsInfo);
         await sender.SendAsync(0, KissCommand.Data, outbound.ToBytes(), cts.Token);
 
         var rx = await WaitForOurFrame(receiver, ourSource, cts.Token);
@@ -141,7 +141,7 @@ public class NetsimUiFrameScenarios
     {
         await SkipIfNetsimDown();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var sender = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
         await using var receiver = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
         await Task.Delay(200, cts.Token);
 
@@ -155,8 +155,8 @@ public class NetsimUiFrameScenarios
             var info = Encoding.ASCII.GetBytes($"seq={i}");
             var frame = Ax25Frame.Ui(
                 destination: new Callsign("APRS", 0),
-                source:      ourSource,
-                info:        info);
+                source: ourSource,
+                info: info);
             await sender.SendAsync(0, KissCommand.Data, frame.ToBytes(), cts.Token);
         }
 
@@ -166,8 +166,16 @@ public class NetsimUiFrameScenarios
             var frames = await receiver.ReceiveAsync(cts.Token);
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
+
                 if (parsed.Source.Callsign == ourSource)
                 {
                     seenSeqs.Add(Encoding.ASCII.GetString(parsed.Info.Span));
@@ -175,7 +183,10 @@ public class NetsimUiFrameScenarios
             }
         }
         seenSeqs.Should().HaveCount(N, "all 5 frames should arrive within the time budget");
-        for (int i = 0; i < N; i++) seenSeqs.Should().Contain($"seq={i}");
+        for (int i = 0; i < N; i++)
+        {
+            seenSeqs.Should().Contain($"seq={i}");
+        }
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────
@@ -200,8 +211,16 @@ public class NetsimUiFrameScenarios
             var frames = await receiver.ReceiveAsync(ct);
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
+
                 if (parsed.Source.Callsign == ourSource)
                 {
                     return parsed;
@@ -217,7 +236,11 @@ public class NetsimUiFrameScenarios
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
             var resp = await http.GetAsync($"http://{Host}:{NetsimWebPort}/healthz");
-            if (!resp.IsSuccessStatusCode) return false;
+            if (!resp.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
             var body = await resp.Content.ReadAsStringAsync();
             return body.Trim() == "ok";
         }

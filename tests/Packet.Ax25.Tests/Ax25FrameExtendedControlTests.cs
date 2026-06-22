@@ -22,17 +22,17 @@ namespace Packet.Ax25.Tests;
 public class Ax25FrameExtendedControlTests
 {
     private static readonly Callsign Dest = new("M0LTE", 0);
-    private static readonly Callsign Src  = new("G7XYZ", 7);
+    private static readonly Callsign Src = new("G7XYZ", 7);
 
     // ─── Encode: spec-pinned octets ─────────────────────────────────────
 
     [Theory]
     // ns, nr, p,    expected octet0,            expected octet1
-    [InlineData(0,   0,   false, 0x00, 0x00)]
-    [InlineData(5,   3,   true,  0x0A, 0x07)]   // 5<<1=0x0A ; (3<<1)|1=0x07
-    [InlineData(1,   0,   false, 0x02, 0x00)]
-    [InlineData(100, 70,  false, 0xC8, 0x8C)]   // 100<<1=200=0xC8 ; 70<<1=140=0x8C
-    [InlineData(127, 127, true,  0xFE, 0xFF)]   // 127<<1=0xFE ; (127<<1)|1=0xFF
+    [InlineData(0, 0, false, 0x00, 0x00)]
+    [InlineData(5, 3, true, 0x0A, 0x07)]   // 5<<1=0x0A ; (3<<1)|1=0x07
+    [InlineData(1, 0, false, 0x02, 0x00)]
+    [InlineData(100, 70, false, 0xC8, 0x8C)]   // 100<<1=200=0xC8 ; 70<<1=140=0x8C
+    [InlineData(127, 127, true, 0xFE, 0xFF)]   // 127<<1=0xFE ; (127<<1)|1=0xFF
     public void IFrame_Extended_Encodes_Spec_Octets(int ns, int nr, bool poll, byte octet0, byte octet1)
     {
         var frame = Ax25Frame.I(Dest, Src, nr: (byte)nr, ns: (byte)ns,
@@ -44,9 +44,9 @@ public class Ax25FrameExtendedControlTests
     }
 
     [Theory]
-    [InlineData(SupervisoryFrameType.Rr,   0x01)]
-    [InlineData(SupervisoryFrameType.Rnr,  0x05)]
-    [InlineData(SupervisoryFrameType.Rej,  0x09)]
+    [InlineData(SupervisoryFrameType.Rr, 0x01)]
+    [InlineData(SupervisoryFrameType.Rnr, 0x05)]
+    [InlineData(SupervisoryFrameType.Rej, 0x09)]
     [InlineData(SupervisoryFrameType.Srej, 0x0D)]
     public void SFrame_Extended_Encodes_Spec_Octets(SupervisoryFrameType type, byte expectedBase)
     {
@@ -61,10 +61,10 @@ public class Ax25FrameExtendedControlTests
     // ─── Round-trip: encode → bytes → mode-aware parse → fields/classify ─
 
     [Theory]
-    [InlineData(0,   0)]
-    [InlineData(1,   2)]
-    [InlineData(7,   8)]    // straddles the mod-8 3-bit boundary
-    [InlineData(63,  64)]
+    [InlineData(0, 0)]
+    [InlineData(1, 2)]
+    [InlineData(7, 8)]    // straddles the mod-8 3-bit boundary
+    [InlineData(63, 64)]
     [InlineData(100, 27)]
     [InlineData(126, 125)]
     [InlineData(127, 127)]
@@ -87,9 +87,9 @@ public class Ax25FrameExtendedControlTests
     }
 
     [Theory]
-    [InlineData(SupervisoryFrameType.Rr,   typeof(RrReceived))]
-    [InlineData(SupervisoryFrameType.Rnr,  typeof(RnrReceived))]
-    [InlineData(SupervisoryFrameType.Rej,  typeof(RejReceived))]
+    [InlineData(SupervisoryFrameType.Rr, typeof(RrReceived))]
+    [InlineData(SupervisoryFrameType.Rnr, typeof(RnrReceived))]
+    [InlineData(SupervisoryFrameType.Rej, typeof(RejReceived))]
     [InlineData(SupervisoryFrameType.Srej, typeof(SrejReceived))]
     public void SFrame_Extended_RoundTrips_Nr_And_Classifies(SupervisoryFrameType type, Type expectedEvent)
     {
@@ -112,7 +112,7 @@ public class Ax25FrameExtendedControlTests
     {
         var payload = new byte[] { 1, 2, 3 };
         var mod8 = Ax25Frame.I(Dest, Src, nr: 3, ns: 5, info: payload, extended: false);
-        var ext  = Ax25Frame.I(Dest, Src, nr: 3, ns: 5, info: payload, extended: true);
+        var ext = Ax25Frame.I(Dest, Src, nr: 3, ns: 5, info: payload, extended: true);
 
         ext.RequiredBytes.Should().Be(mod8.RequiredBytes + 1, "the second control octet adds one byte");
         ext.ToBytes().Length.Should().Be(mod8.ToBytes().Length + 1);
@@ -177,9 +177,9 @@ public class Ax25FrameExtendedControlTests
     private static Ax25Frame Build(SupervisoryFrameType type, byte nr, bool isCommand, bool pollFinal, bool extended)
         => type switch
         {
-            SupervisoryFrameType.Rr   => Ax25Frame.Rr  (Dest, Src, nr, isCommand, pollFinal, extended: extended),
-            SupervisoryFrameType.Rnr  => Ax25Frame.Rnr (Dest, Src, nr, isCommand, pollFinal, extended: extended),
-            SupervisoryFrameType.Rej  => Ax25Frame.Rej (Dest, Src, nr, isCommand, pollFinal, extended: extended),
+            SupervisoryFrameType.Rr => Ax25Frame.Rr(Dest, Src, nr, isCommand, pollFinal, extended: extended),
+            SupervisoryFrameType.Rnr => Ax25Frame.Rnr(Dest, Src, nr, isCommand, pollFinal, extended: extended),
+            SupervisoryFrameType.Rej => Ax25Frame.Rej(Dest, Src, nr, isCommand, pollFinal, extended: extended),
             SupervisoryFrameType.Srej => Ax25Frame.Srej(Dest, Src, nr, isCommand, pollFinal, extended: extended),
             _ => throw new ArgumentOutOfRangeException(nameof(type)),
         };

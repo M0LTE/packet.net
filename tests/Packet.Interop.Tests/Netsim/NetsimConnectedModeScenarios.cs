@@ -39,10 +39,10 @@ namespace Packet.Interop.Tests.Netsim;
 [Collection(NetsimCollection.Name)]
 public class NetsimConnectedModeScenarios
 {
-    private const string Host         = "127.0.0.1";
-    private const int    NodeAKissPort = 8100;
-    private const int    NodeBKissPort = 8101;
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private const string Host = "127.0.0.1";
+    private const int NodeAKissPort = 8100;
+    private const int NodeBKissPort = 8101;
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // net-sim's afsk1200 channel is a single shared half-duplex medium with
@@ -259,14 +259,14 @@ public class NetsimConnectedModeScenarios
         var subroutines = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    signals.Enqueue,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines)
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: signals.Enqueue,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines)
         {
             // Shorten the ack timer so RR-acks turn the half-duplex channel
             // around quickly — see AckTimer remarks. T1/T3 keep spec defaults.
@@ -294,13 +294,23 @@ public class NetsimConnectedModeScenarios
 
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
 
                 // Address filter: we should only react to frames
                 // addressed to our local callsign. net-sim's RF sim
                 // is broadcast — both ports hear everything.
-                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local)) continue;
+                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local))
+                {
+                    continue;
+                }
 
                 rig.Session.PostEvent(Ax25FrameClassifier.Classify(parsed));
             }
@@ -311,12 +321,12 @@ public class NetsimConnectedModeScenarios
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]            = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -324,7 +334,7 @@ public class NetsimConnectedModeScenarios
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 
     private static async Task<T?> WaitForSignal<T>(
@@ -340,7 +350,10 @@ public class NetsimConnectedModeScenarios
             ThrowIfAnyFaulted(backgroundTasks);
             while (signals.TryDequeue(out var sig))
             {
-                if (sig is T match) return match;
+                if (sig is T match)
+                {
+                    return match;
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }
@@ -359,7 +372,11 @@ public class NetsimConnectedModeScenarios
         while (!cts.IsCancellationRequested)
         {
             ThrowIfAnyFaulted(backgroundTasks);
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return; }
         }

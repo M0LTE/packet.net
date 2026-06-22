@@ -168,7 +168,11 @@ public class NetRomL4CircuitViaAxudp
             while (!ct.IsCancellationRequested)
             {
                 var data = await conn.ReadAsync(ct);
-                if (data.IsEmpty) break;
+                if (data.IsEmpty)
+                {
+                    break;
+                }
+
                 var text = Encoding.ASCII.GetString(data.Span);
                 output.WriteLine($"inbound circuit RX: {text.Replace("\r", "\\r")}");
                 await conn.WriteAsync(Encoding.ASCII.GetBytes("ack:" + text), ct);
@@ -336,7 +340,11 @@ public class NetRomL4CircuitViaAxudp
             catch (OperationCanceledException) when (cts.IsCancellationRequested) { break; }
             catch (Exception ex) { output.WriteLine($"BPQ C {OurAlias} attempt failed (will retry): {ex.Message}"); }
 
-            if (inboundSeen.Task.IsCompleted && inboundEchoed.Task.IsCompleted) return true;
+            if (inboundSeen.Task.IsCompleted && inboundEchoed.Task.IsCompleted)
+            {
+                return true;
+            }
+
             try { await Task.Delay(2000, cts.Token); } catch (OperationCanceledException) { break; }
         }
         return inboundSeen.Task.IsCompleted;
@@ -356,7 +364,10 @@ public class NetRomL4CircuitViaAxudp
             if (!data.IsEmpty)
             {
                 sb.Append(Encoding.ASCII.GetString(data.Span));
-                if (sb.ToString().Contains(needle, StringComparison.Ordinal)) break;
+                if (sb.ToString().Contains(needle, StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             else if (sb.Length > 0)
             {
@@ -372,7 +383,11 @@ public class NetRomL4CircuitViaAxudp
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(250, cts.Token); } catch (OperationCanceledException) { return; }
         }
     }
@@ -478,7 +493,11 @@ public class NetRomL4CircuitViaAxudp
                 catch (OperationCanceledException) when (!cts.IsCancellationRequested) { continue; }
                 catch (OperationCanceledException) { break; }
                 finally { readCts.Dispose(); }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 var sb = new StringBuilder();
                 AppendStripIac(stream, sb, buf, n);
                 acc.Append(sb);
@@ -558,9 +577,16 @@ public class NetRomL4CircuitViaAxudp
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
-                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal)) break;
+                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -576,9 +602,16 @@ public class NetRomL4CircuitViaAxudp
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
-                if (sb.ToString().Contains('\n', StringComparison.Ordinal)) break;
+                if (sb.ToString().Contains('\n', StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -594,7 +627,11 @@ public class NetRomL4CircuitViaAxudp
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
             }
             return sb.ToString();
@@ -609,7 +646,11 @@ public class NetRomL4CircuitViaAxudp
                     sb.Append((char)buf[i]);
                     continue;
                 }
-                if (i + 2 >= n) break;
+                if (i + 2 >= n)
+                {
+                    break;
+                }
+
                 byte verb = buf[i + 1];
                 byte opt = buf[i + 2];
                 i += 2;

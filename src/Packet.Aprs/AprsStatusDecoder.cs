@@ -50,10 +50,16 @@ public static class AprsStatusDecoder
     {
         ArgumentNullException.ThrowIfNull(options);
         status = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Strip DTI byte if present.
-        if (info[0] == (byte)'>') info = info[1..];
+        if (info[0] == (byte)'>')
+        {
+            info = info[1..];
+        }
 
         // Detect a DHM-zulu timestamp prefix: 6 digits + 'z'. APRS101 §16
         // restricts status to this format specifically.
@@ -72,7 +78,10 @@ public static class AprsStatusDecoder
             {
                 bool ok = (b >= 32 && b <= 126 && b != 0x7C && b != 0x7E)
                           || b == 0x0D || b == 0x0A;
-                if (!ok) return false;
+                if (!ok)
+                {
+                    return false;
+                }
             }
         }
 
@@ -88,7 +97,10 @@ public static class AprsStatusDecoder
     {
         foreach (var b in bytes)
         {
-            if (b < (byte)'0' || b > (byte)'9') return false;
+            if (b < (byte)'0' || b > (byte)'9')
+            {
+                return false;
+            }
         }
         return true;
     }

@@ -37,7 +37,10 @@ public static class AprsObjectDecoder
     public static bool TryDecode(ReadOnlySpan<byte> info, out AprsObject obj)
     {
         obj = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Strip DTI byte if present.
         if (info[0] == (byte)';')
@@ -50,7 +53,10 @@ public static class AprsObjectDecoder
         const int NameLen = 9;
         const int TimestampLen = 7;
         const int HeaderLen = NameLen + 1 + TimestampLen;   // = 17
-        if (info.Length < HeaderLen + 13) return false;
+        if (info.Length < HeaderLen + 13)
+        {
+            return false;
+        }
 
         // Name: bytes 0–8, fixed-width. Spec doesn't constrain the character
         // set inside the name field — accept any printable ASCII so
@@ -76,14 +82,23 @@ public static class AprsObjectDecoder
         var ts = info.Slice(NameLen + 1, TimestampLen);
         for (int i = 0; i < 6; i++)
         {
-            if (!IsAsciiDigit(ts[i])) return false;
+            if (!IsAsciiDigit(ts[i]))
+            {
+                return false;
+            }
         }
-        if (ts[6] != (byte)'z' && ts[6] != (byte)'/' && ts[6] != (byte)'h') return false;
+        if (ts[6] != (byte)'z' && ts[6] != (byte)'/' && ts[6] != (byte)'h')
+        {
+            return false;
+        }
 
         // Position: everything from byte 17 onwards. Use TryDecodePayload so
         // a leading '/' (compressed-symbol-table char) isn't mistaken for the
         // timestamped-position DTI.
-        if (!AprsPositionDecoder.TryDecodePayload(info[HeaderLen..], out var pos)) return false;
+        if (!AprsPositionDecoder.TryDecodePayload(info[HeaderLen..], out var pos))
+        {
+            return false;
+        }
 
         obj = new AprsObject(name, alive, pos);
         return true;

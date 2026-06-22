@@ -29,10 +29,10 @@ namespace Packet.Interop.Tests.Xrouter;
 [Trait("Category", "Interop")]
 public class XrouterAxudpInterop
 {
-    private const string Host       = "127.0.0.1";
-    private const int    AxudpPort  = 8095;
-    private const int    PeerPort   = 8094;
-    private const int    WebPort    = 8086;
+    private const string Host = "127.0.0.1";
+    private const int AxudpPort = 8095;
+    private const int PeerPort = 8094;
+    private const int WebPort = 8086;
 
     [SkippableFact]
     public async Task Xrouter_Container_Web_UI_Is_Reachable()
@@ -64,8 +64,8 @@ public class XrouterAxudpInterop
 
         var frame = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("PN0TST", 9),
-            info:        "Packet.NET → XRouter (with FCS)"u8);
+            source: new Callsign("PN0TST", 9),
+            info: "Packet.NET → XRouter (with FCS)"u8);
 
         await socket.SendAsync(new IPEndPoint(IPAddress.Loopback, AxudpPort), frame, cts.Token);
 
@@ -77,7 +77,11 @@ public class XrouterAxudpInterop
         while (DateTime.UtcNow < deadline)
         {
             after = await GetAxudpValidCount();
-            if (after > before) break;
+            if (after > before)
+            {
+                break;
+            }
+
             await Task.Delay(250, cts.Token);
         }
 

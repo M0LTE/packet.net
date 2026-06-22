@@ -31,12 +31,12 @@ public sealed class Ax25SessionReplayTests
             ctx, scheduler, new NoOpDispatcher(), guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]          = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["Connected"]             = DataLink_Connected.Transitions,
-                ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-                ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
             },
             initialState: "Connected");
     }
@@ -54,7 +54,10 @@ public sealed class Ax25SessionReplayTests
         var seen = new List<string>();
         session.AttachConsumerWithReplay((_, sig) =>
         {
-            if (sig is DataLinkDataIndication di) seen.Add(System.Text.Encoding.ASCII.GetString(di.Info.Span));
+            if (sig is DataLinkDataIndication di)
+            {
+                seen.Add(System.Text.Encoding.ASCII.GetString(di.Info.Span));
+            }
         });
 
         seen.Should().ContainSingle().Which.Should().Be("BANNER>", "the pre-subscribe banner is replayed exactly once");
@@ -69,7 +72,10 @@ public sealed class Ax25SessionReplayTests
         var seen = new List<string>();
         session.AttachConsumerWithReplay((_, sig) =>
         {
-            if (sig is DataLinkDataIndication di) seen.Add(System.Text.Encoding.ASCII.GetString(di.Info.Span));
+            if (sig is DataLinkDataIndication di)
+            {
+                seen.Add(System.Text.Encoding.ASCII.GetString(di.Info.Span));
+            }
         });
 
         // A signal emitted after the attach goes live, once.

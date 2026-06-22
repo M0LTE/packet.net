@@ -34,10 +34,10 @@ namespace Packet.Interop.Tests.Netsim;
 [Collection(NetsimCollection.Name)]
 public class NetsimListenerScenarios
 {
-    private const string Host         = "127.0.0.1";
-    private const int    NodeAKissPort = 8100;
-    private const int    NodeBKissPort = 8101;
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private const string Host = "127.0.0.1";
+    private const int NodeAKissPort = 8100;
+    private const int NodeBKissPort = 8101;
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // Headroom for a local state mutation to settle after the remote signal
@@ -121,7 +121,11 @@ public class NetsimListenerScenarios
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(50, cts.Token); } catch (OperationCanceledException) { return; }
         }
     }

@@ -11,13 +11,13 @@ public class AprsObjectDecoderTests
     [Theory]
     // Repeater object, uncompressed, primary symbol table, `r` (repeater).
     [InlineData(";439.137JJ*111111z5301.01N/01745.68ErC074 -760 SR2GG*Szubin-KPSR",
-                "439.137JJ", true,  53.016833, 17.761333, '/', 'r')]
+                "439.137JJ", true, 53.016833, 17.761333, '/', 'r')]
     // Killed object (rare in the wild but spec-supported).
     [InlineData(";KILLED   _111111z5301.01N/01745.68E_",
                 "KILLED   ", false, 53.016833, 17.761333, '/', '_')]
     // Object with trailing spaces in the name (fixed-width preservation).
     [InlineData(";W4CRL  B *120017z2545.60ND08011.40WaRNG0020 440 Voice",
-                "W4CRL  B ", true,  25.760000, -80.190000, 'D', 'a')]
+                "W4CRL  B ", true, 25.760000, -80.190000, 'D', 'a')]
     public void Decodes_Uncompressed_Object(
         string infoText, string expectedName, bool expectedAlive,
         double expectedLat, double expectedLon,
@@ -93,9 +93,9 @@ public class AprsObjectDecoderTests
     // Real corpus samples with compressed (base-91) position payloads.
     // Reference lat/lon values match direwolf's decode.
     [InlineData(";443.500IA*140952z/9K=V6lyur   Brandmeister DMR 3119 TS2",
-                "443.500IA", true,  41.6019,  -93.6097, '/', 'r')]
+                "443.500IA", true, 41.6019, -93.6097, '/', 'r')]
     [InlineData(";GB3GH    *140954z/4:#BMv{+r  CRB:05 433.125MHz CTCSS:118.8",
-                "GB3GH    ", true,  51.8690,   -2.1743, '/', 'r')]
+                "GB3GH    ", true, 51.8690, -2.1743, '/', 'r')]
     public void Decodes_Compressed_Object(
         string infoText, string expectedName, bool expectedAlive,
         double expectedLat, double expectedLon,
@@ -115,11 +115,11 @@ public class AprsObjectDecoderTests
     [Fact]
     public void Strips_DTI_If_Present()
     {
-        var withDti    = System.Text.Encoding.ASCII.GetBytes(
+        var withDti = System.Text.Encoding.ASCII.GetBytes(
             ";TESTOBJ  *111111z5301.01N/01745.68Er");
         var withoutDti = System.Text.Encoding.ASCII.GetBytes(
             "TESTOBJ  *111111z5301.01N/01745.68Er");
-        AprsObjectDecoder.TryDecode(withDti,    out var a).Should().BeTrue();
+        AprsObjectDecoder.TryDecode(withDti, out var a).Should().BeTrue();
         AprsObjectDecoder.TryDecode(withoutDti, out var b).Should().BeTrue();
         a.Should().Be(b);
     }

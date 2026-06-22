@@ -52,7 +52,7 @@ internal sealed class LossyHardwareSender
         this.rng = new Random();
     }
 
-    public int SentCount    => Volatile.Read(ref sent);
+    public int SentCount => Volatile.Read(ref sent);
     public int DroppedCount => Volatile.Read(ref dropped);
 
     public Task SendFrameAsync(ReadOnlyMemory<byte> ax25Bytes, CancellationToken cancellationToken = default)

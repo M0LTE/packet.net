@@ -103,7 +103,11 @@ public class NinoTncAirTestFrameTests
         bad[0] = (byte)'{';
         bad[1] = (byte)'1';
         bad[2] = (byte)' ';
-        for (int i = 3; i < bad.Length; i++) bad[i] = (byte)(0x52 - (i - 3));    // descending
+        for (int i = 3; i < bad.Length; i++)
+        {
+            bad[i] = (byte)(0x52 - (i - 3));    // descending
+        }
+
         var ax25 = Ax25Frame.Ui(
             destination: new Callsign("CQBEEP", 5),
             source: new Callsign("M0LTE"),

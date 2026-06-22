@@ -25,7 +25,11 @@ public sealed class FakeTransportFactory : ITransportFactory
     public FakeTransportFactory Provide(string endpoint, params IAx25Transport[] transports)
     {
         var q = byEndpoint.GetOrAdd(endpoint, _ => new ConcurrentQueue<IAx25Transport>());
-        foreach (var m in transports) q.Enqueue(m);
+        foreach (var m in transports)
+        {
+            q.Enqueue(m);
+        }
+
         return this;
     }
 

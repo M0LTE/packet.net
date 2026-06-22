@@ -50,8 +50,8 @@ public static class DirewolfRewriteMode
         var conn = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = dbPath,
-            Mode       = SqliteOpenMode.ReadWrite,
-            Cache      = SqliteCacheMode.Shared,
+            Mode = SqliteOpenMode.ReadWrite,
+            Cache = SqliteCacheMode.Shared,
         }.ToString());
         await conn.OpenAsync();
 
@@ -95,7 +95,10 @@ public static class DirewolfRewriteMode
               AND r.line_id IS NULL
             ORDER BY l.id
             """;
-        if (opts.Limit > 0) sql += $" LIMIT {opts.Limit}";
+        if (opts.Limit > 0)
+        {
+            sql += $" LIMIT {opts.Limit}";
+        }
 
         var batch = new List<(long id, string original, string rewritten)>(opts.BatchSize);
         long total = 0;
@@ -155,31 +158,31 @@ public static class DirewolfRewriteMode
             VALUES
               ($id, $rewritten, $type, $lat, $lon, $alt, $comment, $err, $errf, $raw);
             """;
-        insertCmd.Parameters.Add("$id",        SqliteType.Integer);
+        insertCmd.Parameters.Add("$id", SqliteType.Integer);
         insertCmd.Parameters.Add("$rewritten", SqliteType.Text);
-        insertCmd.Parameters.Add("$type",      SqliteType.Text);
-        insertCmd.Parameters.Add("$lat",       SqliteType.Real);
-        insertCmd.Parameters.Add("$lon",       SqliteType.Real);
-        insertCmd.Parameters.Add("$alt",       SqliteType.Real);
-        insertCmd.Parameters.Add("$comment",   SqliteType.Text);
-        insertCmd.Parameters.Add("$err",       SqliteType.Integer);
-        insertCmd.Parameters.Add("$errf",      SqliteType.Text);
-        insertCmd.Parameters.Add("$raw",       SqliteType.Text);
+        insertCmd.Parameters.Add("$type", SqliteType.Text);
+        insertCmd.Parameters.Add("$lat", SqliteType.Real);
+        insertCmd.Parameters.Add("$lon", SqliteType.Real);
+        insertCmd.Parameters.Add("$alt", SqliteType.Real);
+        insertCmd.Parameters.Add("$comment", SqliteType.Text);
+        insertCmd.Parameters.Add("$err", SqliteType.Integer);
+        insertCmd.Parameters.Add("$errf", SqliteType.Text);
+        insertCmd.Parameters.Add("$raw", SqliteType.Text);
 
         for (int i = 0; i < Math.Min(batch.Count, rows.Count); i++)
         {
             var (id, _, rewritten) = batch[i];
             var row = rows[i];
-            insertCmd.Parameters["$id"].Value        = id;
+            insertCmd.Parameters["$id"].Value = id;
             insertCmd.Parameters["$rewritten"].Value = rewritten;
-            insertCmd.Parameters["$type"].Value      = (object?)row.DecodedType ?? DBNull.Value;
-            insertCmd.Parameters["$lat"].Value       = row.Latitude .HasValue ? (object)row.Latitude .Value : DBNull.Value;
-            insertCmd.Parameters["$lon"].Value       = row.Longitude.HasValue ? (object)row.Longitude.Value : DBNull.Value;
-            insertCmd.Parameters["$alt"].Value       = row.AltitudeM.HasValue ? (object)row.AltitudeM.Value : DBNull.Value;
-            insertCmd.Parameters["$comment"].Value   = (object?)row.Comment    ?? DBNull.Value;
-            insertCmd.Parameters["$err"].Value       = row.HasError ? 1 : 0;
-            insertCmd.Parameters["$errf"].Value      = (object?)row.FirstError ?? DBNull.Value;
-            insertCmd.Parameters["$raw"].Value       = row.RawOutput;
+            insertCmd.Parameters["$type"].Value = (object?)row.DecodedType ?? DBNull.Value;
+            insertCmd.Parameters["$lat"].Value = row.Latitude.HasValue ? (object)row.Latitude.Value : DBNull.Value;
+            insertCmd.Parameters["$lon"].Value = row.Longitude.HasValue ? (object)row.Longitude.Value : DBNull.Value;
+            insertCmd.Parameters["$alt"].Value = row.AltitudeM.HasValue ? (object)row.AltitudeM.Value : DBNull.Value;
+            insertCmd.Parameters["$comment"].Value = (object?)row.Comment ?? DBNull.Value;
+            insertCmd.Parameters["$err"].Value = row.HasError ? 1 : 0;
+            insertCmd.Parameters["$errf"].Value = (object?)row.FirstError ?? DBNull.Value;
+            insertCmd.Parameters["$raw"].Value = row.RawOutput;
             await insertCmd.ExecuteNonQueryAsync();
         }
 

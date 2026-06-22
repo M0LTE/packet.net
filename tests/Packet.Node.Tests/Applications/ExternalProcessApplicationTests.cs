@@ -33,7 +33,10 @@ public sealed class ExternalProcessApplicationTests
     [Fact]
     public async Task Writes_the_connect_header_then_echoes_user_lines_with_transport_newline()
     {
-        if (!OperatingSystem.IsLinux()) return;   // Linux-only: relies on /bin/cat
+        if (!OperatingSystem.IsLinux())
+        {
+            return;   // Linux-only: relies on /bin/cat
+        }
 
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);
         var app = CatApp();
@@ -61,7 +64,10 @@ public sealed class ExternalProcessApplicationTests
     [Fact]
     public async Task Telnet_gets_crlf_newlines()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
 
         var conn = new DriveableConnection("127.0.0.1:5000", NodeTransportKind.Telnet);
         var app = CatApp();
@@ -77,7 +83,10 @@ public sealed class ExternalProcessApplicationTests
     [Fact]
     public async Task An_app_that_exits_on_its_own_returns_control_to_the_console()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
 
         // /bin/echo writes a line then exits immediately — stdout EOF — even though the session
         // stays open. RunAsync must return (the user is dropped back to the node prompt).

@@ -41,12 +41,12 @@ namespace Packet.Interop.Tests.Linbpq;
 [Collection(NetsimCollection.Name)]
 public class LinbpqListenerScenarios
 {
-    private const string Host          = "127.0.0.1";
-    private const int    OurKissPort   = 8100;
-    private const int    BpqTelnetPort = 8010;
+    private const string Host = "127.0.0.1";
+    private const int OurKissPort = 8100;
+    private const int BpqTelnetPort = 8010;
     private static readonly Callsign OurCall = new("PNTEST", 0);
 
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // Headroom for a local state mutation to settle after the signal that
@@ -189,9 +189,16 @@ public class LinbpqListenerScenarios
             int n;
             try { n = await stream.ReadAsync(buf, cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
-            if (n <= 0) return;
+            if (n <= 0)
+            {
+                return;
+            }
+
             sb.Append(Encoding.ASCII.GetString(buf, 0, n));
-            if (sb.ToString().Contains(needle, StringComparison.OrdinalIgnoreCase)) return;
+            if (sb.ToString().Contains(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
         }
     }
 
@@ -208,7 +215,11 @@ public class LinbpqListenerScenarios
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(50, cts.Token); } catch (OperationCanceledException) { return; }
         }
     }

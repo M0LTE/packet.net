@@ -123,7 +123,7 @@ public sealed class SysopElevationTests : IDisposable
         // Advance the clock past the default 15-min TTL between the elevate and the command.
         var conn = new ScriptedConnection("M0LTE-7", NodeTransportKind.Ax25, [$"SYSOP {CurrentCode()}", "SESSIONS", "B"])
         {
-            BeforeRead = i => { if (i == 1) clock.Advance(TimeSpan.FromMinutes(16)); },
+            BeforeRead = i => { if (i == 1) { clock.Advance(TimeSpan.FromMinutes(16)); } },
         };
 
         await svc.RunAsync(conn);

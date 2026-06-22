@@ -170,8 +170,16 @@ public class NinoTncSerialPortLoopback
                 await foreach (var frame in rx.ReadFramesAsync(cts.Token))
                 {
                     seen.Add(frame);
-                    if (frame.Command != KissCommand.Data) continue;
-                    if (!Ax25Frame.TryParse(frame.Payload, out var parsed)) continue;
+                    if (frame.Command != KissCommand.Data)
+                    {
+                        continue;
+                    }
+
+                    if (!Ax25Frame.TryParse(frame.Payload, out var parsed))
+                    {
+                        continue;
+                    }
+
                     if (parsed.Source.Callsign == ax25.Source.Callsign &&
                         parsed.Destination.Callsign == ax25.Destination.Callsign &&
                         parsed.Info.Span.SequenceEqual(ax25.Info.Span))

@@ -31,8 +31,11 @@ catch (Exception ex) when (ex is FormatException or ArgumentException)
 
 Console.WriteLine($"Packet.LinkBench — {runs.Count} run(s)");
 if (runs.Any(r => r.ZeroAirtimeTimersAutoScaled))
+{
     Console.WriteLine(
         $"note: baud=0 (no airtime) — default T1V auto-scaled to {Cli.ZeroAirtimeDefaultT1Ms:F0}ms / T2 {Cli.ZeroAirtimeDefaultT2Ms:F0}ms so loss recovery isn't dominated by the 6 s spec default (which is sized for real airtime). Pass --t1/--t2 to override, or --baud N / --time-scale for a modelled channel.");
+}
+
 Console.WriteLine();
 
 var results = new List<BenchResult>();
@@ -41,7 +44,11 @@ Console.CancelKeyPress += (_, e) => { e.Cancel = true; ctrlC.Cancel(); };
 
 foreach (var (cfg, i) in runs.Select((c, i) => (c, i)))
 {
-    if (ctrlC.IsCancellationRequested) break;
+    if (ctrlC.IsCancellationRequested)
+    {
+        break;
+    }
+
     Console.Write($"[{i + 1}/{runs.Count}] {cfg.Describe()} … ");
     var result = await BenchRunner.RunAsync(cfg, ctrlC.Token);
     results.Add(result);
@@ -159,7 +166,11 @@ internal static class Cli
             }
             else
             {
-                if (i + 1 >= args.Length) throw new ArgumentException($"{a} needs a value");
+                if (i + 1 >= args.Length)
+                {
+                    throw new ArgumentException($"{a} needs a value");
+                }
+
                 flags[a] = args[++i];
             }
         }
@@ -173,20 +184,29 @@ internal static class Cli
         }
 
         var payload = ParseSize(Get("--payload", "64k"));
-        if (payload < 1) throw new ArgumentException("--payload must be ≥ 1");
+        if (payload < 1)
+        {
+            throw new ArgumentException("--payload must be ≥ 1");
+        }
 
         // Swept dimensions. null entries mean "engine default".
         var ks = ParseIntList(flags.GetValueOrDefault("--k"));
         foreach (var k in ks.OfType<int>())
         {
-            if (k is < 1 or > 7) throw new ArgumentException($"--k must be 1..7 (mod-8), got {k}");
+            if (k is < 1 or > 7)
+            {
+                throw new ArgumentException($"--k must be 1..7 (mod-8), got {k}");
+            }
         }
         var t1s = ParseMsList(flags.GetValueOrDefault("--t1"));
         var t2s = ParseMsList(flags.GetValueOrDefault("--t2"));
         var paclens = ParseIntList(flags.GetValueOrDefault("--paclen")).Select(p => p ?? 256).Distinct().ToList();
         foreach (var p in paclens)
         {
-            if (p is < 1 or > 256) throw new ArgumentException($"--paclen must be 1..256 (N1), got {p}");
+            if (p is < 1 or > 256)
+            {
+                throw new ArgumentException($"--paclen must be 1..256 (N1), got {p}");
+            }
         }
         var t1txs = (flags.GetValueOrDefault("--t1-tx-complete") ?? "off").Split(',')
             .Select(s => s.Trim().ToLowerInvariant() switch
@@ -213,7 +233,10 @@ internal static class Cli
             .Select(s => double.Parse(s, CultureInfo.InvariantCulture)).Distinct().ToList();
         foreach (var l in losses)
         {
-            if (l is < 0 or >= 1) throw new ArgumentException($"--loss must be in [0,1), got {l}");
+            if (l is < 0 or >= 1)
+            {
+                throw new ArgumentException($"--loss must be in [0,1), got {l}");
+            }
         }
 
         if (channel == "axudp" && ackmodes.Contains(true))
@@ -228,7 +251,11 @@ internal static class Cli
             var spec = flags.GetValueOrDefault("--netsim")
                 ?? throw new ArgumentException("--channel netsim requires --netsim host:port,host:port");
             var parts = spec.Split(',');
-            if (parts.Length != 2) throw new ArgumentException("--netsim wants exactly two host:port endpoints");
+            if (parts.Length != 2)
+            {
+                throw new ArgumentException("--netsim wants exactly two host:port endpoints");
+            }
+
             netsim = (ParseHostPort(parts[0]), ParseHostPort(parts[1]));
         }
 
@@ -236,7 +263,11 @@ internal static class Cli
         if (flags.TryGetValue("--axudp-ports", out var ap))
         {
             var parts = ap.Split(',');
-            if (parts.Length != 2) throw new ArgumentException("--axudp-ports wants two ports: A,B");
+            if (parts.Length != 2)
+            {
+                throw new ArgumentException("--axudp-ports wants two ports: A,B");
+            }
+
             axudpPorts = (int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture));
         }
 
@@ -257,7 +288,10 @@ internal static class Cli
             AxudpPorts = axudpPorts,
             NetSim = netsim,
         };
-        if (baseCfg.TimeScale < 1) throw new ArgumentException("--time-scale must be ≥ 1");
+        if (baseCfg.TimeScale < 1)
+        {
+            throw new ArgumentException("--time-scale must be ≥ 1");
+        }
 
         var runs = (
             from k in ks
@@ -290,7 +324,10 @@ internal static class Cli
     private static RunConfig ApplyZeroAirtimeTimerDefaults(RunConfig cfg)
     {
         if (cfg.Channel != "inproc" || cfg.Baud != 0 || cfg.TimeScale != 1.0 || cfg.T1 is not null)
+        {
             return cfg;
+        }
+
         return cfg with
         {
             T1 = TimeSpan.FromMilliseconds(ZeroAirtimeDefaultT1Ms),
@@ -323,7 +360,11 @@ internal static class Cli
     private static (string Host, int Port) ParseHostPort(string text)
     {
         var idx = text.LastIndexOf(':');
-        if (idx < 1) throw new ArgumentException($"'{text}' is not host:port");
+        if (idx < 1)
+        {
+            throw new ArgumentException($"'{text}' is not host:port");
+        }
+
         return (text[..idx], int.Parse(text[(idx + 1)..], CultureInfo.InvariantCulture));
     }
 }
@@ -383,7 +424,11 @@ internal static class ResultTable
     {
         var sb = new StringBuilder();
         sb.AppendLine($"── {r.Config.Describe()} ──");
-        if (!r.Completed) sb.AppendLine($"   FAILED: {r.Failure}");
+        if (!r.Completed)
+        {
+            sb.AppendLine($"   FAILED: {r.Failure}");
+        }
+
         sb.AppendLine($"   connect {r.ConnectTime.TotalMilliseconds:F0} ms · transfer {r.TransferTime.TotalSeconds:F2} s · " +
                       $"{r.ThroughputBytesPerSec:F0} B/s · integrity {(r.IntegrityOk ? "OK" : "FAILED")} · " +
                       (r.IntegrityDetail is { } d ? $"[{d}] " : "") +

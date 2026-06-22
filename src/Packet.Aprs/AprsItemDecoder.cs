@@ -33,10 +33,16 @@ public static class AprsItemDecoder
     public static bool TryDecode(ReadOnlySpan<byte> info, out AprsItem item)
     {
         item = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Strip DTI byte if present.
-        if (info[0] == (byte)')') info = info[1..];
+        if (info[0] == (byte)')')
+        {
+            info = info[1..];
+        }
 
         // Find the indicator byte ('!' or '_') in the valid name-length
         // window. The spec restricts names to 3-9 chars and forbids these
@@ -46,7 +52,11 @@ public static class AprsItemDecoder
         int upper = Math.Min(info.Length, MaxNameLen);
         for (int i = MinNameLen; i <= upper; i++)
         {
-            if (i >= info.Length) break;
+            if (i >= info.Length)
+            {
+                break;
+            }
+
             byte b = info[i];
             if (b == (byte)'!' || b == (byte)'_')
             {
@@ -54,14 +64,20 @@ public static class AprsItemDecoder
                 break;
             }
         }
-        if (indicatorIdx < 0) return false;
+        if (indicatorIdx < 0)
+        {
+            return false;
+        }
 
         string name = Encoding.ASCII.GetString(info[..indicatorIdx]);
         bool alive = info[indicatorIdx] == (byte)'!';
 
         // Position follows directly. Minimum payload: 13 bytes (compressed)
         // or 19 bytes (uncompressed); TryDecodePayload will reject too-short.
-        if (!AprsPositionDecoder.TryDecodePayload(info[(indicatorIdx + 1)..], out var pos)) return false;
+        if (!AprsPositionDecoder.TryDecodePayload(info[(indicatorIdx + 1)..], out var pos))
+        {
+            return false;
+        }
 
         item = new AprsItem(name, alive, pos);
         return true;

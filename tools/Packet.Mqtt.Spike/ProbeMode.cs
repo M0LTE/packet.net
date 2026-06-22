@@ -124,8 +124,16 @@ public static class ProbeMode
         var span = data.Span;
         int n = Math.Min(span.Length, maxBytes);
         var sb = new StringBuilder(n * 2);
-        for (int i = 0; i < n; i++) sb.Append(span[i].ToString("x2"));
-        if (span.Length > maxBytes) sb.Append('…');
+        for (int i = 0; i < n; i++)
+        {
+            sb.Append(span[i].ToString("x2"));
+        }
+
+        if (span.Length > maxBytes)
+        {
+            sb.Append('…');
+        }
+
         return sb.ToString();
     }
 
@@ -139,7 +147,11 @@ public static class ProbeMode
             byte b = span[i];
             sb.Append(b is >= 0x20 and <= 0x7E ? (char)b : '.');
         }
-        if (span.Length > maxBytes) sb.Append('…');
+        if (span.Length > maxBytes)
+        {
+            sb.Append('…');
+        }
+
         return sb.ToString();
     }
 
@@ -168,8 +180,15 @@ public static class ProbeMode
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 default:
-                    if (c < 0x20) sb.Append($"\\u{(int)c:x4}");
-                    else sb.Append(c);
+                    if (c < 0x20)
+                    {
+                        sb.Append($"\\u{(int)c:x4}");
+                    }
+                    else
+                    {
+                        sb.Append(c);
+                    }
+
                     break;
             }
         }

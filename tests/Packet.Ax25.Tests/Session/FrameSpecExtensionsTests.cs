@@ -14,8 +14,8 @@ public class FrameSpecExtensionsTests
 {
     private static Ax25SessionContext NewContext(IEnumerable<Callsign>? digipeaters = null) => new()
     {
-        Local       = new Callsign("M0LTE", 0),
-        Remote      = new Callsign("G7XYZ", 7),
+        Local = new Callsign("M0LTE", 0),
+        Remote = new Callsign("G7XYZ", 7),
         Digipeaters = digipeaters?.ToList() ?? new List<Callsign>(),
     };
 
@@ -35,12 +35,12 @@ public class FrameSpecExtensionsTests
     }
 
     [Theory]
-    [InlineData(UFrameType.Sabm,  true,  true,  0x3F)]  // SABM command P=1
-    [InlineData(UFrameType.Sabme, true,  false, 0x6F)]  // SABME command P=0
-    [InlineData(UFrameType.Disc,  true,  true,  0x53)]  // DISC command P=1
-    [InlineData(UFrameType.Ua,    false, true,  0x73)]  // UA response F=1
-    [InlineData(UFrameType.Dm,    false, false, 0x0F)]  // DM response F=0
-    [InlineData(UFrameType.Dm,    false, true,  0x1F)]  // DM response F=1
+    [InlineData(UFrameType.Sabm, true, true, 0x3F)]  // SABM command P=1
+    [InlineData(UFrameType.Sabme, true, false, 0x6F)]  // SABME command P=0
+    [InlineData(UFrameType.Disc, true, true, 0x53)]  // DISC command P=1
+    [InlineData(UFrameType.Ua, false, true, 0x73)]  // UA response F=1
+    [InlineData(UFrameType.Dm, false, false, 0x0F)]  // DM response F=0
+    [InlineData(UFrameType.Dm, false, true, 0x1F)]  // DM response F=1
     public void UFrameSpec_To_Ax25Frame_Picks_Right_Control_Byte(
         UFrameType type, bool isCommand, bool pfBit, byte expectedControl)
     {

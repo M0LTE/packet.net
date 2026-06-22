@@ -42,12 +42,12 @@ namespace Packet.Interop.Tests.Linbpq;
 [Collection(NetsimCollection.Name)]
 public class LinbpqViaNetsimConnectedMode
 {
-    private const string Host             = "127.0.0.1";
-    private const int    OurKissPort      = 8100;
+    private const string Host = "127.0.0.1";
+    private const int OurKissPort = 8100;
     private static readonly Callsign OurCall = new("PNTEST", 0);
     private static readonly Callsign BpqCall = new("PN0TST", 0);
 
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // net-sim's afsk1200 channel is a shared half-duplex medium with
@@ -113,7 +113,7 @@ public class LinbpqViaNetsimConnectedMode
     [Fact]
     public async Task Connected_IFrame_RoundTrip_Against_Linbpq_Node_Prompt()
     {
-        var bannerWait   = TimeSpan.FromSeconds(30);
+        var bannerWait = TimeSpan.FromSeconds(30);
         var responseWait = TimeSpan.FromSeconds(30);
         var totalBudget = ConnectBudget
             + bannerWait
@@ -157,7 +157,7 @@ public class LinbpqViaNetsimConnectedMode
         // rather than guessing it lands within 1 s.
         await DrainIndicationsUntilQuiet(rig.Signals,
             quietFor: TimeSpan.FromSeconds(1.5),
-            budget:   TimeSpan.FromSeconds(15), pumps.Tasks, cts.Token);
+            budget: TimeSpan.FromSeconds(15), pumps.Tasks, cts.Token);
 
         // ─── Outbound command ───────────────────────────────────────
         // "P\r" is BPQ's "Ports" command at the node prompt — short,
@@ -206,13 +206,28 @@ public class LinbpqViaNetsimConnectedMode
             var keep = new List<DataLinkSignal>();
             while (signals.TryDequeue(out var s))
             {
-                if (s is DataLinkDataIndication) sawData = true;
-                else keep.Add(s);
+                if (s is DataLinkDataIndication)
+                {
+                    sawData = true;
+                }
+                else
+                {
+                    keep.Add(s);
+                }
             }
-            foreach (var s in keep) signals.Enqueue(s);
+            foreach (var s in keep)
+            {
+                signals.Enqueue(s);
+            }
 
-            if (sawData) lastActivity = DateTime.UtcNow;
-            else if (DateTime.UtcNow - lastActivity >= quietFor) return;
+            if (sawData)
+            {
+                lastActivity = DateTime.UtcNow;
+            }
+            else if (DateTime.UtcNow - lastActivity >= quietFor)
+            {
+                return;
+            }
 
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return; }
@@ -246,14 +261,14 @@ public class LinbpqViaNetsimConnectedMode
         var subroutines = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    signals.Enqueue,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines)
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: signals.Enqueue,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines)
         {
             // Faster RR-ack turnaround on the shared half-duplex channel —
             // see AckTimer remarks. T1/T3 keep spec defaults.
@@ -281,13 +296,23 @@ public class LinbpqViaNetsimConnectedMode
 
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
 
                 // net-sim's afsk1200 channel is broadcast — every node
                 // on the channel hears every TX. We only react to
                 // frames addressed to our local callsign.
-                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local)) continue;
+                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local))
+                {
+                    continue;
+                }
 
                 rig.Session.PostEvent(Ax25FrameClassifier.Classify(parsed));
             }
@@ -298,12 +323,12 @@ public class LinbpqViaNetsimConnectedMode
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]            = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -311,7 +336,7 @@ public class LinbpqViaNetsimConnectedMode
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 
     private static async Task<T?> WaitForSignal<T>(
@@ -327,7 +352,10 @@ public class LinbpqViaNetsimConnectedMode
             ThrowIfAnyFaulted(backgroundTasks);
             while (signals.TryDequeue(out var sig))
             {
-                if (sig is T match) return match;
+                if (sig is T match)
+                {
+                    return match;
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }

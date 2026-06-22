@@ -113,10 +113,20 @@ public sealed class OarcIngestClientTests
     {
         var ev = new OarcLinkStatusEvent
         {
-            Time = 1_781_771_595, Node = "Q0PDN", Id = 1, Direction = "outgoing", Port = "1",
-            Remote = "GB7RDG", Local = "Q0PDN-1",
-            FramesSent = 10, FramesReceived = 12, FramesResent = 1, FramesQueued = 0,
-            BytesSent = 800, BytesReceived = 950, L2RttMs = 340,
+            Time = 1_781_771_595,
+            Node = "Q0PDN",
+            Id = 1,
+            Direction = "outgoing",
+            Port = "1",
+            Remote = "GB7RDG",
+            Local = "Q0PDN-1",
+            FramesSent = 10,
+            FramesReceived = 12,
+            FramesResent = 1,
+            FramesQueued = 0,
+            BytesSent = 800,
+            BytesReceived = 950,
+            L2RttMs = 340,
         };
         var handler = new CapturingHandler();
         await Client(handler).ReportAsync(ev, Base);
@@ -137,9 +147,21 @@ public sealed class OarcIngestClientTests
     {
         var ev = new OarcL2TraceEvent
         {
-            ReportFrom = "Q0PDN", Time = 1, Port = "1", Direction = "sent", IsRf = true,
-            Source = "Q0PDN", Destination = "GB7RDG", Control = 0, L2Type = "I", CommandResponse = "C",
-            Modulo = 8, ReceiveSequence = 2, TransmitSequence = 3, Pid = 240, IFieldLength = 5,
+            ReportFrom = "Q0PDN",
+            Time = 1,
+            Port = "1",
+            Direction = "sent",
+            IsRf = true,
+            Source = "Q0PDN",
+            Destination = "GB7RDG",
+            Control = 0,
+            L2Type = "I",
+            CommandResponse = "C",
+            Modulo = 8,
+            ReceiveSequence = 2,
+            TransmitSequence = 3,
+            Pid = 240,
+            IFieldLength = 5,
         };
         var handler = new CapturingHandler();
         await Client(handler).ReportAsync(ev, Base);

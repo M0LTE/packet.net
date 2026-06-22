@@ -24,7 +24,10 @@ public class ConnectionLifecycleProperties
 
         h.A.Session.PostEvent(new DlConnectRequest());
         h.Settle();
-        for (int r = 0; r < 30 && IsAwaiting(h.A.State); r++) h.AdvanceT1();
+        for (int r = 0; r < 30 && IsAwaiting(h.A.State); r++)
+        {
+            h.AdvanceT1();
+        }
 
         // A must not be stuck mid-handshake: a finite loss burst resolves to
         // either an established link or a clean give-up.
@@ -44,7 +47,10 @@ public class ConnectionLifecycleProperties
 
         h.A.Session.PostEvent(new DlDisconnectRequest());
         h.Settle();
-        for (int r = 0; r < 30 && h.A.State != "Disconnected"; r++) h.AdvanceT1();
+        for (int r = 0; r < 30 && h.A.State != "Disconnected"; r++)
+        {
+            h.AdvanceT1();
+        }
 
         // A initiated release; under finite loss it must reach Disconnected.
         return h.A.State == "Disconnected";

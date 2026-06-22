@@ -26,11 +26,11 @@ public class Mod128EstablishmentConformanceTests
 {
     // U-frame base control octets (P/F masked out) — what the receiver sees.
     private const int SabmeBase = 0x6F;
-    private const int SabmBase  = 0x2F;
+    private const int SabmBase = 0x2F;
 
     private static int UBase(Ax25Frame f) => f.Control & 0xEF;
     private static bool IsSabme(Ax25Frame f) => UBase(f) == SabmeBase;
-    private static bool IsSabm(Ax25Frame f)  => UBase(f) == SabmBase;
+    private static bool IsSabm(Ax25Frame f) => UBase(f) == SabmBase;
 
     /// <summary>1 — a mod-128 connect routes the initiator through
     /// AwaitingV22Connection (figc4.6), and both stations reach Connected with

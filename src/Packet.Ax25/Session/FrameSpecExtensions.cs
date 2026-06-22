@@ -36,9 +36,9 @@ public static class FrameSpecExtensions
         bool ext = context.IsExtended;
         return spec.Type switch
         {
-            SupervisoryFrameType.Rr   => Ax25Frame.Rr  (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
-            SupervisoryFrameType.Rnr  => Ax25Frame.Rnr (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
-            SupervisoryFrameType.Rej  => Ax25Frame.Rej (context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Rr => Ax25Frame.Rr(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Rnr => Ax25Frame.Rnr(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
+            SupervisoryFrameType.Rej => Ax25Frame.Rej(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
             SupervisoryFrameType.Srej => Ax25Frame.Srej(context.Remote, context.Local, spec.Nr, spec.IsCommand, spec.PfBit, digi, extended: ext),
             _ => throw new ArgumentOutOfRangeException(nameof(spec), $"unknown supervisory frame type '{spec.Type}'"),
         };
@@ -51,14 +51,14 @@ public static class FrameSpecExtensions
         var digi = ResolvePath(spec.Path, context);
         return spec.Type switch
         {
-            UFrameType.Sabm  => Ax25Frame.Sabm (context.Remote, context.Local, spec.PfBit, digi),
+            UFrameType.Sabm => Ax25Frame.Sabm(context.Remote, context.Local, spec.PfBit, digi),
             UFrameType.Sabme => Ax25Frame.Sabme(context.Remote, context.Local, spec.PfBit, digi),
-            UFrameType.Disc  => Ax25Frame.Disc (context.Remote, context.Local, spec.PfBit, digi),
-            UFrameType.Ua    => Ax25Frame.Ua   (context.Remote, context.Local, spec.PfBit, digi),
-            UFrameType.Dm    => Ax25Frame.Dm   (context.Remote, context.Local, spec.PfBit, digi),
-            UFrameType.Frmr  => Ax25Frame.Frmr (context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.PfBit, digi),
-            UFrameType.Xid   => Ax25Frame.Xid  (context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.IsCommand, spec.PfBit, digi),
-            UFrameType.Test  => Ax25Frame.Test (context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.IsCommand, spec.PfBit, digi),
+            UFrameType.Disc => Ax25Frame.Disc(context.Remote, context.Local, spec.PfBit, digi),
+            UFrameType.Ua => Ax25Frame.Ua(context.Remote, context.Local, spec.PfBit, digi),
+            UFrameType.Dm => Ax25Frame.Dm(context.Remote, context.Local, spec.PfBit, digi),
+            UFrameType.Frmr => Ax25Frame.Frmr(context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.PfBit, digi),
+            UFrameType.Xid => Ax25Frame.Xid(context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.IsCommand, spec.PfBit, digi),
+            UFrameType.Test => Ax25Frame.Test(context.Remote, context.Local, info: ReadOnlySpan<byte>.Empty, spec.IsCommand, spec.PfBit, digi),
             _ => throw new ArgumentOutOfRangeException(nameof(spec), $"unknown unnumbered frame type '{spec.Type}'"),
         };
     }
@@ -69,11 +69,11 @@ public static class FrameSpecExtensions
         ArgumentNullException.ThrowIfNull(context);
         return Ax25Frame.Ui(
             destination: context.Remote,
-            source:      context.Local,
-            info:        spec.Info.Span,
-            pid:         spec.Pid,
-            isCommand:   spec.IsCommand,
-            pollFinal:   spec.PfBit,
+            source: context.Local,
+            info: spec.Info.Span,
+            pid: spec.Pid,
+            isCommand: spec.IsCommand,
+            pollFinal: spec.PfBit,
             digipeaters: ResolvePath(spec.Path, context));
     }
 
@@ -83,14 +83,14 @@ public static class FrameSpecExtensions
         ArgumentNullException.ThrowIfNull(context);
         return Ax25Frame.I(
             destination: context.Remote,
-            source:      context.Local,
-            nr:          spec.Nr,
-            ns:          spec.Ns,
-            info:        spec.Info.Span,
-            pid:         spec.Pid,
-            pollBit:     spec.PBit,
+            source: context.Local,
+            nr: spec.Nr,
+            ns: spec.Ns,
+            info: spec.Info.Span,
+            pid: spec.Pid,
+            pollBit: spec.PBit,
             digipeaters: ResolvePath(spec.Path, context),
-            extended:    context.IsExtended);
+            extended: context.IsExtended);
     }
 
     // Per-spec Path overrides the context's chain when present. The

@@ -30,7 +30,7 @@ namespace Packet.Ax25.Tests.Session;
 public class Ax25ListenerDelayedAckTests
 {
     private static readonly Callsign LocalCall = new("M0LTE", 0);
-    private static readonly Callsign PeerCall  = new("G7XYZ", 7);
+    private static readonly Callsign PeerCall = new("G7XYZ", 7);
 
     /// <summary>
     /// The marquee repro: peer connects, peer sends one I-frame (P=0),

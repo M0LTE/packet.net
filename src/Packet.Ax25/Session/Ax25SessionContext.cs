@@ -275,7 +275,7 @@ public sealed class Ax25SessionContext
     /// </summary>
     public bool IsOutstanding(byte ns)
     {
-        int span   = (VS - VA + Modulus) % Modulus;   // count of outstanding frames
+        int span = (VS - VA + Modulus) % Modulus;   // count of outstanding frames
         int offset = (ns - VA + Modulus) % Modulus;   // position of ns within the window
         return offset < span;
     }
@@ -290,7 +290,11 @@ public sealed class Ax25SessionContext
     /// </summary>
     public void PruneAcknowledgedSentIFrames()
     {
-        if (SentIFrames.Count == 0) return;
+        if (SentIFrames.Count == 0)
+        {
+            return;
+        }
+
         List<byte>? toRemove = null;
         foreach (var ns in SentIFrames.Keys)
         {
@@ -299,8 +303,15 @@ public sealed class Ax25SessionContext
                 (toRemove ??= new List<byte>()).Add(ns);
             }
         }
-        if (toRemove is null) return;
-        foreach (var ns in toRemove) SentIFrames.Remove(ns);
+        if (toRemove is null)
+        {
+            return;
+        }
+
+        foreach (var ns in toRemove)
+        {
+            SentIFrames.Remove(ns);
+        }
     }
 
     /// <summary>Reset all session state to "freshly connected" defaults.</summary>

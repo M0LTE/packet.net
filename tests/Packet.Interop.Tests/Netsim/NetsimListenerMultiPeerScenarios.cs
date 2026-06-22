@@ -33,10 +33,10 @@ namespace Packet.Interop.Tests.Netsim;
 [Collection(NetsimCollection.Name)]
 public class NetsimListenerMultiPeerScenarios
 {
-    private const string Host          = "127.0.0.1";
-    private const int    ListenerPort  = 8100;
-    private const int    PeerPort      = 8101;
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private const string Host = "127.0.0.1";
+    private const int ListenerPort = 8100;
+    private const int PeerPort = 8101;
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // Headroom for a local state mutation / SessionAccepted callback to
@@ -63,14 +63,14 @@ public class NetsimListenerMultiPeerScenarios
     public async Task Listener_Two_Peers_Both_Connect_To_Listener()
     {
         var listenerCall = new Callsign("PNLSTN", 0);
-        var peer1Call    = new Callsign("PNPEER", 1);
-        var peer2Call    = new Callsign("PNPEER", 2);
+        var peer1Call = new Callsign("PNPEER", 1);
+        var peer2Call = new Callsign("PNPEER", 2);
 
         using var cts = new CancellationTokenSource(ConnectBudget * 2 + DisconnectBudget + TimeSpan.FromSeconds(15));
 
         await using var kissListener = await KissTcpClient.ConnectAsync(Host, ListenerPort, cts.Token);
-        await using var kissPeer1    = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
-        await using var kissPeer2    = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
+        await using var kissPeer1 = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
+        await using var kissPeer2 = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
 
         await using var listener = new Ax25Listener(kissListener, new Ax25ListenerOptions
         {
@@ -90,8 +90,15 @@ public class NetsimListenerMultiPeerScenarios
         var acceptedFromPeer2 = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.SessionAccepted += (_, e) =>
         {
-            if (e.Session.Context.Remote.Equals(peer1Call)) acceptedFromPeer1.TrySetResult(e.Session);
-            if (e.Session.Context.Remote.Equals(peer2Call)) acceptedFromPeer2.TrySetResult(e.Session);
+            if (e.Session.Context.Remote.Equals(peer1Call))
+            {
+                acceptedFromPeer1.TrySetResult(e.Session);
+            }
+
+            if (e.Session.Context.Remote.Equals(peer2Call))
+            {
+                acceptedFromPeer2.TrySetResult(e.Session);
+            }
         };
 
         await listener.StartAsync(cts.Token);
@@ -133,13 +140,13 @@ public class NetsimListenerMultiPeerScenarios
     public async Task Listener_Reconnect_Preserves_Cached_Session()
     {
         var listenerCall = new Callsign("PNLSTN", 5);
-        var peerCall     = new Callsign("PNPEER", 5);
+        var peerCall = new Callsign("PNPEER", 5);
 
         using var cts = new CancellationTokenSource(
             ConnectBudget * 2 + DisconnectBudget * 2 + TimeSpan.FromSeconds(20));
 
         await using var kissListener = await KissTcpClient.ConnectAsync(Host, ListenerPort, cts.Token);
-        await using var kissPeer     = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
+        await using var kissPeer = await KissTcpClient.ConnectAsync(Host, PeerPort, cts.Token);
 
         await using var listener = new Ax25Listener(kissListener, new Ax25ListenerOptions
         {
@@ -154,7 +161,10 @@ public class NetsimListenerMultiPeerScenarios
         var gate = new object();
         listener.SessionAccepted += (_, e) =>
         {
-            lock (gate) accepted.Add(e.Session);
+            lock (gate)
+            {
+                accepted.Add(e.Session);
+            }
         };
 
         await listener.StartAsync(cts.Token);
@@ -164,9 +174,12 @@ public class NetsimListenerMultiPeerScenarios
         // ─── First connect ─────────────────────────────────────────
         var sessionFromPeer1 = await peerListener.ConnectAsync(listenerCall, cts.Token);
         sessionFromPeer1.CurrentState.Should().Be("Connected");
-        await WaitUntil(() => { lock (gate) return accepted.Count >= 1; }, TimeSpan.FromSeconds(5), cts.Token);
+        await WaitUntil(() => { lock (gate) { return accepted.Count >= 1; } }, TimeSpan.FromSeconds(5), cts.Token);
         Ax25Session firstListenerSide;
-        lock (gate) firstListenerSide = accepted[0];
+        lock (gate)
+        {
+            firstListenerSide = accepted[0];
+        }
 
         // Stamp the listener-side context with a probe value the SDL
         // doesn't reset on reconnect — SentIFrames is not touched by
@@ -186,10 +199,13 @@ public class NetsimListenerMultiPeerScenarios
         // instance.
         var sessionFromPeer2 = await peerListener.ConnectAsync(listenerCall, cts.Token);
         sessionFromPeer2.CurrentState.Should().Be("Connected");
-        await WaitUntil(() => { lock (gate) return accepted.Count >= 2; }, TimeSpan.FromSeconds(5), cts.Token);
+        await WaitUntil(() => { lock (gate) { return accepted.Count >= 2; } }, TimeSpan.FromSeconds(5), cts.Token);
 
         Ax25Session secondListenerSide;
-        lock (gate) secondListenerSide = accepted[1];
+        lock (gate)
+        {
+            secondListenerSide = accepted[1];
+        }
 
         secondListenerSide.Should().BeSameAs(firstListenerSide,
             "the listener's per-peer cache must hand back the same Ax25Session on reconnect");
@@ -210,7 +226,11 @@ public class NetsimListenerMultiPeerScenarios
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(50, cts.Token); } catch (OperationCanceledException) { return; }
         }
     }

@@ -43,7 +43,7 @@ public class AprsMicEDecoderTests
     //   DO8RA-9 > TWTY61  info=60 28 33 1F 72 48 33 3E 2F 60 22 3A  →  (47.826833, 12.383833)
     [InlineData("U9UT82", "60263F526C21765B2F22344A", 59.913666, 10.592333)]
     [InlineData("TW4RXP", "602C50476C20666B2F3E223B", 47.713333, -116.873833)]
-    [InlineData("TWTY61", "6028331F7248333E2F60223A", 47.826833,   12.383833)]
+    [InlineData("TWTY61", "6028331F7248333E2F60223A", 47.826833, 12.383833)]
     public void Decodes_Real_Corpus_Samples(string dest, string infoHex, double expectedLat, double expectedLon)
     {
         var info = Convert.FromHexString(infoHex);
@@ -67,7 +67,7 @@ public class AprsMicEDecoderTests
     public void Rejects_Wrong_Length_Destination()
     {
         var info = new byte[] { (byte)'`', (byte)'(', (byte)'(', (byte)'N', (byte)'$', (byte)'Z', (byte)'O', (byte)'>', (byte)'/' };
-        AprsMicEDecoder.TryDecode("S32U6",  info, out _).Should().BeFalse();
+        AprsMicEDecoder.TryDecode("S32U6", info, out _).Should().BeFalse();
         AprsMicEDecoder.TryDecode("S32U6TX", info, out _).Should().BeFalse();
     }
 

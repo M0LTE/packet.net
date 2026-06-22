@@ -73,7 +73,7 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
             // Packet.Ax25.Sdl v0.5.0 names the figc4.7 subroutine `Select_T1`
             // (matching the figure heading); earlier transcriptions called
             // it `Select_T1_Value`. Keep the longer historic name working.
-            ["Select_T1_Value"]      = "Select_T1",
+            ["Select_T1_Value"] = "Select_T1",
             // figc4.7 emits `Check_Need_for_Response` (lowercase 'for'); the
             // calling pages spell the action verb `Check Need For Response`
             // which normalises to `Check_Need_For_Response`. Alias the
@@ -198,7 +198,11 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         var specsByName = specs.ToDictionary(s => s.Name, s => s, StringComparer.Ordinal);
         foreach (var spec in specs)
         {
-            if (userOverridden.Contains(spec.Name)) continue;
+            if (userOverridden.Contains(spec.Name))
+            {
+                continue;
+            }
+
             var captured = spec;   // close-over copy
             subroutines[spec.Name] = tx => WalkSubroutine(captured, tx);
         }
@@ -207,8 +211,16 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         // continue to win (userOverridden check).
         foreach (var (alias, canonicalName) in LegacyAliases)
         {
-            if (userOverridden.Contains(alias)) continue;
-            if (!specsByName.TryGetValue(canonicalName, out var spec)) continue;
+            if (userOverridden.Contains(alias))
+            {
+                continue;
+            }
+
+            if (!specsByName.TryGetValue(canonicalName, out var spec))
+            {
+                continue;
+            }
+
             var captured = spec;
             subroutines[alias] = tx => WalkSubroutine(captured, tx);
         }
@@ -218,8 +230,16 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         // packet-net/ax25sdl#45.
         foreach (var (alias, (canonicalName, bind)) in ContextBindingAliases)
         {
-            if (userOverridden.Contains(alias)) continue;
-            if (!specsByName.TryGetValue(canonicalName, out var spec)) continue;
+            if (userOverridden.Contains(alias))
+            {
+                continue;
+            }
+
+            if (!specsByName.TryGetValue(canonicalName, out var spec))
+            {
+                continue;
+            }
+
             var captured = spec;
             var capturedBind = bind;
             subroutines[alias] = tx =>
@@ -263,7 +283,10 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
         // Wire() must have run before walker fires. If a name still has its
         // no-op stub, the user never called Wire — the call no-ops silently,
         // matching the pre-figc4.7-codegen behaviour.
-        if (wiredDispatcher is null || wiredGuards is null) return;
+        if (wiredDispatcher is null || wiredGuards is null)
+        {
+            return;
+        }
 
         foreach (var path in spec.Paths)
         {
@@ -282,7 +305,11 @@ public sealed class DefaultSubroutineRegistry : ISubroutineRegistry
                 // bound, the walker starts following the path automatically.
                 continue;
             }
-            if (!guardHolds) continue;
+            if (!guardHolds)
+            {
+                continue;
+            }
+
             SdlLoopExecutor.Execute(path.Actions, path.Loops, wiredDispatcher, wiredGuards, tx);
             return;
         }

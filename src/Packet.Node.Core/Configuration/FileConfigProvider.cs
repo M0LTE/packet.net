@@ -91,7 +91,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
     /// <inheritdoc/>
     public NodeConfig Current
     {
-        get { lock (gate) return current; }
+        get { lock (gate)
+            {
+                return current;
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -99,7 +103,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
     {
         ArgumentNullException.ThrowIfNull(listener);
         var sub = new Subscription(this, listener);
-        lock (gate) subscriptions.Add(sub);
+        lock (gate)
+        {
+            subscriptions.Add(sub);
+        }
+
         return sub;
     }
 
@@ -115,7 +123,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
         NodeConfig applied;
         lock (gate)
         {
-            if (disposed) return false;
+            if (disposed)
+            {
+                return false;
+            }
+
             if (!TryLoadCandidate(out var candidate, out var text))
             {
                 return false;   // rejected — Current unchanged, no event
@@ -159,7 +171,10 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
         var text = NodeConfigYaml.Serialize(candidate);
         lock (gate)
         {
-            if (disposed) return false;
+            if (disposed)
+            {
+                return false;
+            }
             // Persist atomically (write a sibling temp + rename) so a reader — the
             // watcher, or a fresh boot — never sees a half-written file. Record the
             // exact bytes so the watcher's echo of this very write is skipped.
@@ -301,7 +316,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
         // burst goes quiet.
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             debounceTimer?.Change(debounce, Timeout.InfiniteTimeSpan);
         }
     }
@@ -309,7 +328,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
     private void RaiseOnChange(NodeConfig applied)
     {
         Subscription[] snapshot;
-        lock (gate) snapshot = subscriptions.ToArray();
+        lock (gate)
+        {
+            snapshot = subscriptions.ToArray();
+        }
+
         foreach (var sub in snapshot)
         {
             try
@@ -362,7 +385,11 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
     {
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
         }
         if (watcher is not null)
@@ -390,7 +417,10 @@ public sealed partial class FileConfigProvider : IWritableConfigProvider, IDispo
 
         public void Dispose()
         {
-            lock (owner.gate) owner.subscriptions.Remove(this);
+            lock (owner.gate)
+            {
+                owner.subscriptions.Remove(this);
+            }
         }
     }
 }

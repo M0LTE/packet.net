@@ -89,7 +89,11 @@ public sealed class CircuitManager : IDisposable
     /// <summary>The live circuits (snapshot), for surfacing / tests.</summary>
     public IReadOnlyList<NetRomCircuit> Circuits
     {
-        get { lock (gate) return byLocalKey.Values.ToList(); }
+        get { lock (gate)
+            {
+                return byLocalKey.Values.ToList();
+            }
+        }
     }
 
     /// <summary>

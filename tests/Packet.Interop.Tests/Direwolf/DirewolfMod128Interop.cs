@@ -240,8 +240,16 @@ public class DirewolfMod128Interop
         var dropped = false;
         rig.DropOutboundIFrame = f =>
         {
-            if (dropped || !f.Pid.HasValue) return false;
-            if (f.Ns != 1) return false;
+            if (dropped || !f.Pid.HasValue)
+            {
+                return false;
+            }
+
+            if (f.Ns != 1)
+            {
+                return false;
+            }
+
             dropped = true;
             return true;
         };
@@ -254,7 +262,10 @@ public class DirewolfMod128Interop
             System.Text.Encoding.ASCII.GetBytes("srej-seq-one"),
             System.Text.Encoding.ASCII.GetBytes("srej-seq-two"),
         };
-        foreach (var p in payloads) rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        foreach (var p in payloads)
+        {
+            rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        }
 
         foreach (var p in payloads)
         {
@@ -337,11 +348,17 @@ public class DirewolfMod128Interop
         connectConfirm.Should().NotBeNull("must complete the mod-128 handshake first");
 
         var payload = new byte[220];
-        for (int i = 0; i < payload.Length; i++) payload[i] = (byte)('A' + (i % 26));
+        for (int i = 0; i < payload.Length; i++)
+        {
+            payload[i] = (byte)('A' + (i % 26));
+        }
 
         var requests = sendSeg.BuildSendRequests(payload, Ax25Frame.PidNoLayer3);
         requests.Count.Should().BeGreaterThan(1, "the test payload must exceed N1 so our segmenter splits it into multiple I-frames");
-        foreach (var req in requests) rig.Session.PostEvent(req);
+        foreach (var req in requests)
+        {
+            rig.Session.PostEvent(req);
+        }
 
         // Round-trip both directions: Dire Wolf reassembles our segments, the echo
         // helper bounces the payload, Dire Wolf re-segments the echo, and our
@@ -421,7 +438,11 @@ public class DirewolfMod128Interop
         // SREJ is an S-frame. In extended mode the S-frame type lives in the
         // low nibble of the first control octet: 0b1101 = SREJ. Mask the
         // low byte: SREJ = 0x0D in bits 3..0 with bit0/1 = 01 (S-frame).
-        if (!f.IsExtendedControl || f.Pid.HasValue) return false;   // must be an extended S-frame
+        if (!f.IsExtendedControl || f.Pid.HasValue)
+        {
+            return false;   // must be an extended S-frame
+        }
+
         int low = f.Control & 0x0F;
         return low == 0x0D;
     }
@@ -463,7 +484,11 @@ public class DirewolfMod128Interop
         // is built once, optionally dropped, otherwise serialised and sent.
         void SendIFrame(Ax25Frame frame)
         {
-            if (rigRef?.DropOutboundIFrame is { } drop && drop(frame)) return;
+            if (rigRef?.DropOutboundIFrame is { } drop && drop(frame))
+            {
+                return;
+            }
+
             SendBytes(frame.ToBytes());
         }
 
@@ -505,15 +530,23 @@ public class DirewolfMod128Interop
 
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
 
                 if (!Ax25Frame.TryParse(f.Payload, Ax25ParseOptions.Lenient,
                         rig.Session.Context.IsExtended, out var parsed))
+                {
                     continue;
+                }
 
                 // The AFSK channel is broadcast — only react to frames
                 // addressed to our local callsign.
-                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local)) continue;
+                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local))
+                {
+                    continue;
+                }
 
                 rig.Observed.Enqueue(parsed);
                 rig.Session.PostEvent(Ax25FrameClassifier.Classify(parsed));
@@ -534,7 +567,9 @@ public class DirewolfMod128Interop
             while (rig.Signals.TryDequeue(out var sig))
             {
                 if (sig is DataLinkDataIndication ind && ind.Info.Span.SequenceEqual(expected))
+                {
                     return ind;
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }
@@ -560,10 +595,16 @@ public class DirewolfMod128Interop
             ThrowIfAnyFaulted(bg);
             while (rig.Signals.TryDequeue(out var sig))
             {
-                if (sig is not DataLinkDataIndication ind) continue;
+                if (sig is not DataLinkDataIndication ind)
+                {
+                    continue;
+                }
+
                 var reassembled = recvSeg.OnDataIndication(ind);
                 if (reassembled is not null && reassembled.Info.Span.SequenceEqual(expected))
+                {
                     return reassembled.Info.ToArray();
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }
@@ -579,7 +620,11 @@ public class DirewolfMod128Interop
         while (!cts.IsCancellationRequested)
         {
             ThrowIfAnyFaulted(bg);
-            if (rig.Observed.Any(predicate)) return true;
+            if (rig.Observed.Any(predicate))
+            {
+                return true;
+            }
+
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return false; }
         }
@@ -597,7 +642,10 @@ public class DirewolfMod128Interop
             ThrowIfAnyFaulted(bg);
             while (signals.TryDequeue(out var sig))
             {
-                if (sig is T match) return match;
+                if (sig is T match)
+                {
+                    return match;
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }

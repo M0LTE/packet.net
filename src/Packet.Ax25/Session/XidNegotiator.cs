@@ -59,7 +59,7 @@ public static class XidNegotiator
         //   modulo:  128 (higher)  vs 8   (lower)      → mod-8 wins if either side offers mod-8
         // If PI=3 is absent from both, §6.3.2 ¶1426 selects the default
         // (selective reject, modulo 128) — represented by HdlcOptionalFunctions.Default.
-        var ourHdlc   = offered.HdlcOptionalFunctions  ?? HdlcOptionalFunctions.Default;
+        var ourHdlc = offered.HdlcOptionalFunctions ?? HdlcOptionalFunctions.Default;
         var theirHdlc = response.HdlcOptionalFunctions ?? HdlcOptionalFunctions.Default;
 
         // "lesser of the selection": SREJ only survives if BOTH sides offer it.
@@ -76,9 +76,9 @@ public static class XidNegotiator
         // the segmenter/reassembler" framing is a mutual-capability AND.
         bool agreedSegmenter = ourHdlc.SegmenterReassembler && theirHdlc.SegmenterReassembler;
 
-        context.SrejEnabled    = agreedSelectiveReject;
+        context.SrejEnabled = agreedSelectiveReject;
         context.ImplicitReject = !agreedSelectiveReject;
-        context.IsExtended     = agreedModulo128;
+        context.IsExtended = agreedModulo128;
         context.SegmenterReassemblerEnabled = agreedSegmenter;
 
         // ─── Classes of Procedures (PI=2): duplex ────────────────────────────
@@ -86,7 +86,7 @@ public static class XidNegotiator
         // §6.3.2 ¶1424: "reverts to half-duplex if either TNC cannot support
         // full-duplex." Full-duplex survives only if BOTH sides offer it; absent
         // from both → default half-duplex.
-        var ourCop   = offered.ClassesOfProcedures  ?? ClassesOfProcedures.HalfDuplexDefault;
+        var ourCop = offered.ClassesOfProcedures ?? ClassesOfProcedures.HalfDuplexDefault;
         var theirCop = response.ClassesOfProcedures ?? ClassesOfProcedures.HalfDuplexDefault;
         bool agreedFullDuplex = !ourCop.HalfDuplex && !theirCop.HalfDuplex;
         context.HalfDuplex = !agreedFullDuplex;
@@ -101,7 +101,10 @@ public static class XidNegotiator
         // other's buffer. If neither side advertised k, leave the context's
         // current value (which Set_Version_2_x seeded to 4/32 by modulo).
         int? agreedK = MinPresent(offered.WindowSizeRx, response.WindowSizeRx);
-        if (agreedK is { } k) context.K = k;
+        if (agreedK is { } k)
+        {
+            context.K = k;
+        }
 
         // ─── I-Field Length Receive N1 (PI=6): notification / min ────────────
         //
@@ -111,7 +114,10 @@ public static class XidNegotiator
         // not exceed the peer's advertised Rx N1; take the min. Stored in octets
         // on the context (XidParameters exposes the bits→octets bridge).
         int? agreedN1 = MinPresent(offered.IFieldLengthRxOctets, response.IFieldLengthRxOctets);
-        if (agreedN1 is { } n1) context.N1 = n1;
+        if (agreedN1 is { } n1)
+        {
+            context.N1 = n1;
+        }
 
         // ─── Acknowledge Timer T1 (PI=9): greater ────────────────────────────
         //
@@ -134,7 +140,10 @@ public static class XidNegotiator
         // text make clear this is the retry count N2.) More retries is the safer
         // choice, so both sides adopt the max.
         int? agreedN2 = MaxPresent(offered.Retries, response.Retries);
-        if (agreedN2 is { } n2) context.N2 = n2;
+        if (agreedN2 is { } n2)
+        {
+            context.N2 = n2;
+        }
     }
 
     /// <summary>
@@ -166,31 +175,47 @@ public static class XidNegotiator
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.HalfDuplex     = true;                       // Set Half Duplex
+        context.HalfDuplex = true;                       // Set Half Duplex
         context.ImplicitReject = true;                       // Set Implicit Reject
-        context.SrejEnabled    = false;                      //   (REJ ⇒ no SREJ)
-        context.IsExtended     = false;                      // Modulo = 8
-        context.N1             = 256;                         // 2048 bits = 256 octets
-        context.K              = 7;                           // Window Size Receive = 7
-        context.T1V            = TimeSpan.FromMilliseconds(3000); // Acknowledge Timer
-        context.Srt            = TimeSpan.FromMilliseconds(1500); //   keep T1V == 2*SRT
-        context.N2             = 10;                          // Retries
+        context.SrejEnabled = false;                      //   (REJ ⇒ no SREJ)
+        context.IsExtended = false;                      // Modulo = 8
+        context.N1 = 256;                         // 2048 bits = 256 octets
+        context.K = 7;                           // Window Size Receive = 7
+        context.T1V = TimeSpan.FromMilliseconds(3000); // Acknowledge Timer
+        context.Srt = TimeSpan.FromMilliseconds(1500); //   keep T1V == 2*SRT
+        context.N2 = 10;                          // Retries
         context.SegmenterReassemblerEnabled = false;         // v2.2-only (§1621)
     }
 
     /// <summary>Lesser of two notification values, treating absence as "no constraint".</summary>
     private static int? MinPresent(int? a, int? b)
     {
-        if (a is null) return b;
-        if (b is null) return a;
+        if (a is null)
+        {
+            return b;
+        }
+
+        if (b is null)
+        {
+            return a;
+        }
+
         return Math.Min(a.Value, b.Value);
     }
 
     /// <summary>Greater of two negotiated values, treating absence as "no preference".</summary>
     private static int? MaxPresent(int? a, int? b)
     {
-        if (a is null) return b;
-        if (b is null) return a;
+        if (a is null)
+        {
+            return b;
+        }
+
+        if (b is null)
+        {
+            return a;
+        }
+
         return Math.Max(a.Value, b.Value);
     }
 }

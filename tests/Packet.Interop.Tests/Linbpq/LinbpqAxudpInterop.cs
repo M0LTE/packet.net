@@ -41,7 +41,7 @@ public class LinbpqAxudpSmoke
 {
     private const string Host = "127.0.0.1";
     private const int AxudpPort = 8093;
-    private const int HttpPort  = 8008;
+    private const int HttpPort = 8008;
 
     [SkippableFact]
     public async Task LinBPQ_Container_Web_UI_Is_Reachable()

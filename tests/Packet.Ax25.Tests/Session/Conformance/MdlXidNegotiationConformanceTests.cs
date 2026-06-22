@@ -210,7 +210,10 @@ public class MdlXidNegotiationConformanceTests
         // Retransmit cycles: each TM201 expiry with RC < NM201 bumps RC and
         // resends. NM201 == 3, so after 3 retries RC == NM201 and the next expiry
         // gives up. Advance enough TM201 intervals to exhaust.
-        for (int i = 0; i < 4; i++) h.AdvanceTm201();
+        for (int i = 0; i < 4; i++)
+        {
+            h.AdvanceTm201();
+        }
 
         h.A.MdlState.Should().Be("Ready", "after NM201 retries the MDL gives up and returns to Ready");
         h.A.MdlSignals.OfType<MdlErrorIndicateSignal>().Select(s => s.Code).Should().Contain("C",

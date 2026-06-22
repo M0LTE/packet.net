@@ -54,7 +54,10 @@ public static class AprsPositionDecoder
     public static bool TryDecode(ReadOnlySpan<byte> info, out AprsPosition position)
     {
         position = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         switch (info[0])
         {
@@ -65,10 +68,22 @@ public static class AprsPositionDecoder
             case (byte)'@':
             case (byte)'/':
                 // Strip DTI + timestamp.
-                if (info.Length < 8) return false;
+                if (info.Length < 8)
+                {
+                    return false;
+                }
+
                 int tsLen = TimestampLength(info[1..8]);
-                if (tsLen == 0) return false;
-                if (info.Length < 1 + tsLen) return false;
+                if (tsLen == 0)
+                {
+                    return false;
+                }
+
+                if (info.Length < 1 + tsLen)
+                {
+                    return false;
+                }
+
                 info = info[(1 + tsLen)..];
                 break;
             default:
@@ -94,7 +109,10 @@ public static class AprsPositionDecoder
     public static bool TryDecodePayload(ReadOnlySpan<byte> info, out AprsPosition position)
     {
         position = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Compressed format starts with the symbol table identifier
         // (which can be / \ 0-9 A-Z a-j). Uncompressed format starts
@@ -123,17 +141,31 @@ public static class AprsPositionDecoder
     /// </remarks>
     private static int TimestampLength(ReadOnlySpan<byte> candidate7)
     {
-        if (candidate7.Length < 7) return 0;
+        if (candidate7.Length < 7)
+        {
+            return 0;
+        }
+
         for (int i = 0; i < 6; i++)
         {
-            if (!IsAsciiDigit(candidate7[i])) return 0;
+            if (!IsAsciiDigit(candidate7[i]))
+            {
+                return 0;
+            }
         }
         byte t = candidate7[6];
-        if (t == (byte)'z' || t == (byte)'/' || t == (byte)'h') return 7;
+        if (t == (byte)'z' || t == (byte)'/' || t == (byte)'h')
+        {
+            return 7;
+        }
         // MDHM (8 bytes, all digits) — also covers a final digit at
         // position 6 followed by another digit at position 7 in the
         // caller's buffer; we caught the first 7 here and need the 8th.
-        if (IsAsciiDigit(t)) return 8;
+        if (IsAsciiDigit(t))
+        {
+            return 8;
+        }
+
         return 0;
     }
 
@@ -149,15 +181,29 @@ public static class AprsPositionDecoder
     private static bool TryDecodeUncompressed(ReadOnlySpan<byte> info, [NotNullWhen(true)] out AprsPosition position)
     {
         position = default;
-        if (info.Length < 19) return false;  // 8 + 1 + 9 + 1, comment optional
+        if (info.Length < 19)
+        {
+            return false;  // 8 + 1 + 9 + 1, comment optional
+        }
 
         // Latitude: DDMM.mmN/S
-        if (!TryParseLatitude(info[..8], out double lat)) return false;
+        if (!TryParseLatitude(info[..8], out double lat))
+        {
+            return false;
+        }
+
         char symbolTable = (char)info[8];
-        if (!IsValidSymbolTable(symbolTable)) return false;
+        if (!IsValidSymbolTable(symbolTable))
+        {
+            return false;
+        }
 
         // Longitude: DDDMM.mmE/W
-        if (!TryParseLongitude(info.Slice(9, 9), out double lon)) return false;
+        if (!TryParseLongitude(info.Slice(9, 9), out double lon))
+        {
+            return false;
+        }
+
         char symbolCode = (char)info[18];
 
         string comment = info.Length > 19
@@ -172,28 +218,74 @@ public static class AprsPositionDecoder
     {
         degrees = 0;
         // DDMM.mmN/S — 8 chars
-        if (field.Length != 8) return false;
-        if (field[4] != (byte)'.') return false;
-        if (!IsAsciiDigit(field[0]) || !IsAsciiDigit(field[1])) return false;
-        if (!IsAsciiDigit(field[2]) && field[2] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[3]) && field[3] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[5]) && field[5] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[6]) && field[6] != (byte)' ') return false;
-        if (field[7] != (byte)'N' && field[7] != (byte)'S') return false;
+        if (field.Length != 8)
+        {
+            return false;
+        }
+
+        if (field[4] != (byte)'.')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[0]) || !IsAsciiDigit(field[1]))
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[2]) && field[2] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[3]) && field[3] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[5]) && field[5] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[6]) && field[6] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (field[7] != (byte)'N' && field[7] != (byte)'S')
+        {
+            return false;
+        }
 
         int deg = (field[0] - '0') * 10 + (field[1] - '0');
-        if (deg > 90) return false;
+        if (deg > 90)
+        {
+            return false;
+        }
+
         int minWhole = ((field[2] == (byte)' ' ? 0 : field[2] - '0') * 10)
                       + (field[3] == (byte)' ' ? 0 : field[3] - '0');
-        int minFrac  = ((field[5] == (byte)' ' ? 0 : field[5] - '0') * 10)
+        int minFrac = ((field[5] == (byte)' ' ? 0 : field[5] - '0') * 10)
                       + (field[6] == (byte)' ' ? 0 : field[6] - '0');
 
-        if (minWhole >= 60) return false;
+        if (minWhole >= 60)
+        {
+            return false;
+        }
 
         double minutes = minWhole + (minFrac / 100.0);
         degrees = deg + (minutes / 60.0);
-        if (degrees > 90) return false;
-        if (field[7] == (byte)'S') degrees = -degrees;
+        if (degrees > 90)
+        {
+            return false;
+        }
+
+        if (field[7] == (byte)'S')
+        {
+            degrees = -degrees;
+        }
+
         return true;
     }
 
@@ -201,28 +293,74 @@ public static class AprsPositionDecoder
     {
         degrees = 0;
         // DDDMM.mmE/W — 9 chars
-        if (field.Length != 9) return false;
-        if (field[5] != (byte)'.') return false;
-        if (!IsAsciiDigit(field[0]) || !IsAsciiDigit(field[1]) || !IsAsciiDigit(field[2])) return false;
-        if (!IsAsciiDigit(field[3]) && field[3] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[4]) && field[4] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[6]) && field[6] != (byte)' ') return false;
-        if (!IsAsciiDigit(field[7]) && field[7] != (byte)' ') return false;
-        if (field[8] != (byte)'E' && field[8] != (byte)'W') return false;
+        if (field.Length != 9)
+        {
+            return false;
+        }
+
+        if (field[5] != (byte)'.')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[0]) || !IsAsciiDigit(field[1]) || !IsAsciiDigit(field[2]))
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[3]) && field[3] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[4]) && field[4] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[6]) && field[6] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (!IsAsciiDigit(field[7]) && field[7] != (byte)' ')
+        {
+            return false;
+        }
+
+        if (field[8] != (byte)'E' && field[8] != (byte)'W')
+        {
+            return false;
+        }
 
         int deg = (field[0] - '0') * 100 + (field[1] - '0') * 10 + (field[2] - '0');
-        if (deg > 180) return false;
+        if (deg > 180)
+        {
+            return false;
+        }
+
         int minWhole = ((field[3] == (byte)' ' ? 0 : field[3] - '0') * 10)
                       + (field[4] == (byte)' ' ? 0 : field[4] - '0');
-        int minFrac  = ((field[6] == (byte)' ' ? 0 : field[6] - '0') * 10)
+        int minFrac = ((field[6] == (byte)' ' ? 0 : field[6] - '0') * 10)
                       + (field[7] == (byte)' ' ? 0 : field[7] - '0');
 
-        if (minWhole >= 60) return false;
+        if (minWhole >= 60)
+        {
+            return false;
+        }
 
         double minutes = minWhole + (minFrac / 100.0);
         degrees = deg + (minutes / 60.0);
-        if (degrees > 180) return false;
-        if (field[8] == (byte)'W') degrees = -degrees;
+        if (degrees > 180)
+        {
+            return false;
+        }
+
+        if (field[8] == (byte)'W')
+        {
+            degrees = -degrees;
+        }
+
         return true;
     }
 
@@ -241,20 +379,40 @@ public static class AprsPositionDecoder
     private static bool TryDecodeCompressed(ReadOnlySpan<byte> info, [NotNullWhen(true)] out AprsPosition position)
     {
         position = default;
-        if (info.Length < 13) return false;
+        if (info.Length < 13)
+        {
+            return false;
+        }
 
         char symbolTable = (char)info[0];
-        if (!IsValidSymbolTable(symbolTable)) return false;
+        if (!IsValidSymbolTable(symbolTable))
+        {
+            return false;
+        }
 
         // Lat: 4 base-91 chars → integer Y, then lat = 90 - Y/380926
-        if (!TryDecodeBase91(info.Slice(1, 4), out long yRaw)) return false;
+        if (!TryDecodeBase91(info.Slice(1, 4), out long yRaw))
+        {
+            return false;
+        }
+
         double lat = 90.0 - (yRaw / 380926.0);
-        if (lat is < -90 or > 90) return false;
+        if (lat is < -90 or > 90)
+        {
+            return false;
+        }
 
         // Lon: 4 base-91 chars → integer X, then lon = -180 + X/190463
-        if (!TryDecodeBase91(info.Slice(5, 4), out long xRaw)) return false;
+        if (!TryDecodeBase91(info.Slice(5, 4), out long xRaw))
+        {
+            return false;
+        }
+
         double lon = -180.0 + (xRaw / 190463.0);
-        if (lon is < -180 or > 180) return false;
+        if (lon is < -180 or > 180)
+        {
+            return false;
+        }
 
         char symbolCode = (char)info[9];
         // info[10..13] = csT (course/speed/range/altitude) — not parsed
@@ -280,7 +438,11 @@ public static class AprsPositionDecoder
         for (int i = field.Length - 1; i >= 0; i--)
         {
             byte b = field[i];
-            if (b < (byte)'!' || b > (byte)'{') return false;
+            if (b < (byte)'!' || b > (byte)'{')
+            {
+                return false;
+            }
+
             value += (b - 33) * mul;
             mul *= 91;
         }
@@ -297,10 +459,26 @@ public static class AprsPositionDecoder
     /// </summary>
     private static bool IsValidSymbolTable(char c)
     {
-        if (c == '/' || c == '\\') return true;
-        if (c >= '0' && c <= '9') return true;
-        if (c >= 'A' && c <= 'Z') return true;
-        if (c >= 'a' && c <= 'j') return true;
+        if (c == '/' || c == '\\')
+        {
+            return true;
+        }
+
+        if (c >= '0' && c <= '9')
+        {
+            return true;
+        }
+
+        if (c >= 'A' && c <= 'Z')
+        {
+            return true;
+        }
+
+        if (c >= 'a' && c <= 'j')
+        {
+            return true;
+        }
+
         return false;
     }
 }

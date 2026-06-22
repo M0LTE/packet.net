@@ -7,7 +7,7 @@ namespace Packet.Ax25.Tests.Session;
 
 public class Ax25FrameClassifierTests
 {
-    private static readonly Callsign Local  = new("M0LTE", 0);
+    private static readonly Callsign Local = new("M0LTE", 0);
     private static readonly Callsign Remote = new("G7XYZ", 7);
 
     // ─── U-frame classification (mirrors the §4.3.3 control bytes) ─────
@@ -140,8 +140,8 @@ public class Ax25FrameClassifierTests
     {
         // Build a frame with a custom control byte by parsing hand-crafted bytes.
         var bytes = new byte[15];
-        new Ax25Address(Local,  CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(Remote, CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(Local, CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(Remote, CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = unknownControl;
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
 
@@ -158,7 +158,7 @@ public class Ax25FrameClassifierTests
         // the wire codec + classifier are inverses on the bit level.
         var ctx = new Ax25SessionContext
         {
-            Local  = Local,
+            Local = Local,
             Remote = Remote,
         };
         var spec = new UFrameSpec(UFrameType.Sabm, IsCommand: true, PfBit: true);

@@ -53,9 +53,20 @@ public static class AprsMicEDecoder
     {
         ArgumentNullException.ThrowIfNull(options);
         result = default;
-        if (destinationBase is null) return false;
-        if (destinationBase.Length != DestLen) return false;
-        if (info.Length < InfoHeaderLen) return false;
+        if (destinationBase is null)
+        {
+            return false;
+        }
+
+        if (destinationBase.Length != DestLen)
+        {
+            return false;
+        }
+
+        if (info.Length < InfoHeaderLen)
+        {
+            return false;
+        }
 
         // DTI check. The spec-canonical DTIs are 0x60 (`) and 0x27 (').
         // 0x1C / 0x1D are Rev. 0 beta legacy bytes — gated by an option.
@@ -106,33 +117,80 @@ public static class AprsMicEDecoder
 
             if (msgBit == 1)
             {
-                if (stdHint) stdHints++;
-                if (customHint) customHints++;
+                if (stdHint)
+                {
+                    stdHints++;
+                }
+
+                if (customHint)
+                {
+                    customHints++;
+                }
             }
         }
 
-        if (!TryParseLatitude(latChars, isNorth, out double latitude)) return false;
+        if (!TryParseLatitude(latChars, isNorth, out double latitude))
+        {
+            return false;
+        }
 
         // ─── Information field → lon / speed / course / symbol ─────────────
         int d = info[1] - 28;
         int m = info[2] - 28;
         int h = info[3] - 28;
-        if (longOffset100) d += 100;
-        if (d is >= 180 and <= 189) d -= 80;       // 100–109°
-        else if (d is >= 190 and <= 199) d -= 190; // 0–9°
-        if (d is < 0 or > 179) return false;
-        if (m >= 60) m -= 60;
-        if (m is < 0 or > 59) return false;
-        if (h is < 0 or > 99) return false;
+        if (longOffset100)
+        {
+            d += 100;
+        }
+
+        if (d is >= 180 and <= 189)
+        {
+            d -= 80;       // 100–109°
+        }
+        else if (d is >= 190 and <= 199)
+        {
+            d -= 190; // 0–9°
+        }
+
+        if (d is < 0 or > 179)
+        {
+            return false;
+        }
+
+        if (m >= 60)
+        {
+            m -= 60;
+        }
+
+        if (m is < 0 or > 59)
+        {
+            return false;
+        }
+
+        if (h is < 0 or > 99)
+        {
+            return false;
+        }
+
         double longitude = d + (m + h / 100.0) / 60.0;
-        if (isWest) longitude = -longitude;
+        if (isWest)
+        {
+            longitude = -longitude;
+        }
 
         // SP+28 (speed tens). Two encodings exist for 0-199 kn: subtract 28
         // and, if the result is ≥ 80, subtract another 80 to collapse the
         // "printable" encoding back to the [0, 79] tens-of-knots index.
         int sp = info[4] - 28;
-        if (sp >= 80) sp -= 80;
-        if (sp is < 0 or > 79) return false;
+        if (sp >= 80)
+        {
+            sp -= 80;
+        }
+
+        if (sp is < 0 or > 79)
+        {
+            return false;
+        }
 
         // DC+28 (speed units + course hundreds). Per the §10 worked example
         // the algorithm is: subtract 28, divide by 10 for the units digit,
@@ -141,24 +199,49 @@ public static class AprsMicEDecoder
         // handles both old (non-printable-prefix) and new (printable-prefix)
         // encodings without needing to detect which the sender used.
         int dc = info[5] - 28;
-        if (dc < 0) return false;
+        if (dc < 0)
+        {
+            return false;
+        }
+
         int speedUnits = dc / 10;
         int courseHundredsIdx = dc % 10;
-        if (courseHundredsIdx >= 4) courseHundredsIdx -= 4;
-        if (speedUnits > 9 || courseHundredsIdx > 3) return false;
+        if (courseHundredsIdx >= 4)
+        {
+            courseHundredsIdx -= 4;
+        }
+
+        if (speedUnits > 9 || courseHundredsIdx > 3)
+        {
+            return false;
+        }
 
         // SE+28 (course tens/units). One encoding only: raw - 28 = 0..99.
         int se = info[6] - 28;
-        if (se is < 0 or > 99) return false;
+        if (se is < 0 or > 99)
+        {
+            return false;
+        }
 
         int speed = sp * 10 + speedUnits;
         int course = courseHundredsIdx * 100 + se;
         // Per §10's "speed/course adjustments" — if either overflows the
         // representable range, wrap. In practice this catches the rare
         // sender that uses out-of-table byte combinations.
-        if (speed >= 800) speed -= 800;
-        if (course >= 400) course -= 400;
-        if (course > 360) return false;
+        if (speed >= 800)
+        {
+            speed -= 800;
+        }
+
+        if (course >= 400)
+        {
+            course -= 400;
+        }
+
+        if (course > 360)
+        {
+            return false;
+        }
 
         char symbolCode = (char)info[7];
         char symbolTable = (char)info[8];
@@ -201,10 +284,10 @@ public static class AprsMicEDecoder
 
         if (c >= '0' && c <= '9') { digit = c; msgBit = 0; return true; }
         if (c >= 'A' && c <= 'J') { digit = (char)('0' + (c - 'A')); msgBit = 1; customHint = true; return true; }
-        if (c == 'K')             { digit = ' '; msgBit = 1; customHint = true; return true; }
-        if (c == 'L')             { digit = ' '; msgBit = 0; return true; }
+        if (c == 'K') { digit = ' '; msgBit = 1; customHint = true; return true; }
+        if (c == 'L') { digit = ' '; msgBit = 0; return true; }
         if (c >= 'P' && c <= 'Y') { digit = (char)('0' + (c - 'P')); msgBit = 1; stdHint = true; return true; }
-        if (c == 'Z')             { digit = ' '; msgBit = 1; stdHint = true; return true; }
+        if (c == 'Z') { digit = ' '; msgBit = 1; stdHint = true; return true; }
         return false;
     }
 
@@ -217,17 +300,38 @@ public static class AprsMicEDecoder
         for (int i = 0; i < 6; i++)
         {
             char ch = digits[i];
-            if (ch == ' ') ds[i] = 0;
-            else if (ch >= '0' && ch <= '9') ds[i] = ch - '0';
-            else return false;
+            if (ch == ' ')
+            {
+                ds[i] = 0;
+            }
+            else if (ch >= '0' && ch <= '9')
+            {
+                ds[i] = ch - '0';
+            }
+            else
+            {
+                return false;
+            }
         }
         int deg = ds[0] * 10 + ds[1];
-        if (deg > 90) return false;
+        if (deg > 90)
+        {
+            return false;
+        }
+
         int minWhole = ds[2] * 10 + ds[3];
-        int minFrac  = ds[4] * 10 + ds[5];
-        if (minWhole >= 60) return false;
+        int minFrac = ds[4] * 10 + ds[5];
+        if (minWhole >= 60)
+        {
+            return false;
+        }
+
         latitude = deg + (minWhole + minFrac / 100.0) / 60.0;
-        if (!isNorth) latitude = -latitude;
+        if (!isNorth)
+        {
+            latitude = -latitude;
+        }
+
         return true;
     }
 
@@ -235,11 +339,17 @@ public static class AprsMicEDecoder
     {
         int bits = (bitA << 2) | (bitB << 1) | bitC;
 
-        if (bits == 0b000) return MicEMessageType.Emergency;
+        if (bits == 0b000)
+        {
+            return MicEMessageType.Emergency;
+        }
 
         bool isStandard = stdHints > 0 && customHints == 0;
-        bool isCustom   = customHints > 0 && stdHints == 0;
-        if (!isStandard && !isCustom) return MicEMessageType.Unknown;
+        bool isCustom = customHints > 0 && stdHints == 0;
+        if (!isStandard && !isCustom)
+        {
+            return MicEMessageType.Unknown;
+        }
 
         // Bits high-to-low: A | B | C
         //   111 → M0 / C0
@@ -252,13 +362,13 @@ public static class AprsMicEDecoder
         int idx = 7 - bits;  // 7 → M0, 6 → M1, ..., 1 → M6
         return (isStandard, idx) switch
         {
-            (true, 0)  => MicEMessageType.StandardM0OffDuty,
-            (true, 1)  => MicEMessageType.StandardM1EnRoute,
-            (true, 2)  => MicEMessageType.StandardM2InService,
-            (true, 3)  => MicEMessageType.StandardM3Returning,
-            (true, 4)  => MicEMessageType.StandardM4Committed,
-            (true, 5)  => MicEMessageType.StandardM5Special,
-            (true, 6)  => MicEMessageType.StandardM6Priority,
+            (true, 0) => MicEMessageType.StandardM0OffDuty,
+            (true, 1) => MicEMessageType.StandardM1EnRoute,
+            (true, 2) => MicEMessageType.StandardM2InService,
+            (true, 3) => MicEMessageType.StandardM3Returning,
+            (true, 4) => MicEMessageType.StandardM4Committed,
+            (true, 5) => MicEMessageType.StandardM5Special,
+            (true, 6) => MicEMessageType.StandardM6Priority,
             (false, 0) => MicEMessageType.CustomC0,
             (false, 1) => MicEMessageType.CustomC1,
             (false, 2) => MicEMessageType.CustomC2,

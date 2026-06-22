@@ -6,11 +6,11 @@ namespace Packet.Kiss.NinoTnc.Tests;
 public class NinoTncSetHardwareTests
 {
     [Theory]
-    [InlineData(0,  true,  0)]   // mode 0, persist  → 0
-    [InlineData(0,  false, 16)]  // mode 0, !persist → 0 + 16
-    [InlineData(6,  true,  6)]   // mode 6, persist  → 6
-    [InlineData(6,  false, 22)]  // mode 6, !persist → 6 + 16
-    [InlineData(15, true,  15)]  // mode 15, persist → 15
+    [InlineData(0, true, 0)]   // mode 0, persist  → 0
+    [InlineData(0, false, 16)]  // mode 0, !persist → 0 + 16
+    [InlineData(6, true, 6)]   // mode 6, persist  → 6
+    [InlineData(6, false, 22)]  // mode 6, !persist → 6 + 16
+    [InlineData(15, true, 15)]  // mode 15, persist → 15
     [InlineData(15, false, 31)]  // mode 15, !persist → 31
     public void Payload_Byte_Matches_Kissproxy_Arithmetic(byte mode, bool persist, byte expectedPayload)
     {

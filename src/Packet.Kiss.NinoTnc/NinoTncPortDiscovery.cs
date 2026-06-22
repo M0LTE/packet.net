@@ -171,7 +171,10 @@ public static class NinoTncPortDiscovery
                     continue;
                 }
                 using var deviceKey = usbRoot.OpenSubKey(deviceKeyName);
-                if (deviceKey is null) continue;
+                if (deviceKey is null)
+                {
+                    continue;
+                }
 
                 foreach (var instanceName in deviceKey.GetSubKeyNames())
                 {

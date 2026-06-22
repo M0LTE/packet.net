@@ -21,15 +21,26 @@ public sealed class SharedRadioBus
     public IAx25Transport Attach()
     {
         var ep = new Endpoint(this);
-        lock (gate) endpoints.Add(ep);
+        lock (gate)
+        {
+            endpoints.Add(ep);
+        }
+
         return ep;
     }
 
     private void Broadcast(Endpoint from, KissFrame frame)
     {
         Endpoint[] others;
-        lock (gate) others = endpoints.Where(e => !ReferenceEquals(e, from)).ToArray();
-        foreach (var e in others) e.Deliver(frame);
+        lock (gate)
+        {
+            others = endpoints.Where(e => !ReferenceEquals(e, from)).ToArray();
+        }
+
+        foreach (var e in others)
+        {
+            e.Deliver(frame);
+        }
     }
 
     private sealed class Endpoint : IAx25Transport, ICsmaChannelParams
@@ -55,7 +66,11 @@ public sealed class SharedRadioBus
             {
                 while (rx.Reader.TryRead(out var f))
                 {
-                    if (f.Command != KissCommand.Data) continue;
+                    if (f.Command != KissCommand.Data)
+                    {
+                        continue;
+                    }
+
                     yield return new Ax25InboundFrame(f.Payload, f.Port, DateTimeOffset.UtcNow);
                 }
             }

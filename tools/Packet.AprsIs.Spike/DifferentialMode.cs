@@ -112,12 +112,18 @@ public static class DifferentialMode
                 if (info.Length > 0 && info[0] == (byte)';')
                 {
                     usOk = AprsObjectDecoder.TryDecode(info, out var obj);
-                    if (usOk) ours = obj.Position;
+                    if (usOk)
+                    {
+                        ours = obj.Position;
+                    }
                 }
                 else if (info.Length > 0 && info[0] == (byte)')')
                 {
                     usOk = AprsItemDecoder.TryDecode(info, out var itm);
-                    if (usOk) ours = itm.Position;
+                    if (usOk)
+                    {
+                        ours = itm.Position;
+                    }
                 }
                 else if (info.Length > 0 && (info[0] == (byte)'`' || info[0] == (byte)'\''))
                 {
@@ -125,9 +131,19 @@ public static class DifferentialMode
                     // Trim "-SSID" suffix and normalise to exactly 6 base chars.
                     var destBase = destination;
                     int dashIdx = destBase.IndexOf('-');
-                    if (dashIdx > 0) destBase = destBase[..dashIdx];
-                    if (destBase.Length > 6) destBase = destBase[..6];
-                    else if (destBase.Length < 6) destBase = destBase.PadRight(6);
+                    if (dashIdx > 0)
+                    {
+                        destBase = destBase[..dashIdx];
+                    }
+
+                    if (destBase.Length > 6)
+                    {
+                        destBase = destBase[..6];
+                    }
+                    else if (destBase.Length < 6)
+                    {
+                        destBase = destBase.PadRight(6);
+                    }
 
                     usOk = AprsMicEDecoder.TryDecode(destBase, info, out var mice);
                     if (usOk)
@@ -159,9 +175,15 @@ public static class DifferentialMode
                     stats.WriteShortSummary(Console.Out);
                 }
 
-                if (opts.Limit > 0 && processed >= opts.Limit) break;
+                if (opts.Limit > 0 && processed >= opts.Limit)
+                {
+                    break;
+                }
             }
-            if (opts.Limit > 0 && processed >= opts.Limit) break;
+            if (opts.Limit > 0 && processed >= opts.Limit)
+            {
+                break;
+            }
         }
 
         var reportPath = Path.Combine(opts.OutDir, "differential.md");
@@ -177,14 +199,22 @@ public static class DifferentialMode
     {
         if (usOk && dwOk)
         {
-            double dlat = Math.Abs(ours.Latitude  - dwLat!.Value);
+            double dlat = Math.Abs(ours.Latitude - dwLat!.Value);
             double dlon = Math.Abs(ours.Longitude - dwLon!.Value);
             return (dlat <= LatLonToleranceDegrees && dlon <= LatLonToleranceDegrees)
                 ? Bucket.BothOkMatch
                 : Bucket.BothOkMismatch;
         }
-        if (usOk && !dwOk) return Bucket.OnlyUs;
-        if (!usOk && dwOk) return Bucket.OnlyDirewolf;
+        if (usOk && !dwOk)
+        {
+            return Bucket.OnlyUs;
+        }
+
+        if (!usOk && dwOk)
+        {
+            return Bucket.OnlyDirewolf;
+        }
+
         return Bucket.BothFailed;
     }
 
@@ -224,11 +254,11 @@ public static class DifferentialMode
                 var infoStr = Encoding.Latin1.GetString(info, 0, Math.Min(info.Length, 80));
                 list.Add(bucket switch
                 {
-                    Bucket.BothOkMatch    => $"`{Escape(infoStr)}` ours=({ours.Latitude:F4},{ours.Longitude:F4})",
+                    Bucket.BothOkMatch => $"`{Escape(infoStr)}` ours=({ours.Latitude:F4},{ours.Longitude:F4})",
                     Bucket.BothOkMismatch => $"`{Escape(infoStr)}` ours=({ours.Latitude:F4},{ours.Longitude:F4}) dw=({dwLat:F4},{dwLon:F4})",
-                    Bucket.OnlyUs         => $"`{Escape(infoStr)}` ours=({ours.Latitude:F4},{ours.Longitude:F4}) dw=error",
-                    Bucket.OnlyDirewolf   => $"`{Escape(infoStr)}` dw=({dwLat:F4},{dwLon:F4}) ours=rejected",
-                    Bucket.BothFailed     => $"`{Escape(infoStr)}`",
+                    Bucket.OnlyUs => $"`{Escape(infoStr)}` ours=({ours.Latitude:F4},{ours.Longitude:F4}) dw=error",
+                    Bucket.OnlyDirewolf => $"`{Escape(infoStr)}` dw=({dwLat:F4},{dwLon:F4}) ours=rejected",
+                    Bucket.BothFailed => $"`{Escape(infoStr)}`",
                     _ => infoStr,
                 });
             }
@@ -265,7 +295,11 @@ public static class DifferentialMode
             sb.AppendLine();
             foreach (var bucket in new[] { Bucket.BothOkMismatch, Bucket.OnlyUs, Bucket.OnlyDirewolf, Bucket.BothFailed, Bucket.BothOkMatch })
             {
-                if (!examples.TryGetValue(bucket, out var list) || list.Count == 0) continue;
+                if (!examples.TryGetValue(bucket, out var list) || list.Count == 0)
+                {
+                    continue;
+                }
+
                 sb.AppendLine(CultureInfo.InvariantCulture, $"### `{bucket}`");
                 foreach (var ex in list)
                 {

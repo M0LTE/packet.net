@@ -85,19 +85,19 @@ public static class Program
 
         return args[0] switch
         {
-            "--smoke"        => RunSmoke(args),
-            "--seed-corpus"  => RunSeedCorpus(args),
-            "ax25"           => RunAx25Fuzzer(args),
-            "kiss"           => RunKissFuzzer(args),
-            "ax25ext"        => RunAx25ExtendedFuzzer(args),
-            "xid"            => RunXidFuzzer(args),
-            "segment"        => RunSegmentFuzzer(args),
-            "command"        => RunCommandFuzzer(args),
-            "aprs"           => RunAprsFuzzer(args),
-            "agw"            => RunAgwFuzzer(args),
-            "netrom"         => RunNetRomFuzzer(args),
+            "--smoke" => RunSmoke(args),
+            "--seed-corpus" => RunSeedCorpus(args),
+            "ax25" => RunAx25Fuzzer(args),
+            "kiss" => RunKissFuzzer(args),
+            "ax25ext" => RunAx25ExtendedFuzzer(args),
+            "xid" => RunXidFuzzer(args),
+            "segment" => RunSegmentFuzzer(args),
+            "command" => RunCommandFuzzer(args),
+            "aprs" => RunAprsFuzzer(args),
+            "agw" => RunAgwFuzzer(args),
+            "netrom" => RunNetRomFuzzer(args),
             "--help"
-                or "-h"      => RunHelp(),
+                or "-h" => RunHelp(),
             _ => UnknownCommand(args[0]),
         };
     }
@@ -330,13 +330,13 @@ public static class Program
     {
         // Figure-literal: [F/X][data]. First segment of a 3-segment series, then a
         // middle, then the last.
-        yield return ("figlit-first.bin",  new byte[] { Segmenter.FirstBit | 2, 0xA0, 0xA1, 0xA2 });
-        yield return ("figlit-mid.bin",    new byte[] { 1, 0xB0, 0xB1, 0xB2 });
-        yield return ("figlit-last.bin",   new byte[] { 0, 0xC0, 0xC1 });
+        yield return ("figlit-first.bin", new byte[] { Segmenter.FirstBit | 2, 0xA0, 0xA1, 0xA2 });
+        yield return ("figlit-mid.bin", new byte[] { 1, 0xB0, 0xB1, 0xB2 });
+        yield return ("figlit-last.bin", new byte[] { 0, 0xC0, 0xC1 });
         // Inner-PID (Dire Wolf): the first segment carries [F/X][inner-PID][data].
         yield return ("innerpid-first.bin", new byte[] { Segmenter.FirstBit | 1, Ax25Frame.PidNetRom, 0xD0, 0xD1 });
         // A single-segment (First + last) series — remaining count 0 on the First.
-        yield return ("single.bin",         new byte[] { Segmenter.FirstBit | 0, 0xEE, 0xEF });
+        yield return ("single.bin", new byte[] { Segmenter.FirstBit | 0, 0xEE, 0xEF });
     }
 
     private static Packet.Core.Callsign Cs(string @base, byte ssid)
@@ -347,8 +347,8 @@ public static class Program
     /// </summary>
     private static byte[] WrapKissDataFrame(byte port, byte[] payload)
     {
-        const byte Fend  = 0xC0;
-        const byte Fesc  = 0xDB;
+        const byte Fend = 0xC0;
+        const byte Fesc = 0xDB;
         const byte Tfend = 0xDC;
         const byte Tfesc = 0xDD;
         var ms = new MemoryStream(payload.Length + 4);
@@ -360,7 +360,7 @@ public static class Program
             {
                 case Fend: ms.WriteByte(Fesc); ms.WriteByte(Tfend); break;
                 case Fesc: ms.WriteByte(Fesc); ms.WriteByte(Tfesc); break;
-                default:   ms.WriteByte(b); break;
+                default: ms.WriteByte(b); break;
             }
         }
         ms.WriteByte(Fend);
@@ -392,13 +392,13 @@ public static class Program
         // sample is a regression we want to catch in CI.
         var ax25Seeds = LoadCorpus("ax25");
         var kissSeeds = LoadCorpus("kiss");
-        var extSeeds  = LoadCorpus("ax25ext");
-        var xidSeeds  = LoadCorpus("xid");
-        var segSeeds  = LoadCorpus("segment");
-        var cmdSeeds  = LoadCorpus("command");
+        var extSeeds = LoadCorpus("ax25ext");
+        var xidSeeds = LoadCorpus("xid");
+        var segSeeds = LoadCorpus("segment");
+        var cmdSeeds = LoadCorpus("command");
         var aprsSeeds = LoadCorpus("aprs");
-        var agwSeeds  = LoadCorpus("agw");
-        var nrSeeds   = LoadCorpus("netrom");
+        var agwSeeds = LoadCorpus("agw");
+        var nrSeeds = LoadCorpus("netrom");
 
         var ax25 = SmokeOne("Ax25Frame.TryParse", iterations, FuzzAx25Bytes, ax25Seeds, seed);
         Console.WriteLine();
@@ -675,9 +675,9 @@ public static class Program
     private static byte[] MostlyValidAx25(Random rng)
     {
         int digiCount = rng.Next(0, 10);                            // 0..9 — one extra to exceed the §6.1 max
-        int infoLen   = rng.Next(0, 256);
-        int total     = (2 + digiCount) * 7 + 1 + 1 + infoLen;     // dest+src+digis + ctrl + pid + info
-        var buf       = new byte[total];
+        int infoLen = rng.Next(0, 256);
+        int total = (2 + digiCount) * 7 + 1 + 1 + infoLen;     // dest+src+digis + ctrl + pid + info
+        var buf = new byte[total];
 
         int off = 0;
         WriteAddrSlot(buf, ref off, rng, isLast: false);            // destination
@@ -781,7 +781,10 @@ public static class Program
             int pl = rng.Next(0, 6);
             pf.Add(pi);
             pf.Add((byte)pl);
-            for (int i = 0; i < pl; i++) pf.Add((byte)rng.Next(256));
+            for (int i = 0; i < pl; i++)
+            {
+                pf.Add((byte)rng.Next(256));
+            }
         }
 
         // Group length: usually the true parameter-field length, sometimes a
@@ -831,7 +834,10 @@ public static class Program
                 // exactly what produces out-of-sequence / missing-first hostility.
                 byte first = rng.Next(2) == 0 ? Segmenter.FirstBit : (byte)0;
                 seg[0] = (byte)(first | (byte)(rng.Next(128) & Segmenter.CountMask));
-                for (int i = 1; i < len; i++) seg[i] = (byte)rng.Next(256);
+                for (int i = 1; i < len; i++)
+                {
+                    seg[i] = (byte)rng.Next(256);
+                }
             }
             ms.WriteByte((byte)len);
             ms.Write(seg, 0, seg.Length);

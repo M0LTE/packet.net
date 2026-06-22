@@ -143,7 +143,11 @@ public static class OneshotMode
         int len = Math.Min(data.Length, n);
         var sb = new StringBuilder(len * 2);
         var span = data.Span;
-        for (int i = 0; i < len; i++) sb.Append(span[i].ToString("x2"));
+        for (int i = 0; i < len; i++)
+        {
+            sb.Append(span[i].ToString("x2"));
+        }
+
         return sb.ToString();
     }
 

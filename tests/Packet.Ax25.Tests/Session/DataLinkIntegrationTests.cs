@@ -88,35 +88,35 @@ public class DataLinkIntegrationTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             Layer3Initiated = guards.Layer3Initiated,
         };
         configureContext?.Invoke(ctx);
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.PEq1]               = () => guards.PEq1,
-            [Ax25Guard.FEq1]               = () => guards.FEq1,
-            [Ax25Guard.VsEqVa]           = () => guards.VsEqVa,
-            [Ax25Guard.VsEqVaPlusK]    = () => guards.VsEqVaPlusK,
-            [Ax25Guard.RCEqN2]             = () => guards.RcEqN2,
-            [Ax25Guard.Layer3Initiated]    = () => guards.Layer3Initiated,
-            [Ax25Guard.OwnReceiverBusy]    = () => guards.OwnReceiverBusy,
-            [Ax25Guard.PeerReceiverBusy]   = () => guards.PeerReceiverBusy,
-            [Ax25Guard.RejectException]     = () => guards.RejectException,
-            [Ax25Guard.SREJEnabled]         = () => guards.SrejEnabled,
-            [Ax25Guard.SrejectExceptionGt0]  = () => guards.SrejExceptionGt0,
-            [Ax25Guard.AckPending]  = () => guards.AckPending,
-            [Ax25Guard.VrIFrameStored]   = () => guards.VrIFrameStored,
-            [Ax25Guard.Version22]          = () => guards.Version22,
-            [Ax25Guard.POrFEq1]          = () => guards.POrFEq1,
-            [Ax25Guard.T1Running]           = () => guards.T1Running,
-            [Ax25Guard.Command]              = () => guards.Command,
-            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned]     = () => guards.InfoFieldValid,
-            [Ax25Guard.NsEqVr]           = () => guards.NsEqVr,
-            [Ax25Guard.NsGtVrPlus1]    = () => guards.NsGtVrPlus1,
-            [Ax25Guard.VaLeNrLeVs]    = () => guards.NrInWindow,
-            [Ax25Guard.AbleToEstablish]    = () => guards.AbleToEstablish,
+            [Ax25Guard.PEq1] = () => guards.PEq1,
+            [Ax25Guard.FEq1] = () => guards.FEq1,
+            [Ax25Guard.VsEqVa] = () => guards.VsEqVa,
+            [Ax25Guard.VsEqVaPlusK] = () => guards.VsEqVaPlusK,
+            [Ax25Guard.RCEqN2] = () => guards.RcEqN2,
+            [Ax25Guard.Layer3Initiated] = () => guards.Layer3Initiated,
+            [Ax25Guard.OwnReceiverBusy] = () => guards.OwnReceiverBusy,
+            [Ax25Guard.PeerReceiverBusy] = () => guards.PeerReceiverBusy,
+            [Ax25Guard.RejectException] = () => guards.RejectException,
+            [Ax25Guard.SREJEnabled] = () => guards.SrejEnabled,
+            [Ax25Guard.SrejectExceptionGt0] = () => guards.SrejExceptionGt0,
+            [Ax25Guard.AckPending] = () => guards.AckPending,
+            [Ax25Guard.VrIFrameStored] = () => guards.VrIFrameStored,
+            [Ax25Guard.Version22] = () => guards.Version22,
+            [Ax25Guard.POrFEq1] = () => guards.POrFEq1,
+            [Ax25Guard.T1Running] = () => guards.T1Running,
+            [Ax25Guard.Command] = () => guards.Command,
+            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned] = () => guards.InfoFieldValid,
+            [Ax25Guard.NsEqVr] = () => guards.NsEqVr,
+            [Ax25Guard.NsGtVrPlus1] = () => guards.NsGtVrPlus1,
+            [Ax25Guard.VaLeNrLeVs] = () => guards.NrInWindow,
+            [Ax25Guard.AbleToEstablish] = () => guards.AbleToEstablish,
         };
         var guardEvaluator = new GuardEvaluator(bindings);
         var recorder = new RecordingActionDispatcher();
@@ -124,12 +124,12 @@ public class DataLinkIntegrationTests
             ctx, scheduler, recorder, guardEvaluator,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]         = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
-                ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-                ["Connected"]            = DataLink_Connected.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+                ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
             },
             initialState: initialState);
         return (session, recorder, guards);
@@ -137,8 +137,8 @@ public class DataLinkIntegrationTests
 
     private static Ax25Frame Frame() => Ax25Frame.Ui(
         destination: new Callsign("M0LTE", 0),
-        source:      new Callsign("G7XYZ", 7),
-        info:        "x"u8);
+        source: new Callsign("G7XYZ", 7),
+        info: "x"u8);
 
     // ─── Integration scenarios ────────────────────────────────────────
 

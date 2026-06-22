@@ -46,12 +46,17 @@ internal static class SdlLoopExecutor
         foreach (var loop in ordered)
         {
             if (idx < loop.Start)
+            {
                 dispatcher.Execute(Slice(actions, idx, loop.Start - idx), tx);
+            }
+
             RunLoop(loop, actions, dispatcher, guards, tx);
             idx = loop.Start + loop.Length;
         }
         if (idx < actions.Count)
+        {
             dispatcher.Execute(Slice(actions, idx, actions.Count - idx), tx);
+        }
     }
 
     private static void RunLoop(
@@ -85,17 +90,22 @@ internal static class SdlLoopExecutor
     private static void GuardIterations(ref int iterations, LoopRange loop)
     {
         if (++iterations > MaxLoopIterations)
+        {
             throw new InvalidOperationException(
                 $"SDL loop (predicate '{loop.Predicate}', body [{loop.Start}..{loop.Start + loop.Length})) " +
                 $"exceeded {MaxLoopIterations} iterations without its continue predicate clearing — " +
                 "the loop body is not advancing the state the predicate reads.");
+        }
     }
 
     private static ActionStep[] Slice(IReadOnlyList<ActionStep> actions, int start, int length)
     {
         var slice = new ActionStep[length];
         for (int i = 0; i < length; i++)
+        {
             slice[i] = actions[start + i];
+        }
+
         return slice;
     }
 }

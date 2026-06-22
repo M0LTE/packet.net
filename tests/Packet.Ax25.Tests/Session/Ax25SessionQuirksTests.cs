@@ -26,7 +26,7 @@ public class Ax25SessionQuirksTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTEA", 1),
+            Local = new Callsign("M0LTEA", 1),
             Remote = new Callsign("M0LTEB", 2),
             Quirks = quirks,
         };
@@ -34,7 +34,9 @@ public class Ax25SessionQuirksTests
         ctx.VS = 3;
         ctx.VA = 0;
         for (byte ns = 0; ns < 3; ns++)
+        {
             ctx.SentIFrames[ns] = (new byte[] { ns }, Pid);
+        }
 
         var sentI = new List<Ax25Frame>();
         var subroutines = new DefaultSubroutineRegistry();

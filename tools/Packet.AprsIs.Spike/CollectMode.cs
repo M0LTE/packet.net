@@ -97,7 +97,11 @@ public static class CollectMode
                 Console.Error.WriteLine($"# connection lost ({ex.GetType().Name}: {ex.Message}); reconnect #{_reconnectCount}");
             }
 
-            if (cts.IsCancellationRequested) break;
+            if (cts.IsCancellationRequested)
+            {
+                break;
+            }
+
             Console.Error.WriteLine($"# reconnecting in {backoffMs} ms...");
             try { await Task.Delay(backoffMs, cts.Token); } catch { break; }
             backoffMs = Math.Min(backoffMs * 2, 60_000);

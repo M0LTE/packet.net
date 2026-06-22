@@ -141,7 +141,10 @@ public static class DirewolfMode
         string sql = opts.Reprocess
             ? "SELECT id, raw_line FROM lines ORDER BY id"
             : "SELECT id, raw_line FROM lines WHERE id NOT IN (SELECT line_id FROM direwolf_decoded) ORDER BY id";
-        if (opts.Limit > 0) sql += $" LIMIT {opts.Limit}";
+        if (opts.Limit > 0)
+        {
+            sql += $" LIMIT {opts.Limit}";
+        }
 
         var batch = new List<(long id, string raw)>(opts.BatchSize);
         long total = 0;
@@ -280,7 +283,10 @@ public static class DirewolfMode
     {
         var result = new DirewolfRow();
         var lines = frame.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
-        if (lines.Length == 0) return result;
+        if (lines.Length == 0)
+        {
+            return result;
+        }
 
         // First line is the echoed input. Type label is on the next line that
         // doesn't look like an error/warning and doesn't start with a digit
@@ -310,10 +316,18 @@ public static class DirewolfMode
             {
                 double lat = double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)
                            + double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture) / 60.0;
-                if (m.Groups[1].Value == "S") lat = -lat;
+                if (m.Groups[1].Value == "S")
+                {
+                    lat = -lat;
+                }
+
                 double lon = double.Parse(m.Groups[5].Value, System.Globalization.CultureInfo.InvariantCulture)
                            + double.Parse(m.Groups[6].Value, System.Globalization.CultureInfo.InvariantCulture) / 60.0;
-                if (m.Groups[4].Value == "W") lon = -lon;
+                if (m.Groups[4].Value == "W")
+                {
+                    lon = -lon;
+                }
+
                 result.Latitude = lat;
                 result.Longitude = lon;
                 if (m.Groups[7].Success)

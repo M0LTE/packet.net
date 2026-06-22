@@ -37,7 +37,7 @@ namespace Packet.Ax25.Tests.Session;
 public class DataLinkTimerRecoveryIntegrationTests
 {
     private const int FastT1V = 200;   // ms — tight enough for sub-second tests
-    private const int FastN2  = 3;     // retries before give-up
+    private const int FastN2 = 3;     // retries before give-up
 
     [Fact]
     public void Connected_DataRequest_Enters_TimerRecovery_When_T1_Expires_Under_Loss()
@@ -187,7 +187,10 @@ public class DataLinkTimerRecoveryIntegrationTests
                 rig.B.Session.PostEvent(evt);
                 progress = true;
             }
-            if (!progress) return;
+            if (!progress)
+            {
+                return;
+            }
         }
         throw new InvalidOperationException("link did not settle within 64 round-trips");
     }
@@ -196,8 +199,8 @@ public class DataLinkTimerRecoveryIntegrationTests
     {
         var nodeA = new Callsign("M0LTEA", 1);
         var nodeB = new Callsign("M0LTEB", 2);
-        var time  = new FakeTimeProvider();
-        var link  = new Link();
+        var time = new FakeTimeProvider();
+        var link = new Link();
 
         var a = BuildEndpoint(nodeA, nodeB, time, link, out var aPeer);
         var b = BuildEndpoint(nodeB, nodeA, time, link, out var bPeer);
@@ -226,7 +229,7 @@ public class DataLinkTimerRecoveryIntegrationTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = local,
+            Local = local,
             Remote = remote,
             // T1V is initialised here, but the connect handshake re-derives
             // it as `T1V := 2 * SRT`. Set SRT small so the post-handshake
@@ -234,7 +237,7 @@ public class DataLinkTimerRecoveryIntegrationTests
             // and the test runs slowly or times out).
             Srt = TimeSpan.FromMilliseconds(FastT1V / 2),
             T1V = TimeSpan.FromMilliseconds(FastT1V),
-            N2  = FastN2,
+            N2 = FastN2,
         };
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var inbound = new Queue<Ax25Event>();
@@ -248,24 +251,35 @@ public class DataLinkTimerRecoveryIntegrationTests
         // prior frame in the same chain.
         void SendBytes(ReadOnlyMemory<byte> bytes)
         {
-            if (link.LossActive) return;
-            if (!Ax25Frame.TryParse(bytes.Span, out var parsed)) return;
+            if (link.LossActive)
+            {
+                return;
+            }
+
+            if (!Ax25Frame.TryParse(bytes.Span, out var parsed))
+            {
+                return;
+            }
             // Address filter — drop if not for the peer (e.g. UI broadcast).
             if (peerLocal.TargetLocal is { } expected
-                && !parsed.Destination.Callsign.Equals(expected)) return;
+                && !parsed.Destination.Callsign.Equals(expected))
+            {
+                return;
+            }
+
             peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
         }
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    signals.Enqueue,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines);
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: signals.Enqueue,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines);
 
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
         var guards = new GuardEvaluator(bindings);
@@ -302,12 +316,12 @@ public class DataLinkTimerRecoveryIntegrationTests
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]          = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -315,7 +329,7 @@ public class DataLinkTimerRecoveryIntegrationTests
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 }
 

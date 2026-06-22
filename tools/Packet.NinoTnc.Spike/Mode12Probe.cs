@@ -169,20 +169,32 @@ internal static class Mode12Probe
                 var info = new byte[sz];
                 var prefix = Encoding.ASCII.GetBytes($"SZ{sz}-AB-{i:00}");
                 Array.Copy(prefix, info, Math.Min(prefix.Length, info.Length));
-                for (int j = prefix.Length; j < info.Length; j++) info[j] = (byte)('A' + (j % 26));
+                for (int j = prefix.Length; j < info.Length; j++)
+                {
+                    info[j] = (byte)('A' + (j % 26));
+                }
 
                 var ax25 = Ax25Frame.Ui(new Callsign("BB", 2), new Callsign("AA", 1), info);
-                if (await OneRoundTrip(a, b, ax25, TimeSpan.FromSeconds(15)) >= 0) abOk++;
+                if (await OneRoundTrip(a, b, ax25, TimeSpan.FromSeconds(15)) >= 0)
+                {
+                    abOk++;
+                }
             }
             for (int i = 0; i < N; i++)
             {
                 var info = new byte[sz];
                 var prefix = Encoding.ASCII.GetBytes($"SZ{sz}-BA-{i:00}");
                 Array.Copy(prefix, info, Math.Min(prefix.Length, info.Length));
-                for (int j = prefix.Length; j < info.Length; j++) info[j] = (byte)('A' + (j % 26));
+                for (int j = prefix.Length; j < info.Length; j++)
+                {
+                    info[j] = (byte)('A' + (j % 26));
+                }
 
                 var ax25 = Ax25Frame.Ui(new Callsign("AA", 1), new Callsign("BB", 2), info);
-                if (await OneRoundTrip(b, a, ax25, TimeSpan.FromSeconds(15)) >= 0) baOk++;
+                if (await OneRoundTrip(b, a, ax25, TimeSpan.FromSeconds(15)) >= 0)
+                {
+                    baOk++;
+                }
             }
             await sink.WriteLineAsync($"| {sz} | {abOk}/{N} | {baOk}/{N} |");
         }
@@ -195,8 +207,16 @@ internal static class Mode12Probe
         var sw = Stopwatch.StartNew();
         EventHandler<KissFrame> handler = (_, frame) =>
         {
-            if (frame.Command != KissCommand.Data) return;
-            if (!Ax25Frame.TryParse(frame.Payload, out var parsed)) return;
+            if (frame.Command != KissCommand.Data)
+            {
+                return;
+            }
+
+            if (!Ax25Frame.TryParse(frame.Payload, out var parsed))
+            {
+                return;
+            }
+
             if (parsed.Source.Callsign == ax25.Source.Callsign &&
                 parsed.Destination.Callsign == ax25.Destination.Callsign &&
                 parsed.Info.Span.SequenceEqual(ax25.Info.Span))
@@ -225,7 +245,11 @@ internal static class Mode12Probe
 
     private static double Pct(List<double> xs, double p)
     {
-        if (xs.Count == 0) return double.NaN;
+        if (xs.Count == 0)
+        {
+            return double.NaN;
+        }
+
         var sorted = xs.OrderBy(x => x).ToList();
         int idx = Math.Min(sorted.Count - 1, (int)(sorted.Count * p));
         return sorted[idx];
@@ -233,7 +257,11 @@ internal static class Mode12Probe
 
     private static List<int> Gaps(List<int> indexes)
     {
-        if (indexes.Count < 2) return new();
+        if (indexes.Count < 2)
+        {
+            return new();
+        }
+
         var gaps = new List<int>(indexes.Count - 1);
         for (int i = 1; i < indexes.Count; i++)
         {

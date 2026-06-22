@@ -19,7 +19,7 @@ namespace Packet.Ax25.Tests.Session;
 /// </summary>
 public class FrameAwareBindingsTests
 {
-    private static readonly Callsign Local  = new("M0LTE", 0);
+    private static readonly Callsign Local = new("M0LTE", 0);
     private static readonly Callsign Remote = new("G7XYZ", 7);
 
     private static (IReadOnlyDictionary<Ax25Guard, Func<bool>> bindings,
@@ -158,7 +158,9 @@ public class FrameAwareBindingsTests
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler);
 
         foreach (Ax25Guard atom in Enum.GetValues<Ax25Guard>())
+        {
             bindings.Should().ContainKey(atom);
+        }
 
         // Frame-aware atoms with no trigger wired evaluate to safe defaults.
         bindings[Ax25Guard.PEq1]().Should().BeFalse("no trigger → no poll bit");

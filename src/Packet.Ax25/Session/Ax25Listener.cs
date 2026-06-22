@@ -48,7 +48,7 @@ public sealed class Ax25Listener : IAsyncDisposable
     // U-frame control-octet classification (§4.3.3). The P/F bit (0x10) is masked
     // out so a TEST with P=1 (a command soliciting a response) and P=0 both match.
     private const byte UFrameControlMask = 0xEF;   // mask off the P/F bit
-    private const byte TestControl       = 0xE3;   // TEST, P/F-masked (mirrors AxPinger)
+    private const byte TestControl = 0xE3;   // TEST, P/F-masked (mirrors AxPinger)
 
     private readonly IAx25Transport modem;
 
@@ -441,7 +441,11 @@ public sealed class Ax25Listener : IAsyncDisposable
 
         while (!cts.IsCancellationRequested)
         {
-            if (DrainForConfirm() is { } connected) return connected;
+            if (DrainForConfirm() is { } connected)
+            {
+                return connected;
+            }
+
             try { await Task.Delay(25, cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
         }
@@ -453,7 +457,10 @@ public sealed class Ax25Listener : IAsyncDisposable
         // the last poll window — after the loop's inner drain, as the budget
         // expired and Task.Delay was cancelled — would otherwise be lost to a
         // spurious timeout even though the connect actually succeeded.
-        if (DrainForConfirm() is { } lateConfirm) return lateConfirm;
+        if (DrainForConfirm() is { } lateConfirm)
+        {
+            return lateConfirm;
+        }
 
         throw new TimeoutException(
             $"outbound connect to {remote} timed out after {budget.TotalSeconds:F1}s without DL-CONNECT-confirm.");
@@ -488,7 +495,10 @@ public sealed class Ax25Listener : IAsyncDisposable
         var confirmed = false;
         void OnMdl(object? _, MdlSignal sig)
         {
-            if (sig is MdlNegotiateConfirmSignal) confirmed = true;
+            if (sig is MdlNegotiateConfirmSignal)
+            {
+                confirmed = true;
+            }
         }
         cached.Mdl.MdlSignalEmitted += OnMdl;
         try
@@ -513,7 +523,11 @@ public sealed class Ax25Listener : IAsyncDisposable
 
             while (!linked.IsCancellationRequested)
             {
-                if (!cached.Mdl.IsNegotiating) break;
+                if (!cached.Mdl.IsNegotiating)
+                {
+                    break;
+                }
+
                 try { await Task.Delay(25, linked.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
@@ -643,11 +657,18 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// <summary>Stop the inbound pump without disposing.</summary>
     public async ValueTask StopAsync()
     {
-        if (Interlocked.Exchange(ref running, 0) == 0) return;
+        if (Interlocked.Exchange(ref running, 0) == 0)
+        {
+            return;
+        }
+
         await lifecycleCts.CancelAsync().ConfigureAwait(false);
         try
         {
-            if (pumpTask is { } pump) await pump.ConfigureAwait(false);
+            if (pumpTask is { } pump)
+            {
+                await pump.ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) { /* normal shutdown */ }
     }
@@ -655,7 +676,11 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
         await StopAsync().ConfigureAwait(false);
         lifecycleCts.Dispose();
         lock (cacheGate)
@@ -720,7 +745,10 @@ public sealed class Ax25Listener : IAsyncDisposable
                 // Strict port is deaf to it end-to-end (no session can open
                 // from it, and the monitor/NET-ROM taps don't see it either).
                 var parseOptions = Volatile.Read(ref sessionParameters).ParseOptions ?? Ax25ParseOptions.Lenient;
-                if (!Ax25Frame.TryParse(frame.Ax25.Span, parseOptions, out var parsed)) continue;
+                if (!Ax25Frame.TryParse(frame.Ax25.Span, parseOptions, out var parsed))
+                {
+                    continue;
+                }
 
                 // Each per-frame step is isolated from the next so a
                 // throwing event-handler or a misbehaving session
@@ -1049,10 +1077,21 @@ public sealed class Ax25Listener : IAsyncDisposable
     private static Ax25Frame ReparseAtSessionModulo(
         Ax25Frame routed, ReadOnlyMemory<byte> payload, Ax25SessionContext ctx, Ax25ParseOptions parseOptions)
     {
-        if (!ctx.IsExtended) return routed;               // modulo-8 link: the routing parse was correct
-        if (routed.IsExtendedControl) return routed;      // already 2-octet (defensive; the routing parse is mod-8)
+        if (!ctx.IsExtended)
+        {
+            return routed;               // modulo-8 link: the routing parse was correct
+        }
+
+        if (routed.IsExtendedControl)
+        {
+            return routed;      // already 2-octet (defensive; the routing parse is mod-8)
+        }
+
         bool isUFrame = (routed.Control & 0x03) == 0x03;  // U frames are 1 octet in both modes
-        if (isUFrame) return routed;
+        if (isUFrame)
+        {
+            return routed;
+        }
         // Same options as the routing parse — a frame can't get stricter or
         // looser treatment just because its session negotiated mod-128.
         return Ax25Frame.TryParse(payload.Span, parseOptions, extended: true, out var ext)
@@ -1063,7 +1102,11 @@ public sealed class Ax25Listener : IAsyncDisposable
     private void RaiseSessionAccepted(Ax25Session session)
     {
         var handler = SessionAccepted;
-        if (handler is null) return;
+        if (handler is null)
+        {
+            return;
+        }
+
         SafeInvoke(handler, new Ax25SessionEventArgs { Session = session });
     }
 
@@ -1109,11 +1152,31 @@ public sealed class Ax25Listener : IAsyncDisposable
         // Seed the port's configured session quirks before any SDL transition
         // runs. Like the timing knobs below, this is build-time only — a later
         // reseed never reaches into an existing session's context.
-        if (sp.Quirks is { } quirks) ctx.Quirks = quirks;
-        if (sp.N2 is { } n2)   ctx.N2 = n2;
-        if (sp.K  is { } k)    ctx.K  = k;
-        if (sp.N1 is { } n1)   ctx.N1 = n1;   // PACLEN: seed the offered N1 (XID can still lower it)
-        if (sp.T2  is { } t2)  ctx.T2  = t2;
+        if (sp.Quirks is { } quirks)
+        {
+            ctx.Quirks = quirks;
+        }
+
+        if (sp.N2 is { } n2)
+        {
+            ctx.N2 = n2;
+        }
+
+        if (sp.K is { } k)
+        {
+            ctx.K = k;
+        }
+
+        if (sp.N1 is { } n1)
+        {
+            ctx.N1 = n1;   // PACLEN: seed the offered N1 (XID can still lower it)
+        }
+
+        if (sp.T2 is { } t2)
+        {
+            ctx.T2 = t2;
+        }
+
         if (sp.T1V is { } t1v)
         {
             // Seed BOTH T1V and SRT so the value is coherent before any SDL
@@ -1217,7 +1280,11 @@ public sealed class Ax25Listener : IAsyncDisposable
             if (sig is DataLinkDataIndication dataInd)
             {
                 var reassembled = segmentation.OnDataIndication(dataInd);
-                if (reassembled is null) return;   // mid-series segment — nothing to deliver yet
+                if (reassembled is null)
+                {
+                    return;   // mid-series segment — nothing to deliver yet
+                }
+
                 sig = reassembled;
             }
             signals.Enqueue(sig);
@@ -1233,11 +1300,11 @@ public sealed class Ax25Listener : IAsyncDisposable
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    SendUpward,
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: SendUpward,
             // Grant LM-SEIZE after the §6.7.1.2 acknowledge delay (T2). The
             // listener fronts a KISS modem (TCP / serial / loopback), so the
             // medium is contention-free from the session's point of view —
@@ -1269,9 +1336,13 @@ public sealed class Ax25Listener : IAsyncDisposable
             // (ack-per-frame). Posts are deferred by PostEvent's
             // run-to-completion queue; bounded: the confirm path only emits
             // LM-RELEASE, never a re-seize.
-            sendLinkMux:   signal =>
+            sendLinkMux: signal =>
             {
-                if (signal is not LinkMultiplexerSeizeRequest) return;
+                if (signal is not LinkMultiplexerSeizeRequest)
+                {
+                    return;
+                }
+
                 if (ctx.T2 > TimeSpan.Zero)
                 {
                     // Never re-arm a running delay: the ack must fire T2 after
@@ -1290,8 +1361,8 @@ public sealed class Ax25Listener : IAsyncDisposable
             // after a successful v2.2 connect; hand it to the MDL driver to open
             // the XID exchange. (Other internal signals — push_I_frame_queue — are
             // queue-management that mutate ctx directly; nothing to do here.)
-            sendInternal:  sig => { if (sig is MdlNegotiateRequestSignal) mdl.Negotiate(); },
-            subroutines:   new DefaultSubroutineRegistry())
+            sendInternal: sig => { if (sig is MdlNegotiateRequestSignal) { mdl.Negotiate(); } },
+            subroutines: new DefaultSubroutineRegistry())
         {
             // Per-port timer overrides. InitialSrt seeds the establishment path's
             // `SRT := Initial Default; T1V := 2 * SRT` so a configured T1V actually
@@ -1300,12 +1371,12 @@ public sealed class Ax25Listener : IAsyncDisposable
             // inactive-link timer. The live T2 (the §6.7.1.2 acknowledge delay) is
             // read from ctx.T2 by the sendLinkMux grant above; the dispatcher copies
             // below only guard against an establishment-verb clobber (#292 class).
-            InitialSrt  = sp.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
+            InitialSrt = sp.T1V is { } t1vSeed ? t1vSeed / 2 : ActionDispatcher.DefaultInitialSrt,
             // Seed the establishment path's `N2 := 10` so a configured N2 survives the
             // SABM/SABME connect that would otherwise reset it to the spec default —
             // the same clobber class as InitialSrt above (#292). Without this the
             // listener's (N2+1)·T1V connect backstop is always the 66 s spec maximum.
-            InitialN2   = sp.N2 ?? ActionDispatcher.DefaultInitialN2,
+            InitialN2 = sp.N2 ?? ActionDispatcher.DefaultInitialN2,
             // Seed the establishment-path `T2 := 3000` and (mod-8) `k := 8` link-param
             // verbs from the configured values so they survive a connect that runs
             // Set_Version — the same #292/#300 clobber class. These verbs are inert on
@@ -1313,10 +1384,10 @@ public sealed class Ax25Listener : IAsyncDisposable
             // the BuildSession ctx seeds already survive), but seeding them here keeps
             // every establishment-init verb consistent and forecloses a re-introduced
             // clobber if an upstream SDL revision puts Set_Version back on the path.
-            InitialT2   = sp.T2 ?? ActionDispatcher.DefaultInitialT2,
-            InitialK    = sp.K  ?? ActionDispatcher.DefaultInitialK,
-            T3Duration  = sp.T3 ?? ActionDispatcher.DefaultT3,
-            T2Duration  = sp.T2 ?? ActionDispatcher.DefaultT2,
+            InitialT2 = sp.T2 ?? ActionDispatcher.DefaultInitialT2,
+            InitialK = sp.K ?? ActionDispatcher.DefaultInitialK,
+            T3Duration = sp.T3 ?? ActionDispatcher.DefaultT3,
+            T2Duration = sp.T2 ?? ActionDispatcher.DefaultT2,
         };
 
         var bindings = Ax25SessionBindings.CreateDefault(
@@ -1351,7 +1422,10 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     private void TouchLru(SessionKey key)
     {
-        lock (cacheGate) UpdateLruLocked(key);
+        lock (cacheGate)
+        {
+            UpdateLruLocked(key);
+        }
     }
 
     private void UpdateLruLocked(SessionKey key)
@@ -1382,7 +1456,11 @@ public sealed class Ax25Listener : IAsyncDisposable
     private void TraceFrame(Ax25Frame frame, FrameDirection direction)
     {
         var handler = FrameTraced;
-        if (handler is null) return;
+        if (handler is null)
+        {
+            return;
+        }
+
         var args = new Ax25FrameEventArgs
         {
             Frame = frame,
@@ -1410,12 +1488,12 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     private static readonly Dictionary<string, IReadOnlyList<TransitionSpec>> DefaultTransitionMap = new()
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]            = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     /// <summary>The session-cache key: the (local, remote) callsign pair. Local is MyCall for
@@ -1427,7 +1505,7 @@ public sealed class Ax25Listener : IAsyncDisposable
         Ax25TimerNames.T1 => new T1Expiry(),
         Ax25TimerNames.T2 => new T2Expiry(),
         Ax25TimerNames.T3 => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 }
 

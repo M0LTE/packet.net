@@ -71,7 +71,11 @@ public class Ax25AddressTests
         // broadcast) emit UI frames with an all-space dest or source slot.
         // The receive path accepts this as Callsign with Base="".
         Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
-        for (int i = 0; i < 6; i++) buf[i] = 0x40;   // ' ' << 1
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i] = 0x40;   // ' ' << 1
+        }
+
         buf[6] = 0x60;   // C=0, R=11, SSID=0, E=0
 
         var addr = Ax25Address.Read(buf);
@@ -86,7 +90,11 @@ public class Ax25AddressTests
         Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
         input.Write(buf);
         // All 6 callsign bytes should be the space-shifted padding byte.
-        for (int i = 0; i < 6; i++) buf[i].Should().Be((byte)(' ' << 1));
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i].Should().Be((byte)(' ' << 1));
+        }
+
         Ax25Address.Read(buf).Should().Be(input);
     }
 

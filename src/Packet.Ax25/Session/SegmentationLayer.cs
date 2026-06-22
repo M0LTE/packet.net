@@ -210,7 +210,10 @@ public sealed class SegmentationLayer
             return null;
         }
 
-        if (completed is null) return null;   // mid-series segment — nothing to deliver yet
+        if (completed is null)
+        {
+            return null;   // mid-series segment — nothing to deliver yet
+        }
 
         // With the inner-PID quirk on, the reassembler recovered the original L3
         // PID off the first segment — deliver with it. With the quirk off

@@ -51,17 +51,31 @@ public static class AprsTelemetryDecoder
     {
         ArgumentNullException.ThrowIfNull(options);
         telemetry = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Strip DTI byte.
-        if (info[0] == (byte)'T') info = info[1..];
+        if (info[0] == (byte)'T')
+        {
+            info = info[1..];
+        }
 
         // Require '#' format marker.
-        if (info.IsEmpty || info[0] != (byte)'#') return false;
+        if (info.IsEmpty || info[0] != (byte)'#')
+        {
+            return false;
+        }
+
         info = info[1..];
 
         // Sequence number: 3 characters.
-        if (info.Length < 3) return false;
+        if (info.Length < 3)
+        {
+            return false;
+        }
+
         string sequence = Encoding.ASCII.GetString(info[..3]);
         info = info[3..];
 
@@ -76,7 +90,10 @@ public static class AprsTelemetryDecoder
         // comma-separated.
         var tail = Encoding.ASCII.GetString(info);
         var parts = tail.Split(',');
-        if (parts.Length < AnalogChannelCount + 1) return false;
+        if (parts.Length < AnalogChannelCount + 1)
+        {
+            return false;
+        }
 
         var analogs = new double[AnalogChannelCount];
         for (int i = 0; i < AnalogChannelCount; i++)
@@ -85,8 +102,18 @@ public static class AprsTelemetryDecoder
             if (!options.AllowNonIntegerTelemetry)
             {
                 // Strict §13: each channel is exactly 3 digits, 000–255.
-                if (raw.Length != 3) return false;
-                foreach (var c in raw) if (c < '0' || c > '9') return false;
+                if (raw.Length != 3)
+                {
+                    return false;
+                }
+
+                foreach (var c in raw)
+                {
+                    if (c < '0' || c > '9')
+                    {
+                        return false;
+                    }
+                }
             }
             if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out analogs[i]))
             {
@@ -106,7 +133,11 @@ public static class AprsTelemetryDecoder
         for (int i = 0; i < n; i++)
         {
             char c = bitsText[i];
-            if (c != '0' && c != '1') return false;
+            if (c != '0' && c != '1')
+            {
+                return false;
+            }
+
             bits[i] = c == '1';
         }
 

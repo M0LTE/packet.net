@@ -102,7 +102,11 @@ public static class CollectMode
 
         client.DisconnectedAsync += async e =>
         {
-            if (cts.IsCancellationRequested) return;
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
+
             Interlocked.Increment(ref _reconnectCount);
             Console.Error.WriteLine($"# disconnected ({e.Reason}); reconnect attempt #{_reconnectCount}");
             await Task.CompletedTask;  // actual reconnect loop is below
@@ -143,7 +147,11 @@ public static class CollectMode
                 Console.Error.WriteLine($"# connection error: {ex.GetType().Name}: {ex.Message}");
             }
 
-            if (cts.IsCancellationRequested) break;
+            if (cts.IsCancellationRequested)
+            {
+                break;
+            }
+
             Console.Error.WriteLine($"# reconnecting in {backoffMs} ms...");
             try { await Task.Delay(backoffMs, cts.Token); } catch { break; }
             backoffMs = Math.Min(backoffMs * 2, 60_000);

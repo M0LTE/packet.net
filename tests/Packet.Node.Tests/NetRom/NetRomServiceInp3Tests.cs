@@ -150,8 +150,12 @@ public sealed class NetRomServiceInp3Tests
             Network = new NetRomNetworkHeader { Origin = NbrA, Destination = Me, TimeToLive = 25 },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 1, CircuitId = 1, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.Information, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 1,
+                CircuitId = 1,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.Information,
+                Flags = NetRomTransportFlags.None,
             },
             Payload = new byte[] { 1, 2, 3 },
         };

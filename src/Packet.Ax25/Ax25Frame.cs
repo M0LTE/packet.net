@@ -271,7 +271,7 @@ public sealed partial class Ax25Frame
             throw new ArgumentException($"destination too short (need {bodyLength + 2} bytes, got {destination.Length})", nameof(destination));
         }
         ushort fcs = Crc16Ccitt.Compute(destination[..bodyLength]);
-        destination[bodyLength]     = (byte)(fcs & 0xFF);
+        destination[bodyLength] = (byte)(fcs & 0xFF);
         destination[bodyLength + 1] = (byte)((fcs >> 8) & 0xFF);
         return bodyLength + 2;
     }

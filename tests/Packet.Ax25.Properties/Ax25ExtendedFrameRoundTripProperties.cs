@@ -126,10 +126,10 @@ public class Ax25ExtendedFrameRoundTripProperties
 
         var (build, expected) = (sTypeRaw % 4) switch
         {
-            0 => ((Func<Ax25Frame>)(() => Ax25Frame.Rr(dest, src, nr, isCommand, pollFinal, extended: true)),   typeof(RrReceived)),
-            1 => (() => Ax25Frame.Rnr(dest, src, nr, isCommand, pollFinal, extended: true),                       typeof(RnrReceived)),
-            2 => (() => Ax25Frame.Rej(dest, src, nr, isCommand, pollFinal, extended: true),                       typeof(RejReceived)),
-            _ => (() => Ax25Frame.Srej(dest, src, nr, isCommand, pollFinal, extended: true),                      typeof(SrejReceived)),
+            0 => ((Func<Ax25Frame>)(() => Ax25Frame.Rr(dest, src, nr, isCommand, pollFinal, extended: true)), typeof(RrReceived)),
+            1 => (() => Ax25Frame.Rnr(dest, src, nr, isCommand, pollFinal, extended: true), typeof(RnrReceived)),
+            2 => (() => Ax25Frame.Rej(dest, src, nr, isCommand, pollFinal, extended: true), typeof(RejReceived)),
+            _ => (() => Ax25Frame.Srej(dest, src, nr, isCommand, pollFinal, extended: true), typeof(SrejReceived)),
         };
 
         var original = build();
@@ -160,8 +160,23 @@ public class Ax25ExtendedFrameRoundTripProperties
         bytes ??= [];
         bool okLenient = Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, extended: true, out var a);
         bool okStrict = Ax25Frame.TryParse(bytes, Ax25ParseOptions.Strict, extended: true, out var b);
-        if (okLenient) a.Should().NotBeNull(); else a.Should().BeNull();
-        if (okStrict) b.Should().NotBeNull(); else b.Should().BeNull();
+        if (okLenient)
+        {
+            a.Should().NotBeNull();
+        }
+        else
+        {
+            a.Should().BeNull();
+        }
+
+        if (okStrict)
+        {
+            b.Should().NotBeNull();
+        }
+        else
+        {
+            b.Should().BeNull();
+        }
     }
 
     /// <summary>
@@ -173,7 +188,10 @@ public class Ax25ExtendedFrameRoundTripProperties
     public void Extended_Parsed_Frame_Round_Trips_Through_ToBytes(byte[] bytes)
     {
         bytes ??= [];
-        if (!Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, extended: true, out var first)) return;
+        if (!Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, extended: true, out var first))
+        {
+            return;
+        }
 
         var rewritten = first!.ToBytes();
         Ax25Frame.TryParse(rewritten, Ax25ParseOptions.Lenient, extended: true, out var second)
@@ -229,7 +247,11 @@ public class Ax25ExtendedFrameRoundTripProperties
             .Where(c => (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
             .Take(6)
             .ToArray();
-        if (chars.Length == 0) chars = ['X'];
+        if (chars.Length == 0)
+        {
+            chars = ['X'];
+        }
+
         return new Callsign(new string(chars), (byte)(ssidRaw & 0x0F));
     }
 }

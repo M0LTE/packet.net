@@ -71,7 +71,7 @@ public static class Ax25FrameClassifier
                 0x04 => new RnrReceived(frame),     // 0101
                 0x08 => new RejReceived(frame),     // 1001
                 0x0C => new SrejReceived(frame),    // 1101
-                _    => new ControlFieldError(),    // unreachable given mask 0x03==0x01
+                _ => new ControlFieldError(),    // unreachable given mask 0x03==0x01
             };
         }
 
@@ -98,7 +98,7 @@ public static class Ax25FrameClassifier
             0xAF => new XidReceived(frame),     // XID
             0xE3 => new TestReceived(frame),    // TEST
             0x03 => ClassifyUi(frame),          // UI — special handling
-            _    => new ControlFieldError(),    // unknown U-frame control byte
+            _ => new ControlFieldError(),    // unknown U-frame control byte
         };
     }
 

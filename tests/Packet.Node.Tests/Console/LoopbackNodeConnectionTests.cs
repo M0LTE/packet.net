@@ -19,7 +19,11 @@ public sealed class LoopbackNodeConnectionTests
         for (var i = 0; i < reads; i++)
         {
             var chunk = await c.ReadAsync(CancellationToken.None).ConfigureAwait(true);
-            if (chunk.IsEmpty) break;
+            if (chunk.IsEmpty)
+            {
+                break;
+            }
+
             sb.Append(Encoding.ASCII.GetString(chunk.Span));
         }
         return sb.ToString();

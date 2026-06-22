@@ -27,7 +27,7 @@ namespace Packet.Ax25.Tests.Session;
 public class DataLinkSrejUnderLossTests
 {
     private const int FastT1V = 200;
-    private const int FastN2  = 12;
+    private const int FastN2 = 12;
     private readonly ITestOutputHelper _out;
 
     public DataLinkSrejUnderLossTests(ITestOutputHelper output) => _out = output;
@@ -43,7 +43,7 @@ public class DataLinkSrejUnderLossTests
         rig.Link.Drop = f =>
         {
             bool fromA = f.Source.Callsign.Equals(rig.A.Context.Local);
-            bool isI0  = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 0;
+            bool isI0 = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 0;
             if (fromA && isI0 && drops == 0) { drops++; return true; }
             return false;
         };
@@ -85,10 +85,14 @@ public class DataLinkSrejUnderLossTests
         var phase1 = new[] { true };
         rig.Link.Drop = f =>
         {
-            if (!phase1[0]) return false;
+            if (!phase1[0])
+            {
+                return false;
+            }
+
             bool fromA = f.Source.Callsign.Equals(rig.A.Context.Local);
-            bool toA   = f.Destination.Callsign.Equals(rig.A.Context.Local);
-            bool isI1  = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 1;
+            bool toA = f.Destination.Callsign.Equals(rig.A.Context.Local);
+            bool isI1 = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 1;
             return (fromA && isI1) || toA;
         };
 
@@ -157,7 +161,7 @@ public class DataLinkSrejUnderLossTests
     // de-facto stacks. If a future spec revision resurrects an actionable SREJ
     // command, revisit this together with packethacking/ax25spec#38.
     [Theory]
-    [InlineData(true,  new byte[] { 1 })] // response (F=1): selective retransmit of N(r)=1
+    [InlineData(true, new byte[] { 1 })] // response (F=1): selective retransmit of N(r)=1
     [InlineData(false, new byte[0])]      // command  (P=1): no retransmit (SREJ is response-only)
     public void Srej_command_does_not_retransmit_under_default(bool asResponse, byte[] expectedNs)
     {
@@ -247,14 +251,30 @@ public class DataLinkSrejUnderLossTests
         var droppedOnce = new HashSet<int>();
         rig.Link.Drop = f =>
         {
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Info.Length < 1) return false;
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Info.Length < 1)
+            {
+                return false;
+            }
+
             int idx = f.Info.Span[0];
-            if (idx % 3 == 2 && droppedOnce.Add(idx)) return true;   // drop once, then deliver
+            if (idx % 3 == 2 && droppedOnce.Add(idx))
+            {
+                return true;   // drop once, then deliver
+            }
+
             return false;
         };
 
-        for (int i = 0; i < frames; i++) rig.A.Session.PostEvent(new DlDataRequest(new[] { (byte)i }));
+        for (int i = 0; i < frames; i++)
+        {
+            rig.A.Session.PostEvent(new DlDataRequest(new[] { (byte)i }));
+        }
+
         DrainOnce(rig);   // the first window flows out and is processed
 
         // Paced rounds, the proven rhythm (Srej_under_loss_converges_under_T1_pacing_no_storm):
@@ -263,12 +283,19 @@ public class DataLinkSrejUnderLossTests
         int rounds = 0;
         for (; rounds < maxRounds; rounds++)
         {
-            if (rig.B.Signals.OfType<DataLinkDataIndication>().Count() >= frames) break;
+            if (rig.B.Signals.OfType<DataLinkDataIndication>().Count() >= frames)
+            {
+                break;
+            }
+
             rig.Time.Advance(TimeSpan.FromMilliseconds(FastT1V + 20));   // T1 tick → retransmits
             DrainOnce(rig);
         }
         // Settle the final acks (the channel is clean of pending drops by now).
-        for (int i = 0; i < 64 && (rig.A.Inbound.Count + rig.B.Inbound.Count) > 0; i++) DrainOnce(rig);
+        for (int i = 0; i < 64 && (rig.A.Inbound.Count + rig.B.Inbound.Count) > 0; i++)
+        {
+            DrainOnce(rig);
+        }
 
         rounds.Should().BeLessThan(maxRounds, "the transfer must converge, not run away under loss");
         var delivered = rig.B.Signals.OfType<DataLinkDataIndication>()
@@ -290,10 +317,14 @@ public class DataLinkSrejUnderLossTests
         var phase1 = new[] { true };
         rig.Link.Drop = f =>
         {
-            if (!phase1[0]) return false;
+            if (!phase1[0])
+            {
+                return false;
+            }
+
             bool fromA = f.Source.Callsign.Equals(rig.A.Context.Local);
-            bool toA   = f.Destination.Callsign.Equals(rig.A.Context.Local);
-            bool isI1  = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 1;
+            bool toA = f.Destination.Callsign.Equals(rig.A.Context.Local);
+            bool isI1 = Ax25FrameClassifier.Classify(f) is IFrameReceived && f.GetIFrameNs(8) == 1;
             return (fromA && isI1) || toA;
         };
         for (byte i = 0; i < 4; i++) { rig.A.Session.PostEvent(new DlDataRequest(new[] { i })); Settle(rig); }
@@ -333,8 +364,15 @@ public class DataLinkSrejUnderLossTests
     private static void DrainOnce(Pair rig)
     {
         int an = rig.A.Inbound.Count, bn = rig.B.Inbound.Count;
-        for (int i = 0; i < an && rig.A.Inbound.TryDequeue(out var e); i++) rig.A.Session.PostEvent(e);
-        for (int i = 0; i < bn && rig.B.Inbound.TryDequeue(out var e); i++) rig.B.Session.PostEvent(e);
+        for (int i = 0; i < an && rig.A.Inbound.TryDequeue(out var e); i++)
+        {
+            rig.A.Session.PostEvent(e);
+        }
+
+        for (int i = 0; i < bn && rig.B.Inbound.TryDequeue(out var e); i++)
+        {
+            rig.B.Session.PostEvent(e);
+        }
     }
 
     private void Try(Action a, Pair rig)
@@ -379,7 +417,10 @@ public class DataLinkSrejUnderLossTests
             var progress = false;
             while (rig.A.Inbound.TryDequeue(out var evt)) { rig.A.Session.PostEvent(evt); progress = true; }
             while (rig.B.Inbound.TryDequeue(out var evt)) { rig.B.Session.PostEvent(evt); progress = true; }
-            if (!progress) return;
+            if (!progress)
+            {
+                return;
+            }
         }
         throw new InvalidOperationException("link did not settle within 128 round-trips (storm?)");
     }
@@ -388,12 +429,12 @@ public class DataLinkSrejUnderLossTests
     {
         var nodeA = new Callsign("M0LTEA", 1);
         var nodeB = new Callsign("M0LTEB", 2);
-        var time  = new FakeTimeProvider();
-        var link  = new Link();
+        var time = new FakeTimeProvider();
+        var link = new Link();
         var a = BuildEndpoint(nodeA, nodeB, time, link, out var aPeer);
         var b = BuildEndpoint(nodeB, nodeA, time, link, out var bPeer);
-        aPeer.Target = b.Inbound;  bPeer.Target = a.Inbound;
-        aPeer.RxLog  = b.ReceivedFromPeer;  bPeer.RxLog = a.ReceivedFromPeer;
+        aPeer.Target = b.Inbound; bPeer.Target = a.Inbound;
+        aPeer.RxLog = b.ReceivedFromPeer; bPeer.RxLog = a.ReceivedFromPeer;
         return new Pair(a, b, link, time);
     }
 
@@ -412,10 +453,11 @@ public class DataLinkSrejUnderLossTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local = local, Remote = remote,
+            Local = local,
+            Remote = remote,
             Srt = TimeSpan.FromMilliseconds(FastT1V / 2),
             T1V = TimeSpan.FromMilliseconds(FastT1V),
-            N2  = FastN2,
+            N2 = FastN2,
         };
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var inbound = new Queue<Ax25Event>();
@@ -425,9 +467,21 @@ public class DataLinkSrejUnderLossTests
 
         void SendBytes(ReadOnlyMemory<byte> bytes)
         {
-            if (!Ax25Frame.TryParse(bytes.Span, out var parsed)) return;
-            if (link.Drop?.Invoke(parsed) == true) return;
-            if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected)) return;
+            if (!Ax25Frame.TryParse(bytes.Span, out var parsed))
+            {
+                return;
+            }
+
+            if (link.Drop?.Invoke(parsed) == true)
+            {
+                return;
+            }
+
+            if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected))
+            {
+                return;
+            }
+
             peerLocal.RxLog?.Add(parsed);
             peerLocal.Target?.Enqueue(Ax25FrameClassifier.Classify(parsed));
         }
@@ -468,12 +522,12 @@ public class DataLinkSrejUnderLossTests
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]          = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -481,6 +535,6 @@ public class DataLinkSrejUnderLossTests
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
     };
 }

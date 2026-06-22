@@ -203,7 +203,10 @@ public sealed partial class NodeHostedService : BackgroundService
             await appServices.ReconcileAsync(stoppingToken).ConfigureAwait(false);
         }
 
-        lock (swapGate) appliedConfig = startConfig;
+        lock (swapGate)
+        {
+            appliedConfig = startConfig;
+        }
 
         // Subscribe AFTER the initial bring-up so the first reconcile diffs
         // against the started state, not a phantom empty baseline.
@@ -220,7 +223,10 @@ public sealed partial class NodeHostedService : BackgroundService
             // Stop all beacon timers before tearing the ports down (the timers send via
             // the listeners the supervisor is about to dispose).
             await beacons.DisposeAsync().ConfigureAwait(false);
-            if (telnet is not null) await telnet.DisposeAsync().ConfigureAwait(false);
+            if (telnet is not null)
+            {
+                await telnet.DisposeAsync().ConfigureAwait(false);
+            }
             // Stop supervised app daemons with the node (idempotent dispose; the DI
             // container's later dispose of the singleton is a no-op second call).
             if (appServices is IAsyncDisposable appServicesDisposable)
@@ -231,8 +237,15 @@ public sealed partial class NodeHostedService : BackgroundService
             // interlink AX.25 session (so a neighbour isn't left with a half-open link
             // it polls), and that DISC needs the ports' listeners still alive — the
             // supervisor disposes those, so it must run after.
-            if (netRom is not null) await netRom.DisposeAsync().ConfigureAwait(false);
-            if (supervisor is not null) await supervisor.DisposeAsync().ConfigureAwait(false);
+            if (netRom is not null)
+            {
+                await netRom.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (supervisor is not null)
+            {
+                await supervisor.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 
@@ -278,7 +291,10 @@ public sealed partial class NodeHostedService : BackgroundService
     {
         NodeConfig from;
         var to = config.Current;
-        lock (swapGate) from = appliedConfig;
+        lock (swapGate)
+        {
+            from = appliedConfig;
+        }
 
         var plan = ReconcilePlanner.Plan(from, to);
         if (plan.IsNoOp)
@@ -295,7 +311,11 @@ public sealed partial class NodeHostedService : BackgroundService
             {
                 await appServices.ReconcileAsync(ct).ConfigureAwait(false);
             }
-            lock (swapGate) appliedConfig = to;
+            lock (swapGate)
+            {
+                appliedConfig = to;
+            }
+
             return;
         }
 
@@ -341,7 +361,10 @@ public sealed partial class NodeHostedService : BackgroundService
             await appServices.ReconcileAsync(ct).ConfigureAwait(false);
         }
 
-        lock (swapGate) appliedConfig = to;
+        lock (swapGate)
+        {
+            appliedConfig = to;
+        }
     }
 
     /// <summary>
@@ -505,18 +528,62 @@ public sealed partial class NodeHostedService : BackgroundService
 
     private static string Describe(ReconcilePlan p)
     {
-        if (p.NodeWideReset) return "node-wide reset (callsign changed)";
+        if (p.NodeWideReset)
+        {
+            return "node-wide reset (callsign changed)";
+        }
+
         var parts = new List<string>();
-        if (p.ToBringUp.Count > 0) parts.Add($"+{p.ToBringUp.Count} up");
-        if (p.ToEnable.Count > 0) parts.Add($"+{p.ToEnable.Count} enabled");
-        if (p.ToTearDown.Count > 0) parts.Add($"-{p.ToTearDown.Count} removed");
-        if (p.ToDisable.Count > 0) parts.Add($"-{p.ToDisable.Count} disabled");
-        if (p.ToRestart.Count > 0) parts.Add($"{p.ToRestart.Count} restart");
-        if (p.KissParamsChanged.Count > 0) parts.Add($"{p.KissParamsChanged.Count} kiss-live");
-        if (p.Ax25ParamsChanged.Count > 0) parts.Add($"{p.Ax25ParamsChanged.Count} ax25-live");
-        if (p.CompatChanged.Count > 0) parts.Add($"{p.CompatChanged.Count} compat-live");
-        if (p.TelnetChanged) parts.Add("telnet restart");
-        if (p.ServicesChanged) parts.Add("services swap");
+        if (p.ToBringUp.Count > 0)
+        {
+            parts.Add($"+{p.ToBringUp.Count} up");
+        }
+
+        if (p.ToEnable.Count > 0)
+        {
+            parts.Add($"+{p.ToEnable.Count} enabled");
+        }
+
+        if (p.ToTearDown.Count > 0)
+        {
+            parts.Add($"-{p.ToTearDown.Count} removed");
+        }
+
+        if (p.ToDisable.Count > 0)
+        {
+            parts.Add($"-{p.ToDisable.Count} disabled");
+        }
+
+        if (p.ToRestart.Count > 0)
+        {
+            parts.Add($"{p.ToRestart.Count} restart");
+        }
+
+        if (p.KissParamsChanged.Count > 0)
+        {
+            parts.Add($"{p.KissParamsChanged.Count} kiss-live");
+        }
+
+        if (p.Ax25ParamsChanged.Count > 0)
+        {
+            parts.Add($"{p.Ax25ParamsChanged.Count} ax25-live");
+        }
+
+        if (p.CompatChanged.Count > 0)
+        {
+            parts.Add($"{p.CompatChanged.Count} compat-live");
+        }
+
+        if (p.TelnetChanged)
+        {
+            parts.Add("telnet restart");
+        }
+
+        if (p.ServicesChanged)
+        {
+            parts.Add("services swap");
+        }
+
         return parts.Count == 0 ? "(no-op)" : string.Join(", ", parts);
     }
 

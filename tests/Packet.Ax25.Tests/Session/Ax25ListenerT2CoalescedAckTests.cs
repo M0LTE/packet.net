@@ -30,8 +30,8 @@ namespace Packet.Ax25.Tests.Session;
 public class Ax25ListenerT2CoalescedAckTests
 {
     private static readonly Callsign LocalCall = new("M9YYY", 0);
-    private static readonly Callsign PeerCall  = new("GB7BPQ", 1);
-    private static readonly TimeSpan Budget    = TimeSpan.FromSeconds(2);
+    private static readonly Callsign PeerCall = new("GB7BPQ", 1);
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// The marquee #385 repro: a five-frame burst followed by the peer's

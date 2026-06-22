@@ -50,7 +50,7 @@ public static class ActionDispatcherPropertyHelpers
     public sealed class Rig
     {
         public ActionDispatcher Dispatcher { get; private set; } = null!;
-        public Ax25SessionContext Context  { get; init; } = null!;
+        public Ax25SessionContext Context { get; init; } = null!;
         public SystemTimerScheduler Scheduler { get; init; } = null!;
         public FakeTimeProvider Time { get; init; } = null!;
         public List<string> TimerExpiries { get; } = new();
@@ -73,13 +73,13 @@ public static class ActionDispatcherPropertyHelpers
         {
             Dispatcher = new ActionDispatcher(
                 onTimerExpiry: TimerExpiries.Add,
-                sendSFrame:    SFrames.Add,
-                sendUFrame:    UFrames.Add,
-                sendUiFrame:   UiFrames.Add,
-                sendUpward:    Upward.Add,
-                sendLinkMux:   LinkMux.Add,
-                sendInternal:  Internal.Add,
-                sendIFrame:    IFrames.Add);
+                sendSFrame: SFrames.Add,
+                sendUFrame: UFrames.Add,
+                sendUiFrame: UiFrames.Add,
+                sendUpward: Upward.Add,
+                sendLinkMux: LinkMux.Add,
+                sendInternal: Internal.Add,
+                sendIFrame: IFrames.Add);
         }
     }
 
@@ -94,7 +94,7 @@ public static class ActionDispatcherPropertyHelpers
             Scheduler = scheduler,
             Context = new Ax25SessionContext
             {
-                Local  = new Callsign("M0LTE", 0),
+                Local = new Callsign("M0LTE", 0),
                 Remote = new Callsign("G7XYZ", 7),
             },
         };
@@ -135,8 +135,8 @@ public static class ActionDispatcherPropertyHelpers
     public static Ax25Frame BuildRrFrame(byte nr, bool pollBit)
     {
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (byte)(((nr & 0x07) << 5) | (pollBit ? 0x10 : 0) | 0x01);
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         return frame!;
@@ -148,8 +148,8 @@ public static class ActionDispatcherPropertyHelpers
     public static Ax25Frame BuildIFrame(byte nr, byte ns, bool pollBit, byte[] info, byte pid)
     {
         var bytes = new byte[7 + 7 + 1 + 1 + info.Length];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (byte)(((nr & 0x07) << 5) | (pollBit ? 0x10 : 0) | ((ns & 0x07) << 1));
         bytes[15] = pid;
         info.CopyTo(bytes.AsSpan(16));
@@ -256,7 +256,10 @@ public class FlagMutationProperties
     {
         var verbI = verbIdx % FlagVerbs.Length;
         var obsI = observedIdx % FlagVerbs.Length;
-        if (verbI == obsI) return;  // self-mutation is the explicit contract
+        if (verbI == obsI)
+        {
+            return;  // self-mutation is the explicit contract
+        }
 
         var rig = ActionDispatcherPropertyHelpers.NewRig();
         // Start with every observable flag in a known mixed state.
@@ -266,8 +269,8 @@ public class FlagMutationProperties
             rejException: true, srejException: false,
             vs: 0, vr: 0, va: 0, rc: 0, isExtended: false);
 
-        var (setVerb, _, _)        = FlagVerbs[verbI];
-        var (_, _, readObserved)   = FlagVerbs[obsI];
+        var (setVerb, _, _) = FlagVerbs[verbI];
+        var (_, _, readObserved) = FlagVerbs[obsI];
         var observedBefore = readObserved(rig.Context);
 
         rig.Dispatcher.Execute(setVerb, rig.Context, rig.Scheduler);
@@ -545,7 +548,11 @@ public class PendingFrameAssignmentProperties
         var tx = new TransitionContext(rig.Context, rig.Scheduler, new DlConnectRequest());
 
         // Use F := 1 first so the prior value is non-default.
-        if (prior) rig.Dispatcher.Execute(Ax25ActionVerb.FAssign1, tx);
+        if (prior)
+        {
+            rig.Dispatcher.Execute(Ax25ActionVerb.FAssign1, tx);
+        }
+
         rig.Dispatcher.Execute(Ax25ActionVerb.PAssign0, tx);
 
         tx.Pending.PfBit.Should().BeFalse(
@@ -730,7 +737,11 @@ public class FrameEmissionProperties
         var tx = new TransitionContext(rig.Context, rig.Scheduler,
             new DlUnitDataRequest(info, Pid: pid));
 
-        if (pendingPf) rig.Dispatcher.Execute(Ax25ActionVerb.FAssign1, tx);
+        if (pendingPf)
+        {
+            rig.Dispatcher.Execute(Ax25ActionVerb.FAssign1, tx);
+        }
+
         rig.Dispatcher.Execute(Ax25ActionVerb.UICommand, tx);
 
         rig.UiFrames.Should().ContainSingle();

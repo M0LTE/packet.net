@@ -54,8 +54,15 @@ public sealed class TelnetConsoleIntegrationTests
                 while (!readCts.Token.IsCancellationRequested)
                 {
                     int n = await stream.ReadAsync(buf, readCts.Token);
-                    if (n == 0) break;
-                    lock (received) received.Append(Encoding.UTF8.GetString(buf, 0, n));
+                    if (n == 0)
+                    {
+                        break;
+                    }
+
+                    lock (received)
+                    {
+                        received.Append(Encoding.UTF8.GetString(buf, 0, n));
+                    }
                 }
             }
             catch (OperationCanceledException) { }
@@ -69,7 +76,7 @@ public sealed class TelnetConsoleIntegrationTests
             await stream.FlushAsync();
         }
 
-        bool Saw(string needle) { lock (received) return received.ToString().Contains(needle, StringComparison.Ordinal); }
+        bool Saw(string needle) { lock (received) { return received.ToString().Contains(needle, StringComparison.Ordinal); } }
 
         // Banner on connect.
         await Wait.ForAsync(() => Saw("TELNETNODE"), "telnet banner should arrive");
@@ -114,14 +121,21 @@ public sealed class TelnetConsoleIntegrationTests
                 while (!readCts.Token.IsCancellationRequested)
                 {
                     int n = await stream.ReadAsync(buf, readCts.Token);
-                    if (n == 0) break;
-                    lock (received) received.Append(Encoding.UTF8.GetString(buf, 0, n));
+                    if (n == 0)
+                    {
+                        break;
+                    }
+
+                    lock (received)
+                    {
+                        received.Append(Encoding.UTF8.GetString(buf, 0, n));
+                    }
                 }
             }
             catch (OperationCanceledException) { }
             catch (IOException) { }
         });
-        bool Saw(string needle) { lock (received) return received.ToString().Contains(needle, StringComparison.Ordinal); }
+        bool Saw(string needle) { lock (received) { return received.ToString().Contains(needle, StringComparison.Ordinal); } }
 
         await Wait.ForAsync(() => Saw("TELNETNODE"), "banner");
         await stream.WriteAsync(Encoding.ASCII.GetBytes("WIBBLE\r\n"));
@@ -152,15 +166,22 @@ public sealed class TelnetConsoleIntegrationTests
                 while (!readCts.Token.IsCancellationRequested)
                 {
                     int n = await stream.ReadAsync(buf, readCts.Token);
-                    if (n == 0) break;
-                    lock (raw) raw.AddRange(buf[..n]);
+                    if (n == 0)
+                    {
+                        break;
+                    }
+
+                    lock (raw)
+                    {
+                        raw.AddRange(buf[..n]);
+                    }
                 }
             }
             catch (OperationCanceledException) { }
             catch (IOException) { }
         });
 
-        byte[] Bytes() { lock (raw) return raw.ToArray(); }
+        byte[] Bytes() { lock (raw) { return raw.ToArray(); } }
         string Text() => Encoding.UTF8.GetString(Bytes());
 
         // Telnet option negotiation: IAC WILL ECHO + IAC WILL SUPPRESS-GO-AHEAD.
@@ -192,7 +213,10 @@ public sealed class TelnetConsoleIntegrationTests
             {
                 if (haystack[i + j] != needle[j]) { match = false; break; }
             }
-            if (match) return i;
+            if (match)
+            {
+                return i;
+            }
         }
         return -1;
     }

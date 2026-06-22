@@ -225,7 +225,11 @@ public class NetRomNodesIngestViaNetsim
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(250, cts.Token); }
             catch (OperationCanceledException) { return; }
         }
@@ -338,9 +342,16 @@ public class NetRomNodesIngestViaNetsim
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
-                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal)) break;
+                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -358,10 +369,17 @@ public class NetRomNodesIngestViaNetsim
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
                 // BPQ terminates a command reply with \r\n; stop once we have one.
-                if (sb.ToString().Contains('\n', StringComparison.Ordinal)) break;
+                if (sb.ToString().Contains('\n', StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -376,7 +394,11 @@ public class NetRomNodesIngestViaNetsim
                     sb.Append((char)buf[i]);
                     continue;
                 }
-                if (i + 2 >= n) break;   // partial IAC at the tail — drop
+                if (i + 2 >= n)
+                {
+                    break;   // partial IAC at the tail — drop
+                }
+
                 byte verb = buf[i + 1];
                 byte opt = buf[i + 2];
                 i += 2;

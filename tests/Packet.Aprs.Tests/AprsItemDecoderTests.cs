@@ -9,15 +9,15 @@ public class AprsItemDecoderTests
 
     [Theory]
     [InlineData(")Temp-JHN!4344.50NT00122.50WWSOUSTONS: TEMPERE-SATURE HUMIDITE",
-                "Temp-JHN", true,  43.7417, -1.3750, 'T', 'W')]
+                "Temp-JHN", true, 43.7417, -1.3750, 'T', 'W')]
     [InlineData(")PPV-JHN!4344.00N/00122.50WGRENDEMENT",
-                "PPV-JHN",  true,  43.7333, -1.3750, '/', 'G')]
+                "PPV-JHN", true, 43.7333, -1.3750, '/', 'G')]
     [InlineData(")SP2JP-2!5306.79N/01759.22E`QO-100  Satellite Station",
-                "SP2JP-2",  true,  53.1132, 17.9870, '/', '`')]
+                "SP2JP-2", true, 53.1132, 17.9870, '/', '`')]
     [InlineData(")DB0IDS B!5013.21ND00814.89E&438.412MHz D-STAR",
-                "DB0IDS B", true,  50.2202,  8.2482, 'D', '&')]
+                "DB0IDS B", true, 50.2202, 8.2482, 'D', '&')]
     [InlineData(")HL1RR-DP!0100.00N/00100.00ErRNG0034",
-                "HL1RR-DP", true,   1.0000,  1.0000, '/', 'r')]
+                "HL1RR-DP", true, 1.0000, 1.0000, '/', 'r')]
     public void Decodes_Live_Item_With_Uncompressed_Position(
         string infoText, string expectedName, bool expectedAlive,
         double expectedLat, double expectedLon,
@@ -68,9 +68,9 @@ public class AprsItemDecoderTests
     [Fact]
     public void Strips_DTI_If_Present()
     {
-        var withDti    = System.Text.Encoding.ASCII.GetBytes(")MOBIL!4903.50N/07201.75WA");
+        var withDti = System.Text.Encoding.ASCII.GetBytes(")MOBIL!4903.50N/07201.75WA");
         var withoutDti = System.Text.Encoding.ASCII.GetBytes("MOBIL!4903.50N/07201.75WA");
-        AprsItemDecoder.TryDecode(withDti,    out var a).Should().BeTrue();
+        AprsItemDecoder.TryDecode(withDti, out var a).Should().BeTrue();
         AprsItemDecoder.TryDecode(withoutDti, out var b).Should().BeTrue();
         a.Should().Be(b);
     }

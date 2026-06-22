@@ -294,11 +294,23 @@ public class NodeCommandParserTests
         // whitespace before taking the first token, so the predicate classifies
         // the same line the parser sees (e.g. "\x1cb" trims to "b" = a Bye prefix).
         int start = 0, end = s.Length;
-        while (start < end && (char.IsControl(s[start]) || char.IsWhiteSpace(s[start]))) start++;
-        while (end > start && (char.IsControl(s[end - 1]) || char.IsWhiteSpace(s[end - 1]))) end--;
+        while (start < end && (char.IsControl(s[start]) || char.IsWhiteSpace(s[start])))
+        {
+            start++;
+        }
+
+        while (end > start && (char.IsControl(s[end - 1]) || char.IsWhiteSpace(s[end - 1])))
+        {
+            end--;
+        }
+
         var trimmed = s[start..end];
         int i = 0;
-        while (i < trimmed.Length && !char.IsWhiteSpace(trimmed[i])) i++;
+        while (i < trimmed.Length && !char.IsWhiteSpace(trimmed[i]))
+        {
+            i++;
+        }
+
         return trimmed[..i];
     }
 

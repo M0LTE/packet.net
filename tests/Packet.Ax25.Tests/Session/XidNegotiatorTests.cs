@@ -22,9 +22,9 @@ public class XidNegotiatorTests
 
     [Theory]
     // ours, theirs, expected agreed selective-reject
-    [InlineData(true,  true,  true)]   // both SREJ → SREJ
-    [InlineData(true,  false, false)]  // one REJ   → REJ (lesser)
-    [InlineData(false, true,  false)]  // one REJ   → REJ (lesser)
+    [InlineData(true, true, true)]   // both SREJ → SREJ
+    [InlineData(true, false, false)]  // one REJ   → REJ (lesser)
+    [InlineData(false, true, false)]  // one REJ   → REJ (lesser)
     [InlineData(false, false, false)]  // both REJ  → REJ
     public void Reject_scheme_is_the_lesser_of_the_two_offers(bool oursSrej, bool theirsSrej, bool expectSrej)
     {
@@ -53,9 +53,9 @@ public class XidNegotiatorTests
     }
 
     [Theory]
-    [InlineData(true,  true,  true)]   // both mod-128 → mod-128
-    [InlineData(true,  false, false)]  // one mod-8    → mod-8 (lesser)
-    [InlineData(false, true,  false)]
+    [InlineData(true, true, true)]   // both mod-128 → mod-128
+    [InlineData(true, false, false)]  // one mod-8    → mod-8 (lesser)
+    [InlineData(false, true, false)]
     [InlineData(false, false, false)]
     public void Modulo_is_the_lesser_of_the_two_offers(bool oursMod128, bool theirsMod128, bool expectMod128)
     {

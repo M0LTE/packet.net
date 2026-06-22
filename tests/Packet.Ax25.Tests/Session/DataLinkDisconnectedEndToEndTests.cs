@@ -60,7 +60,7 @@ public class DataLinkDisconnectedEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
 
@@ -82,18 +82,18 @@ public class DataLinkDisconnectedEndToEndTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    sFrames.Add,
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendUpward:    upward.Add,
-            sendLinkMux:   linkMux.Add,
-            sendInternal:  internalSignals.Add,
-            subroutines:   registry);
+            sendSFrame: sFrames.Add,
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendUpward: upward.Add,
+            sendLinkMux: linkMux.Add,
+            sendInternal: internalSignals.Add,
+            subroutines: registry);
 
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.PEq1]            = () => pEq1,
+            [Ax25Guard.PEq1] = () => pEq1,
             [Ax25Guard.AbleToEstablish] = () => ableToEstablish,
         };
         var guards = new GuardEvaluator(bindings);
@@ -102,7 +102,7 @@ public class DataLinkDisconnectedEndToEndTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]       = DataLink_Disconnected.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
                 ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
             },
             initialState: "Disconnected");
@@ -126,8 +126,8 @@ public class DataLinkDisconnectedEndToEndTests
     /// <summary>Stand-in frame for received-frame events that don't read frame fields.</summary>
     private static Ax25Frame Frame() => Ax25Frame.Ui(
         destination: new Callsign("M0LTE", 0),
-        source:      new Callsign("G7XYZ", 7),
-        info:        "x"u8);
+        source: new Callsign("G7XYZ", 7),
+        info: "x"u8);
 
     // ─── figc4.1 transitions, real dispatcher ──────────────────────────
 
@@ -187,9 +187,9 @@ public class DataLinkDisconnectedEndToEndTests
         // command frame the link multiplexer routes to all_other_commands.
         var triggerFrame = Ax25Frame.Ui(
             destination: new Callsign("M0LTE", 0),
-            source:      new Callsign("G7XYZ", 7),
-            info:        "x"u8,
-            pollFinal:   true);
+            source: new Callsign("G7XYZ", 7),
+            info: "x"u8,
+            pollFinal: true);
 
         r.Session.PostEvent(new AllOtherCommands(triggerFrame));
 
@@ -295,8 +295,8 @@ public class DataLinkDisconnectedEndToEndTests
 
         // Build a DISC frame with P=1.
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = 0x53;  // DISC control = 0x43 with P=1 → 0x53
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
 

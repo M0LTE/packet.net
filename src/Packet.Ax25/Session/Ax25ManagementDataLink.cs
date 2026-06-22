@@ -150,8 +150,14 @@ public sealed class Ax25ManagementDataLink
             {
                 // The MDL machine only arms TM201; route its expiry to the
                 // TM201_expiry event. Any other timer name is a wiring bug.
-                if (name == Ax25TimerNames.TM201) selfRef!.PostEvent(new Tm201Expiry());
-                else throw new InvalidOperationException($"MDL driver received unexpected timer expiry '{name}'");
+                if (name == Ax25TimerNames.TM201)
+                {
+                    selfRef!.PostEvent(new Tm201Expiry());
+                }
+                else
+                {
+                    throw new InvalidOperationException($"MDL driver received unexpected timer expiry '{name}'");
+                }
             },
             // The MDL machine emits no supervisory frames; a bare sink satisfies
             // the non-null contract. XID goes out via sendXidCommand instead.

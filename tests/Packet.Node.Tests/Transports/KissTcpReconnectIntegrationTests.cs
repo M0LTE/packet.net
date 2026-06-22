@@ -85,7 +85,10 @@ public sealed class KissTcpReconnectIntegrationTests
             await foreach (var f in modem.ReceiveAsync(cts.Token))
             {
                 got.Add(Encoding.ASCII.GetString(f.Ax25.Span));
-                if (got.Count == 1) break;
+                if (got.Count == 1)
+                {
+                    break;
+                }
             }
         });
 
@@ -147,7 +150,10 @@ public sealed class KissTcpReconnectIntegrationTests
             await foreach (var f in modem.ReceiveAsync(cts.Token))
             {
                 got.Add(Encoding.ASCII.GetString(f.Ax25.Span));
-                if (got.Count == 1) break;
+                if (got.Count == 1)
+                {
+                    break;
+                }
             }
         });
 
@@ -207,7 +213,11 @@ public sealed class KissTcpReconnectIntegrationTests
                 while (true)
                 {
                     var n = await peer.ReadAsync(buf);
-                    if (n == 0) return;
+                    if (n == 0)
+                    {
+                        return;
+                    }
+
                     foreach (var f in peerDecoder.Push(buf.AsSpan(0, n)))
                     {
                         switch (f.Command)

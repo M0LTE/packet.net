@@ -108,7 +108,7 @@ public sealed class SqliteNetRomRoutingStoreTests : IDisposable
     {
         foreach (var p in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
         {
-            try { if (File.Exists(p)) File.Delete(p); } catch { /* best effort */ }
+            try { if (File.Exists(p)) { File.Delete(p); } } catch { /* best effort */ }
         }
     }
 }

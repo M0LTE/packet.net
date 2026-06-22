@@ -35,7 +35,7 @@ namespace Packet.Ax25.Tests.Session.Conformance;
 public sealed class TwoStationHarness
 {
     public const int DefaultT1Ms = 200;
-    public const int DefaultN2   = 12;
+    public const int DefaultN2 = 12;
 
     public Endpoint A { get; }
     public Endpoint B { get; }
@@ -77,20 +77,20 @@ public sealed class TwoStationHarness
         var q = quirks ?? Ax25SessionQuirks.Default;
         var nodeA = new Callsign("M0LTEA", 1);
         var nodeB = new Callsign("M0LTEB", 2);
-        var time  = new FakeTimeProvider();
-        var link  = new Channel();
-        var t1v   = TimeSpan.FromMilliseconds(t1Ms);
+        var time = new FakeTimeProvider();
+        var link = new Channel();
+        var t1v = TimeSpan.FromMilliseconds(t1Ms);
 
         var a = BuildEndpoint(nodeA, nodeB, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferA, segmenter, n1, out var aPeer);
         var b = BuildEndpoint(nodeB, nodeA, time, link, srej, k, t1Ms, n2, t2Ms, extended, q, xidOfferB, segmenter, n1, out var bPeer);
-        aPeer.Target = b.Inbound;          bPeer.Target = a.Inbound;
-        aPeer.RxLog  = b.ReceivedFromPeer; bPeer.RxLog  = a.ReceivedFromPeer;
+        aPeer.Target = b.Inbound; bPeer.Target = a.Inbound;
+        aPeer.RxLog = b.ReceivedFromPeer; bPeer.RxLog = a.ReceivedFromPeer;
         // When A sends, the frame is delivered to B's wiring; route XID/FRMR to
         // B's MDL while it negotiates (and vice-versa). The peer thunk reads the
         // built Endpoint's MDL; MDL deliveries are deferred onto the peer's work
         // queue (drained by the pump).
-        aPeer.Mdl = () => b.Mdl;           bPeer.Mdl = () => a.Mdl;
-        aPeer.MdlWork = b.MdlWork;         bPeer.MdlWork = a.MdlWork;
+        aPeer.Mdl = () => b.Mdl; bPeer.Mdl = () => a.Mdl;
+        aPeer.MdlWork = b.MdlWork; bPeer.MdlWork = a.MdlWork;
         var harness = new TwoStationHarness(a, b, link, time, t1v, TimeSpan.FromMilliseconds(t2Ms));
         a.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
         b.Session.TransitionFired += (_, spec) => harness.fired.Add((spec.From, spec.Id));
@@ -121,17 +121,22 @@ public sealed class TwoStationHarness
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local = local, Remote = remote,
+            Local = local,
+            Remote = remote,
             Srt = TimeSpan.FromMilliseconds(t1Ms / 2),
             T1V = TimeSpan.FromMilliseconds(t1Ms),
-            N2  = n2,
-            K   = k,
+            N2 = n2,
+            K = k,
             SrejEnabled = srej,
-            IsExtended  = extended,
-            Quirks      = quirks,
+            IsExtended = extended,
+            Quirks = quirks,
             SegmenterReassemblerEnabled = segmenter,
         };
-        if (n1 is { } n1Value) ctx.N1 = n1Value;
+        if (n1 is { } n1Value)
+        {
+            ctx.N1 = n1Value;
+        }
+
         var segmentation = new SegmentationLayer(ctx);
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var mdlSignals = new ConcurrentQueue<MdlSignal>();
@@ -146,11 +151,26 @@ public sealed class TwoStationHarness
             // endpoints share `extended`), and an I/S frame only ever flows once
             // both sides agree on the modulo, so the sender's modulo (ctx) equals
             // the receiver's. U frames are 1 octet in both modes regardless.
-            if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsed)) return;
-            if (link.ShouldDrop(parsed)) return;
-            if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected)) return;
+            if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, ctx.IsExtended, out var parsed))
+            {
+                return;
+            }
+
+            if (link.ShouldDrop(parsed))
+            {
+                return;
+            }
+
+            if (peerLocal.TargetLocal is { } expected && !parsed.Destination.Callsign.Equals(expected))
+            {
+                return;
+            }
+
             DeliverToPeer(parsed);
-            if (link.ShouldDuplicate(parsed)) DeliverToPeer(parsed);
+            if (link.ShouldDuplicate(parsed))
+            {
+                DeliverToPeer(parsed);
+            }
 
             void DeliverToPeer(Ax25Frame frame)
             {
@@ -198,10 +218,10 @@ public sealed class TwoStationHarness
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:  spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:  spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:  spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
             // Receive-side segmentation seam — mirrors Ax25Listener.SendUpward:
             // a 0x08-PID DL-DATA indication is fed to the reassembler and only
             // surfaced (as one reassembled indication) when the series completes;
@@ -209,12 +229,16 @@ public sealed class TwoStationHarness
             // bypass the shim. So Endpoint.Delivered shows reassembled payloads,
             // letting the convergence oracle compare one logical submission to one
             // logical delivery.
-            sendUpward:  sig =>
+            sendUpward: sig =>
             {
                 if (sig is DataLinkDataIndication dataInd)
                 {
                     var reassembled = segmentation.OnDataIndication(dataInd);
-                    if (reassembled is null) return;
+                    if (reassembled is null)
+                    {
+                        return;
+                    }
+
                     sig = reassembled;
                 }
                 signals.Enqueue(sig);
@@ -224,8 +248,8 @@ public sealed class TwoStationHarness
             // RR on LM-SEIZE-confirm) actually flushes. Without this the link can
             // only ack via T1 polls — which is why the legacy rigs (all of which
             // stub sendLinkMux) never exercised autonomous delayed-ack.
-            sendLinkMux: signal => { if (signal is LinkMultiplexerSeizeRequest) inbound.Enqueue(new LmSeizeConfirm()); },
-            sendInternal: sig => { if (sig is MdlNegotiateRequestSignal) mdl.Negotiate(); },
+            sendLinkMux: signal => { if (signal is LinkMultiplexerSeizeRequest) { inbound.Enqueue(new LmSeizeConfirm()); } },
+            sendInternal: sig => { if (sig is MdlNegotiateRequestSignal) { mdl.Negotiate(); } },
             subroutines: subroutines)
         {
             // T1 uses ctx.T1V; T2/T3 come from these dispatcher properties.
@@ -255,9 +279,15 @@ public sealed class TwoStationHarness
         initiator.Session.PostEvent(new DlConnectRequest());
         PumpToQuiescence();
         if (A.State != "Connected" || B.State != "Connected")
+        {
             throw new InvariantViolationException($"connect failed: A={A.State} B={B.State}");
+        }
+
         DrainSignals(A); DrainSignals(B);
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Mark <paramref name="e"/> busy (DL-FLOW-OFF) — it sends RNR and
@@ -266,7 +296,10 @@ public sealed class TwoStationHarness
     {
         e.Session.PostEvent(new DlFlowOffRequest());
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Clear <paramref name="e"/>'s busy condition (DL-FLOW-ON) — it
@@ -275,7 +308,10 @@ public sealed class TwoStationHarness
     {
         e.Session.PostEvent(new DlFlowOnRequest());
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Submit one payload at <paramref name="from"/> for its peer;
@@ -285,7 +321,10 @@ public sealed class TwoStationHarness
         from.Submitted.Add(payload);
         from.Session.PostEvent(new DlDataRequest(payload));
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Submit a back-to-back BURST of one-byte payloads at
@@ -305,7 +344,10 @@ public sealed class TwoStationHarness
             from.Session.PostEvent(new DlDataRequest(new[] { b }));
         }
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Submit one (possibly &gt; N1) upper-layer payload through the §6.6
@@ -323,7 +365,10 @@ public sealed class TwoStationHarness
             from.Session.PostEvent(request);
         }
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
 
@@ -333,7 +378,10 @@ public sealed class TwoStationHarness
     {
         from.Session.PostEvent(new DlDisconnectRequest());
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     // ─── Inbound injection (reaching the "as received" paths) ────────────
@@ -349,7 +397,10 @@ public sealed class TwoStationHarness
     {
         target.Inbound.Enqueue(evt);
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Inject raw frame bytes at <paramref name="target"/>'s receiver:
@@ -363,8 +414,11 @@ public sealed class TwoStationHarness
     public void InjectFrameBytes(Endpoint target, ReadOnlyMemory<byte> bytes)
     {
         if (!Ax25Frame.TryParse(bytes.Span, Ax25ParseOptions.Lenient, target.Context.IsExtended, out var parsed))
+        {
             throw new InvalidOperationException(
                 "InjectFrameBytes: the supplied bytes did not parse as an AX.25 frame");
+        }
+
         Inject(target, Ax25FrameClassifier.Classify(parsed));
     }
 
@@ -378,7 +432,10 @@ public sealed class TwoStationHarness
         var t1 = A.Context.T1V > B.Context.T1V ? A.Context.T1V : B.Context.T1V;
         Time.Advance(t1 + TimeSpan.FromMilliseconds(extraMs));
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Directly start an MDL XID negotiation from <paramref name="e"/>
@@ -389,7 +446,10 @@ public sealed class TwoStationHarness
     {
         e.Mdl.Negotiate();
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Advance the clock past one TM201 interval (the MDL management
@@ -404,7 +464,10 @@ public sealed class TwoStationHarness
         var step = (t1 > floor ? t1 : floor) + TimeSpan.FromMilliseconds(extraMs);
         Time.Advance(step);
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Advance just past the delayed-ack timer T2 (but well short of
@@ -415,7 +478,10 @@ public sealed class TwoStationHarness
     {
         Time.Advance(T1V / 2);   // T2 < T1V/2 by construction
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Pump both inbound queues to quiescence (a logical "settle"),
@@ -423,7 +489,10 @@ public sealed class TwoStationHarness
     public void Settle()
     {
         PumpToQuiescence();
-        if (CheckAfterEachStep) CheckInvariants();
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     /// <summary>Process exactly the events already queued on both endpoints —
@@ -433,9 +502,20 @@ public sealed class TwoStationHarness
     public void DrainOnce()
     {
         int an = A.Inbound.Count, bn = B.Inbound.Count;
-        for (int i = 0; i < an && A.Inbound.TryDequeue(out var e); i++) A.Session.PostEvent(e);
-        for (int i = 0; i < bn && B.Inbound.TryDequeue(out var e); i++) B.Session.PostEvent(e);
-        if (CheckAfterEachStep) CheckInvariants();
+        for (int i = 0; i < an && A.Inbound.TryDequeue(out var e); i++)
+        {
+            A.Session.PostEvent(e);
+        }
+
+        for (int i = 0; i < bn && B.Inbound.TryDequeue(out var e); i++)
+        {
+            B.Session.PostEvent(e);
+        }
+
+        if (CheckAfterEachStep)
+        {
+            CheckInvariants();
+        }
     }
 
     // ─── Oracle ─────────────────────────────────────────────────────────
@@ -462,7 +542,10 @@ public sealed class TwoStationHarness
             // command's MDL transition has committed before its reply is handled.
             while (A.MdlWork.TryDequeue(out var work)) { work(); progress = true; }
             while (B.MdlWork.TryDequeue(out var work)) { work(); progress = true; }
-            if (!progress) return;
+            if (!progress)
+            {
+                return;
+            }
         }
         throw new InvariantViolationException("link did not settle within 256 round-trips — possible send/ack livelock");
     }
@@ -474,12 +557,12 @@ public sealed class TwoStationHarness
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]          = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -487,7 +570,7 @@ public sealed class TwoStationHarness
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
     };
 
     // ─── Channel + endpoint types ───────────────────────────────────────

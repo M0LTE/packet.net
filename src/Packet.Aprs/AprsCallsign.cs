@@ -80,7 +80,10 @@ public readonly record struct AprsCallsign
     public static bool TryParse([NotNullWhen(true)] string? text, out AprsCallsign callsign)
     {
         callsign = default;
-        if (string.IsNullOrEmpty(text)) return false;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
 
         string baseStr;
         string ssidStr;
@@ -96,15 +99,29 @@ public readonly record struct AprsCallsign
             ssidStr = string.Empty;
         }
 
-        if (baseStr.Length is < 1 or > 9) return false;
+        if (baseStr.Length is < 1 or > 9)
+        {
+            return false;
+        }
+
         foreach (char c in baseStr)
         {
-            if (!IsValidChar(c)) return false;
+            if (!IsValidChar(c))
+            {
+                return false;
+            }
         }
-        if (ssidStr.Length > 3) return false;
+        if (ssidStr.Length > 3)
+        {
+            return false;
+        }
+
         foreach (char c in ssidStr)
         {
-            if (!IsValidChar(c)) return false;
+            if (!IsValidChar(c))
+            {
+                return false;
+            }
         }
 
         callsign = new AprsCallsign(baseStr, ssidStr);
@@ -155,10 +172,17 @@ public readonly record struct AprsCallsign
             if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
             {
                 sb.Append(c);
-                if (sb.Length == 6) break;
+                if (sb.Length == 6)
+                {
+                    break;
+                }
             }
         }
-        if (sb.Length == 0) sb.Append('X');
+        if (sb.Length == 0)
+        {
+            sb.Append('X');
+        }
+
         string coercedBase = sb.ToString();
 
         // Coerce SSID:

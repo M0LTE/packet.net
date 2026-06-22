@@ -63,12 +63,12 @@ namespace Packet.Interop.Tests.Rax25;
 [Collection(NetsimCollection.Name)]
 public class Rax25ViaNetsimConnectedMode
 {
-    private const string Host             = "127.0.0.1";
-    private const int    OurKissPort      = 8100;
-    private static readonly Callsign OurCall   = new("PNTEST", 0);
+    private const string Host = "127.0.0.1";
+    private const int OurKissPort = 8100;
+    private static readonly Callsign OurCall = new("PNTEST", 0);
     private static readonly Callsign Rax25Call = new("PN0RAX", 1);
 
-    private static readonly TimeSpan ConnectBudget    = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ConnectBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectBudget = TimeSpan.FromSeconds(30);
 
     // net-sim's afsk1200 channel is a shared half-duplex medium with
@@ -143,14 +143,14 @@ public class Rax25ViaNetsimConnectedMode
         var subroutines = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    signals.Enqueue,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines)
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: signals.Enqueue,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines)
         {
             // Faster RR-ack turnaround on the shared half-duplex channel —
             // see AckTimer remarks. T1/T3 keep spec defaults.
@@ -178,13 +178,23 @@ public class Rax25ViaNetsimConnectedMode
 
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
 
                 // net-sim's afsk1200 channel is broadcast — every node
                 // on the channel hears every TX. Filter to frames
                 // addressed to our local callsign.
-                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local)) continue;
+                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local))
+                {
+                    continue;
+                }
 
                 rig.Session.PostEvent(Ax25FrameClassifier.Classify(parsed));
             }
@@ -195,12 +205,12 @@ public class Rax25ViaNetsimConnectedMode
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]            = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -208,7 +218,7 @@ public class Rax25ViaNetsimConnectedMode
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 
     private static async Task<T?> WaitForSignal<T>(
@@ -224,7 +234,10 @@ public class Rax25ViaNetsimConnectedMode
             ThrowIfAnyFaulted(backgroundTasks);
             while (signals.TryDequeue(out var sig))
             {
-                if (sig is T match) return match;
+                if (sig is T match)
+                {
+                    return match;
+                }
             }
             try { await Task.Delay(50, cts.Token); }
             catch (OperationCanceledException) { return null; }

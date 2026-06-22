@@ -26,7 +26,7 @@ public sealed class LobbyAppIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        try { if (daemon is { HasExited: false }) daemon.Kill(entireProcessTree: true); } catch { }
+        try { if (daemon is { HasExited: false }) { daemon.Kill(entireProcessTree: true); } } catch { }
         try { daemon?.Dispose(); } catch { }
         try { File.Delete(socketPath); } catch { }
     }

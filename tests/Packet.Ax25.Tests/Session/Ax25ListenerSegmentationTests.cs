@@ -17,7 +17,7 @@ namespace Packet.Ax25.Tests.Session;
 public class Ax25ListenerSegmentationTests
 {
     private static readonly Callsign LocalCall = new("M0LTE", 0);
-    private static readonly Callsign PeerCall  = new("G7XYZ", 7);
+    private static readonly Callsign PeerCall = new("G7XYZ", 7);
 
     /// <summary>Accept an inbound SABM and return the Connected session, with the
     /// session's context customised via <paramref name="configure"/> before any
@@ -236,7 +236,10 @@ public class Ax25ListenerSegmentationTests
                 configure(s.Context);
                 s.DataLinkSignalEmitted += (_, sig) =>
                 {
-                    if (sig is DataLinkDataIndication d) delivered.Enqueue(d);
+                    if (sig is DataLinkDataIndication d)
+                    {
+                        delivered.Enqueue(d);
+                    }
                 };
             },
         });

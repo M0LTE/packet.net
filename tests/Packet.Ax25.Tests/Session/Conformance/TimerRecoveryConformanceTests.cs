@@ -33,7 +33,11 @@ public class TimerRecoveryConformanceTests
         var h = TwoStationHarness.Build(k: 4);
         h.Connect();
         h.Link.Drop = f => f.Source.Callsign.Equals(h.A.Context.Local) && (f.Control & 0x01) == 0;
-        for (byte i = 0; i < outstanding; i++) h.Submit(h.A, i);
+        for (byte i = 0; i < outstanding; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
         h.AdvanceT1();
         h.A.State.Should().Be("TimerRecovery", "a dropped I-frame's T1 must expire A into TimerRecovery");
         h.A.Context.VS.Should().Be(outstanding);
@@ -73,7 +77,11 @@ public class TimerRecoveryConformanceTests
 
         // Complete the poll/final cycle (T1 → RR(P=1) → RR(F=1)): A confirms
         // everything is acked and returns to Connected.
-        for (int r = 0; r < 8 && h.A.State != "Connected"; r++) h.AdvanceT1();
+        for (int r = 0; r < 8 && h.A.State != "Connected"; r++)
+        {
+            h.AdvanceT1();
+        }
+
         h.A.State.Should().Be("Connected", "the poll/final cycle completes recovery back to Connected");
         h.AssertConverged();
     }

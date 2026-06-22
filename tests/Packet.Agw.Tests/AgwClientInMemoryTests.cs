@@ -144,7 +144,11 @@ public class AgwClientInMemoryTests
         while (totalRead < 23) // banner + prompt
         {
             int n = await session.ReadAsync(buffer.AsMemory(totalRead), readCts.Token);
-            if (n == 0) break;
+            if (n == 0)
+            {
+                break;
+            }
+
             totalRead += n;
         }
         await serverTask;

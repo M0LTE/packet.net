@@ -55,16 +55,35 @@ public class SegmentationIntegrationConformanceTests
         var dropped = false;
         h.Link.Drop = f =>
         {
-            if (dropped) return false;
-            if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Ns != 2) return false;            // mode-aware 7-bit N(S)
+            if (dropped)
+            {
+                return false;
+            }
+
+            if (!f.Source.Callsign.Equals(h.A.Context.Local))
+            {
+                return false;
+            }
+
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Ns != 2)
+            {
+                return false;            // mode-aware 7-bit N(S)
+            }
+
             dropped = true;
             return true;
         };
 
         h.SubmitLarge(h.A, payload);
-        for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++) h.AdvanceT1();
+        for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++)
+        {
+            h.AdvanceT1();
+        }
 
         dropped.Should().BeTrue("the scenario must actually have dropped a segment for the test to mean anything");
         h.A.ReceivedFromPeer.Any(f => Ax25FrameClassifier.Classify(f) is SrejReceived).Should().BeTrue(
@@ -89,16 +108,35 @@ public class SegmentationIntegrationConformanceTests
         var dropped = false;
         h.Link.Drop = f =>
         {
-            if (dropped) return false;
-            if (!f.Source.Callsign.Equals(h.A.Context.Local)) return false;
-            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
-            if (f.Ns != 1) return false;
+            if (dropped)
+            {
+                return false;
+            }
+
+            if (!f.Source.Callsign.Equals(h.A.Context.Local))
+            {
+                return false;
+            }
+
+            if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+            {
+                return false;
+            }
+
+            if (f.Ns != 1)
+            {
+                return false;
+            }
+
             dropped = true;
             return true;
         };
 
         h.SubmitLarge(h.A, payload);
-        for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++) h.AdvanceT1();
+        for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++)
+        {
+            h.AdvanceT1();
+        }
 
         dropped.Should().BeTrue();
         h.B.Delivered.Should().ContainSingle();

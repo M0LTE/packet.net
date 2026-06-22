@@ -35,7 +35,7 @@ public class DataLinkAwaitingConnectionEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
 
@@ -56,21 +56,21 @@ public class DataLinkAwaitingConnectionEndToEndTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    sFrames.Add,
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendUpward:    upward.Add,
-            sendLinkMux:   linkMux.Add,
-            sendInternal:  internalSignals.Add,
-            subroutines:   registry);
+            sendSFrame: sFrames.Add,
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendUpward: upward.Add,
+            sendLinkMux: linkMux.Add,
+            sendInternal: internalSignals.Add,
+            subroutines: registry);
 
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.FEq1]            = () => fEq1,
-            [Ax25Guard.PEq1]            = () => pEq1,
-            [Ax25Guard.VsEqVa]        = () => vsEqVa,
-            [Ax25Guard.RCEqN2]          = () => rcEqN2,
+            [Ax25Guard.FEq1] = () => fEq1,
+            [Ax25Guard.PEq1] = () => pEq1,
+            [Ax25Guard.VsEqVa] = () => vsEqVa,
+            [Ax25Guard.RCEqN2] = () => rcEqN2,
             // `layer_3_initiated` and several others are bound via the default
             // table to the ctx flag — but the figc4.2 decisions intentionally
             // distinguish "the layer_3_initiated branch of UA decision" vs
@@ -92,9 +92,9 @@ public class DataLinkAwaitingConnectionEndToEndTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]       = DataLink_Disconnected.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
                 ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
-                ["Connected"]          = DataLink_Connected.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
             },
             initialState: "AwaitingConnection");
 
@@ -104,8 +104,8 @@ public class DataLinkAwaitingConnectionEndToEndTests
     private static Ax25Frame DiscFrame(bool pollBit)
     {
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (byte)(0x43 | (pollBit ? 0x10 : 0));  // DISC = 0x43, P bit = 0x10
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         return frame!;
@@ -114,8 +114,8 @@ public class DataLinkAwaitingConnectionEndToEndTests
     private static Ax25Frame DmOrUaFrame(byte control)
     {
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = control;
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         return frame!;

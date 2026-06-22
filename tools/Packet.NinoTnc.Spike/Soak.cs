@@ -380,9 +380,20 @@ internal static class Soak
 
                 var aOk = await aGotBTcs.Task.WaitAsync(TimeSpan.FromSeconds(15)).ContinueWith(_ => aGotBTcs.Task.IsCompletedSuccessfully);
                 var bOk = await bGotATcs.Task.WaitAsync(TimeSpan.FromSeconds(15)).ContinueWith(_ => bGotATcs.Task.IsCompletedSuccessfully);
-                if (aOk) aGotB++;
-                if (bOk) bGotA++;
-                if (aOk && bOk) both++;
+                if (aOk)
+                {
+                    aGotB++;
+                }
+
+                if (bOk)
+                {
+                    bGotA++;
+                }
+
+                if (aOk && bOk)
+                {
+                    both++;
+                }
             }
             finally
             {
@@ -609,16 +620,34 @@ internal static class Soak
             for (int j = 0; j < len; j++)
             {
                 int dice = rng.Next(100);
-                if (dice < 15) payload[j] = 0xC0;
-                else if (dice < 30) payload[j] = 0xDB;
-                else if (dice < 45) payload[j] = 0xDC;
-                else if (dice < 60) payload[j] = 0xDD;
-                else payload[j] = (byte)rng.Next(256);
+                if (dice < 15)
+                {
+                    payload[j] = 0xC0;
+                }
+                else if (dice < 30)
+                {
+                    payload[j] = 0xDB;
+                }
+                else if (dice < 45)
+                {
+                    payload[j] = 0xDC;
+                }
+                else if (dice < 60)
+                {
+                    payload[j] = 0xDD;
+                }
+                else
+                {
+                    payload[j] = (byte)rng.Next(256);
+                }
             }
             var ax25 = Ax25Frame.Ui(new Callsign("TEST", 2), new Callsign("M0LTE", 1), payload);
             var ms = await OneRoundTrip(a, b, ax25, TimeSpan.FromSeconds(6));
             Console.WriteLine($"  binary {i + 1}/{N} len={len} → {(ms >= 0 ? "ok" : "FAIL")}");
-            if (ms >= 0) success++;
+            if (ms >= 0)
+            {
+                success++;
+            }
         }
         await sink.WriteLineAsync($"- frames: {N}");
         await sink.WriteLineAsync($"- escape-heavy success: {success}/{N} ({100.0 * success / N:F1}%)");
@@ -695,8 +724,16 @@ internal static class Soak
         var sw = Stopwatch.StartNew();
         EventHandler<KissFrame> handler = (_, frame) =>
         {
-            if (frame.Command != KissCommand.Data) return;
-            if (!Ax25Frame.TryParse(frame.Payload, out var parsed)) return;
+            if (frame.Command != KissCommand.Data)
+            {
+                return;
+            }
+
+            if (!Ax25Frame.TryParse(frame.Payload, out var parsed))
+            {
+                return;
+            }
+
             if (parsed.Source.Callsign == ax25.Source.Callsign &&
                 parsed.Destination.Callsign == ax25.Destination.Callsign &&
                 parsed.Info.Span.SequenceEqual(ax25.Info.Span))

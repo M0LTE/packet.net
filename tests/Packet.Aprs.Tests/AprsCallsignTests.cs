@@ -5,13 +5,13 @@ namespace Packet.Aprs.Tests;
 public class AprsCallsignTests
 {
     [Theory]
-    [InlineData("M0LTE",     "M0LTE", "")]
-    [InlineData("M0LTE-7",   "M0LTE", "7")]
-    [InlineData("M0LTE-15",  "M0LTE", "15")]
-    [InlineData("K0MVH-D",   "K0MVH", "D")]        // D-Star port — strict Callsign rejects
-    [InlineData("ZS6ATZ-D",  "ZS6ATZ", "D")]
-    [InlineData("SM6JWU-B",  "SM6JWU", "B")]
-    [InlineData("W2TXB-B",   "W2TXB", "B")]
+    [InlineData("M0LTE", "M0LTE", "")]
+    [InlineData("M0LTE-7", "M0LTE", "7")]
+    [InlineData("M0LTE-15", "M0LTE", "15")]
+    [InlineData("K0MVH-D", "K0MVH", "D")]        // D-Star port — strict Callsign rejects
+    [InlineData("ZS6ATZ-D", "ZS6ATZ", "D")]
+    [InlineData("SM6JWU-B", "SM6JWU", "B")]
+    [InlineData("W2TXB-B", "W2TXB", "B")]
     [InlineData("aprsdroid", "aprsdroid", "")]      // lowercase base — strict rejects
     [InlineData("LONGCALLNAM", "LONGCALLNAM", "")]  // 11 chars — too long (max 9)
     public void TryParse_Accepts_Or_Rejects_As_Expected(string input, string expectedBase, string expectedSsid)

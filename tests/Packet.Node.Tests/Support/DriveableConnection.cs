@@ -24,7 +24,7 @@ public sealed class DriveableConnection(string peerId, NodeTransportKind kind) :
     public Task Completion => completion.Task;
 
     /// <summary>Everything written back to the user so far, decoded as UTF-8.</summary>
-    public string Output { get { lock (gate) return output.ToString(); } }
+    public string Output { get { lock (gate) { return output.ToString(); } } }
 
     /// <summary>Push bytes as if the user typed them (callers usually include the line CR).</summary>
     public void Inject(string text) => inbound.Writer.TryWrite(Encoding.UTF8.GetBytes(text));
@@ -55,7 +55,11 @@ public sealed class DriveableConnection(string peerId, NodeTransportKind kind) :
 
     public ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
     {
-        lock (gate) output.Append(Encoding.UTF8.GetString(bytes.Span));
+        lock (gate)
+        {
+            output.Append(Encoding.UTF8.GetString(bytes.Span));
+        }
+
         return ValueTask.CompletedTask;
     }
 

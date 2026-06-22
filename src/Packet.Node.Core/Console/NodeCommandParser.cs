@@ -314,7 +314,10 @@ public static class NodeCommandParser
     {
         for (int i = 0; i < s.Length; i++)
         {
-            if (char.IsWhiteSpace(s[i])) return i;
+            if (char.IsWhiteSpace(s[i]))
+            {
+                return i;
+            }
         }
         return -1;
     }
@@ -326,8 +329,16 @@ public static class NodeCommandParser
     {
         int start = 0;
         int end = s.Length;
-        while (start < end && IsTrimmable(s[start])) start++;
-        while (end > start && IsTrimmable(s[end - 1])) end--;
+        while (start < end && IsTrimmable(s[start]))
+        {
+            start++;
+        }
+
+        while (end > start && IsTrimmable(s[end - 1]))
+        {
+            end--;
+        }
+
         return s[start..end];
     }
 

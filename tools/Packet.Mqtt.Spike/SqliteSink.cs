@@ -73,7 +73,11 @@ public sealed class SqliteSink : IAsyncDisposable
     /// <summary>Update the current run's running message count + last-seen timestamp.</summary>
     public async Task HeartbeatAsync(CancellationToken ct)
     {
-        if (_conn is null) return;
+        if (_conn is null)
+        {
+            return;
+        }
+
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
             "UPDATE run_meta SET ended_at_us = $now, message_count = $n WHERE run_id = $id";

@@ -71,9 +71,9 @@ namespace Packet.Interop.Tests.Hardware;
 [Collection(HardwareLoopCollection.Name)]
 public class HardwareLoop10KBTransfer
 {
-    private const int    PayloadBytes      = 10_240;
-    private const int    SegmentSize       = 256;
-    private const int    SegmentCount      = PayloadBytes / SegmentSize;  // 40
+    private const int PayloadBytes = 10_240;
+    private const int SegmentSize = 256;
+    private const int SegmentCount = PayloadBytes / SegmentSize;  // 40
 
     // ─── Theories ──────────────────────────────────────────────────────
 
@@ -146,10 +146,10 @@ public class HardwareLoop10KBTransfer
     private static async Task RunTransferAsync(byte modeId, byte txDelayTenMsUnits, double lossProbability, bool srejEnabled)
     {
         var ports = SelectTwoPorts();
-        var mode  = NinoTncCatalog.ByMode[modeId];
-        var transferBudget  = ComputeTransferBudget(mode, lossProbability);
+        var mode = NinoTncCatalog.ByMode[modeId];
+        var transferBudget = ComputeTransferBudget(mode, lossProbability);
         var handshakeBudget = ComputeHandshakeBudget(lossProbability);
-        var totalBudget     = handshakeBudget + transferBudget + handshakeBudget + TimeSpan.FromSeconds(20);
+        var totalBudget = handshakeBudget + transferBudget + handshakeBudget + TimeSpan.FromSeconds(20);
 
         using var cts = new CancellationTokenSource(totalBudget);
 
@@ -213,7 +213,11 @@ public class HardwareLoop10KBTransfer
         var allBytesReceived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         rigB.Session.DataLinkSignalEmitted += (_, sig) =>
         {
-            if (sig is not DataLinkDataIndication ind) return;
+            if (sig is not DataLinkDataIndication ind)
+            {
+                return;
+            }
+
             lock (receivedSegments)
             {
                 receivedSegments.Add(ind.Info.ToArray());
@@ -304,7 +308,7 @@ public class HardwareLoop10KBTransfer
         bool srejEnabled)
     {
         var scheduler = new SystemTimerScheduler(TimeProvider.System);
-        var ctx       = new Ax25SessionContext
+        var ctx = new Ax25SessionContext
         {
             Local = local,
             Remote = remote,
@@ -326,7 +330,7 @@ public class HardwareLoop10KBTransfer
             // on a lost head, which is what lets it survive heavier loss.
             SrejEnabled = srejEnabled,
         };
-        var signals   = new ConcurrentQueue<DataLinkSignal>();
+        var signals = new ConcurrentQueue<DataLinkSignal>();
 
         // Track the most-recent N(s) observed in outbound I-frames so
         // we can flag actual retransmits (same N(s) within a half-
@@ -366,18 +370,18 @@ public class HardwareLoop10KBTransfer
         var subroutines = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => SafePost(sessionRef!, ToTimerEvent(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    sig =>
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: sig =>
             {
                 signals.Enqueue(sig);
                 sessionRef?.RaiseDataLinkSignal(sig);
             },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines)
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines)
         {
             // Fast ack delay: a 256-byte I-frame at 9600 baud rides the
             // wire in ~225 ms; default T2 = 1500 ms is way too long
@@ -394,8 +398,8 @@ public class HardwareLoop10KBTransfer
         };
 
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
-        var guards   = new GuardEvaluator(bindings);
-        var session  = new Ax25Session(ctx, scheduler, dispatcher, guards,
+        var guards = new GuardEvaluator(bindings);
+        var session = new Ax25Session(ctx, scheduler, dispatcher, guards,
             transitionsByState: TransitionMap(),
             initialState: "Disconnected");
         sessionRef = session;
@@ -415,7 +419,10 @@ public class HardwareLoop10KBTransfer
     /// </summary>
     private static void SafePost(Rig rig, Ax25Event evt)
     {
-        lock (rig.PostGate) rig.Session.PostEvent(evt);
+        lock (rig.PostGate)
+        {
+            rig.Session.PostEvent(evt);
+        }
     }
 
     /// <summary>
@@ -430,7 +437,10 @@ public class HardwareLoop10KBTransfer
         // a single per-rig lock would be cleaner; this fallback path
         // is rare (only fires on timer expiry) and serialises against
         // itself, which is sufficient.
-        lock (session) session.PostEvent(evt);
+        lock (session)
+        {
+            session.PostEvent(evt);
+        }
     }
 
     private static Ax25Event ToTimerEvent(string name) => name switch
@@ -438,14 +448,21 @@ public class HardwareLoop10KBTransfer
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 
     private static void PumpInbound(KissInboundEvent evt, Rig rig, string label, ConcurrentQueue<TraceEntry> trace)
     {
-        if (evt is not Ax25FrameReceivedEvent ax25) return;
+        if (evt is not Ax25FrameReceivedEvent ax25)
+        {
+            return;
+        }
+
         var frame = ax25.Ax25;
-        if (!frame.Destination.Callsign.Equals(rig.Session.Context.Local)) return;
+        if (!frame.Destination.Callsign.Equals(rig.Session.Context.Local))
+        {
+            return;
+        }
 
         trace.Enqueue(new TraceEntry(DateTimeOffset.UtcNow, label, "RX", ClassifyForTrace(frame), frame.Control));
         SafePost(rig, Ax25FrameClassifier.Classify(frame));
@@ -462,7 +479,10 @@ public class HardwareLoop10KBTransfer
         {
             while (signals.TryDequeue(out var sig))
             {
-                if (sig is T match) return match;
+                if (sig is T match)
+                {
+                    return match;
+                }
             }
             try { await Task.Delay(25, cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { return null; }
@@ -476,7 +496,11 @@ public class HardwareLoop10KBTransfer
         cts.CancelAfter(budget);
         while (!cts.IsCancellationRequested)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             try { await Task.Delay(25, cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
         }
@@ -494,7 +518,11 @@ public class HardwareLoop10KBTransfer
     private static TimeSpan ComputeHandshakeBudget(double lossProbability)
     {
         double baseSeconds = 30.0;
-        if (lossProbability <= 0.0) return TimeSpan.FromSeconds(baseSeconds);
+        if (lossProbability <= 0.0)
+        {
+            return TimeSpan.FromSeconds(baseSeconds);
+        }
+
         double recovery = lossProbability / (1.0 - lossProbability) * 120.0;
         return TimeSpan.FromSeconds(baseSeconds + recovery);
     }
@@ -645,12 +673,12 @@ public class HardwareLoop10KBTransfer
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]          = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     // ─── Trace ────────────────────────────────────────────────────────
@@ -668,7 +696,11 @@ public class HardwareLoop10KBTransfer
     private static TraceKind ClassifyForTrace(Ax25Frame frame)
     {
         byte ctrl = frame.Control;
-        if ((ctrl & 0x01) == 0) return TraceKind.IFrame;
+        if ((ctrl & 0x01) == 0)
+        {
+            return TraceKind.IFrame;
+        }
+
         if ((ctrl & 0x03) == 0x01)
         {
             return (ctrl & 0x0C) switch
@@ -677,7 +709,7 @@ public class HardwareLoop10KBTransfer
                 0x04 => TraceKind.Rnr,
                 0x08 => TraceKind.Rej,
                 0x0C => TraceKind.Srej,
-                _    => TraceKind.Other,
+                _ => TraceKind.Other,
             };
         }
         byte uBase = (byte)(ctrl & 0xEF);
@@ -692,7 +724,7 @@ public class HardwareLoop10KBTransfer
             0xAF => TraceKind.Xid,
             0xE3 => TraceKind.Test,
             0x03 => TraceKind.Ui,
-            _    => TraceKind.Other,
+            _ => TraceKind.Other,
         };
     }
 

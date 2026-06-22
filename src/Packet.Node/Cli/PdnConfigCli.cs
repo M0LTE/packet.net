@@ -163,14 +163,22 @@ public static class PdnConfigCli
     private static string ResolveDbPath(string[] args)
     {
         var v = ArgValue(args, "--db");
-        if (v is { Length: > 0 }) return v;
+        if (v is { Length: > 0 })
+        {
+            return v;
+        }
+
         return Env("PACKETNET_DB") ?? Path.Combine(Directory.GetCurrentDirectory(), "pdn.db");
     }
 
     private static string ResolveConfigPath(string[] args)
     {
         var v = ArgValue(args, "--config") ?? ArgValue(args, "-c");
-        if (v is { Length: > 0 }) return v;
+        if (v is { Length: > 0 })
+        {
+            return v;
+        }
+
         return Env("PACKETNET_CONFIG") ?? Path.Combine(Directory.GetCurrentDirectory(), "packetnet.yaml");
     }
 }

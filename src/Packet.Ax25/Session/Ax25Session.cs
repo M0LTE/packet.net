@@ -337,8 +337,16 @@ public sealed class Ax25Session
             TransitionSpec? match = null;
             foreach (var t in stateTransitions)
             {
-                if (t.On != on) continue;
-                if (!guards.Evaluate(t.Guard)) continue;
+                if (t.On != on)
+                {
+                    continue;
+                }
+
+                if (!guards.Evaluate(t.Guard))
+                {
+                    continue;
+                }
+
                 match = t;
                 break;
             }
@@ -607,8 +615,16 @@ public sealed class Ax25Session
     /// </remarks>
     private bool CanTransmitIFrame()
     {
-        if (CurrentState is not ("Connected" or "TimerRecovery")) return false;
-        if (Context.PeerReceiverBusy) return false;
+        if (CurrentState is not ("Connected" or "TimerRecovery"))
+        {
+            return false;
+        }
+
+        if (Context.PeerReceiverBusy)
+        {
+            return false;
+        }
+
         int outstanding = (Context.VS - Context.VA + Context.Modulus) % Context.Modulus;
         return outstanding < Context.EffectiveWindow;
     }
@@ -624,51 +640,51 @@ public sealed class Ax25Session
     private static SdlEvent ToSdlEvent(Ax25Event evt) => evt switch
     {
         // ─── Upper-layer (Layer-3 → Data-Link) primitives ──────────────
-        DlConnectRequest        => SdlEvent.DLCONNECTRequest,
-        DlDisconnectRequest     => SdlEvent.DLDISCONNECTRequest,
-        DlDataRequest           => SdlEvent.DLDATARequest,
-        DlUnitDataRequest       => SdlEvent.DLUNITDATARequest,
-        DlFlowOffRequest        => SdlEvent.DLFLOWOFFRequest,
-        DlFlowOnRequest         => SdlEvent.DLFLOWONRequest,
+        DlConnectRequest => SdlEvent.DLCONNECTRequest,
+        DlDisconnectRequest => SdlEvent.DLDISCONNECTRequest,
+        DlDataRequest => SdlEvent.DLDATARequest,
+        DlUnitDataRequest => SdlEvent.DLUNITDATARequest,
+        DlFlowOffRequest => SdlEvent.DLFLOWOFFRequest,
+        DlFlowOnRequest => SdlEvent.DLFLOWONRequest,
 
         // ─── Management Data-Link primitives ────────────────────────────
-        MdlNegotiateRequest     => SdlEvent.MDLNEGOTIATERequest,
-        MdlNegotiateConfirm     => SdlEvent.MDLNEGOTIATEConfirm,
-        MdlErrorIndicate        => SdlEvent.MDLERRORIndicate,
+        MdlNegotiateRequest => SdlEvent.MDLNEGOTIATERequest,
+        MdlNegotiateConfirm => SdlEvent.MDLNEGOTIATEConfirm,
+        MdlErrorIndicate => SdlEvent.MDLERRORIndicate,
 
         // ─── Frame-received events ──────────────────────────────────────
-        IFrameReceived          => SdlEvent.IReceived,
-        RrReceived              => SdlEvent.RRReceived,
-        RnrReceived             => SdlEvent.RNRReceived,
-        RejReceived             => SdlEvent.REJReceived,
-        SrejReceived            => SdlEvent.SREJReceived,
-        UiReceived              => SdlEvent.UIReceived,
-        SabmReceived            => SdlEvent.SABMReceived,
-        SabmeReceived           => SdlEvent.SABMEReceived,
-        DiscReceived            => SdlEvent.DISCReceived,
-        UaReceived              => SdlEvent.UAReceived,
-        DmReceived              => SdlEvent.DMReceived,
-        FrmrReceived            => SdlEvent.FRMRReceived,
-        XidReceived             => SdlEvent.XIDReceived,
-        XidResponseReceived     => SdlEvent.XIDResponseReceived,
-        TestReceived            => SdlEvent.TESTReceived,
-        IOrSCommandReceived     => SdlEvent.IOrSCommandReceived,
+        IFrameReceived => SdlEvent.IReceived,
+        RrReceived => SdlEvent.RRReceived,
+        RnrReceived => SdlEvent.RNRReceived,
+        RejReceived => SdlEvent.REJReceived,
+        SrejReceived => SdlEvent.SREJReceived,
+        UiReceived => SdlEvent.UIReceived,
+        SabmReceived => SdlEvent.SABMReceived,
+        SabmeReceived => SdlEvent.SABMEReceived,
+        DiscReceived => SdlEvent.DISCReceived,
+        UaReceived => SdlEvent.UAReceived,
+        DmReceived => SdlEvent.DMReceived,
+        FrmrReceived => SdlEvent.FRMRReceived,
+        XidReceived => SdlEvent.XIDReceived,
+        XidResponseReceived => SdlEvent.XIDResponseReceived,
+        TestReceived => SdlEvent.TESTReceived,
+        IOrSCommandReceived => SdlEvent.IOrSCommandReceived,
 
         // ─── Internal + catch-all events ────────────────────────────────
-        IFramePopsOffQueue      => SdlEvent.IFramePopsOffQueue,
-        AllOtherCommands        => SdlEvent.AllOtherCommands,
+        IFramePopsOffQueue => SdlEvent.IFramePopsOffQueue,
+        AllOtherCommands => SdlEvent.AllOtherCommands,
         AllOtherPrimitivesFromLowerLayer => SdlEvent.AllOtherPrimitivesFromLowerLayer,
         AllOtherPrimitivesFromUpperLayer => SdlEvent.AllOtherPrimitivesFromUpperLayer,
-        ControlFieldError       => SdlEvent.ControlFieldError,
+        ControlFieldError => SdlEvent.ControlFieldError,
         InfoNotPermittedInFrame => SdlEvent.InfoNotPermittedInFrame,
-        UOrSFrameLengthError    => SdlEvent.UOrSFrameLengthError,
+        UOrSFrameLengthError => SdlEvent.UOrSFrameLengthError,
 
         // ─── Link-multiplexer + timer expiries ──────────────────────────
-        LmSeizeConfirm          => SdlEvent.LMSEIZEConfirm,
-        Tm201Expiry             => SdlEvent.TM201Expiry,
-        T1Expiry                => SdlEvent.T1Expiry,
-        T2Expiry                => SdlEvent.T2Expiry,
-        T3Expiry                => SdlEvent.T3Expiry,
+        LmSeizeConfirm => SdlEvent.LMSEIZEConfirm,
+        Tm201Expiry => SdlEvent.TM201Expiry,
+        T1Expiry => SdlEvent.T1Expiry,
+        T2Expiry => SdlEvent.T2Expiry,
+        T3Expiry => SdlEvent.T3Expiry,
 
         _ => throw new InvalidOperationException(
             $"no SDL-event mapping for runtime event '{evt.GetType().Name}' ('{evt.Name}') — " +

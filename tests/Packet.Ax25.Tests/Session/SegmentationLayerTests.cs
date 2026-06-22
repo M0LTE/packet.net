@@ -120,7 +120,10 @@ public class SegmentationLayerTests
             if (i < segments.Count - 1)
             {
                 result.Should().BeNull("no payload is delivered until the final segment arrives");
-                if (result is not null) deliveredBeforeLast++;
+                if (result is not null)
+                {
+                    deliveredBeforeLast++;
+                }
             }
             else
             {
@@ -149,7 +152,9 @@ public class SegmentationLayerTests
         var segments = send.BuildSendRequests(payload, Ax25Frame.PidNetRom);
         DataLinkDataIndication? final = null;
         foreach (var s in segments)
+        {
             final = recv.OnDataIndication(new DataLinkDataIndication(s.Data, s.Pid)) ?? final;
+        }
 
         final.Should().NotBeNull();
         final!.Pid.Should().Be(Ax25Frame.PidNetRom,
@@ -181,7 +186,9 @@ public class SegmentationLayerTests
 
         DataLinkDataIndication? final = null;
         foreach (var s in segments)
+        {
             final = recv.OnDataIndication(new DataLinkDataIndication(s.Data, s.Pid)) ?? final;
+        }
 
         SegmentationLayer.FigureLiteralReassembledPid.Should().Be(Ax25Frame.PidNoLayer3);
         final.Should().NotBeNull();
