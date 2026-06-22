@@ -1180,7 +1180,7 @@ public sealed class Ax25Listener : IAsyncDisposable
                     // underlying transport may still NotSupport at runtime (a wrapping adapter
                     // exposes the capability even when the modem turns out not to have it).
                     await txCompletion!.SendAwaitingCompletionAsync(frame).ConfigureAwait(false);
-                    scheduler.RearmIfRunning("T1", ctx.T1V);
+                    scheduler.RearmIfRunning(Ax25TimerNames.T1, ctx.T1V);
                 }
                 catch (NotSupportedException)
                 {
@@ -1276,9 +1276,9 @@ public sealed class Ax25Listener : IAsyncDisposable
                 {
                     // Never re-arm a running delay: the ack must fire T2 after
                     // the FIRST unacknowledged frame, not slip later.
-                    if (!scheduler.IsRunning("T2"))
+                    if (!scheduler.IsRunning(Ax25TimerNames.T2))
                     {
-                        scheduler.Arm("T2", ctx.T2, () => sessionRef!.PostEvent(new LmSeizeConfirm()));
+                        scheduler.Arm(Ax25TimerNames.T2, ctx.T2, () => sessionRef!.PostEvent(new LmSeizeConfirm()));
                     }
                 }
                 else
@@ -1424,9 +1424,9 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     private static Ax25Event TimerExpiry(string name) => name switch
     {
-        "T1" => new T1Expiry(),
-        "T2" => new T2Expiry(),
-        "T3" => new T3Expiry(),
+        Ax25TimerNames.T1 => new T1Expiry(),
+        Ax25TimerNames.T2 => new T2Expiry(),
+        Ax25TimerNames.T3 => new T3Expiry(),
         _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 }

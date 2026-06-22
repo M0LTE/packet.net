@@ -424,37 +424,6 @@ public sealed class Ax25Session
     }
 
     /// <summary>
-    /// Compute the state a just-committed transition advances to — normally
-    /// <see cref="TransitionSpec.Next"/>, but with the figc4.2 connect-routing
-    /// defect corrected when the relevant quirk is on.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// figc4.2 routes the <c>Disconnected</c> <c>DL-CONNECT request</c>
-    /// (<c>t03_dl_connect_request</c>) unconditionally to <c>AwaitingConnection</c>,
-    /// with no version branch — so a v2.2-preferred connect (which the figc4.7
-    /// <c>Establish_Data_Link</c> subroutine correctly sends as a <i>SABME</i>,
-    /// branching on <c>mod_128</c>) ends up parked in the mod-8 establishment state.
-    /// That state's T1 retry resends a hardcoded SABM (downgrading the link) and it
-    /// has no FRMR handler (so the §975 v2.0 fallback can't fire). When
-    /// <see cref="Ax25SessionQuirks.Ax25Spec44Mod128ConnectRoutesToV22"/> is on
-    /// (default) and the link is extended at dispatch time, the target is rewritten
-    /// to <c>AwaitingV22Connection</c> (figc4.6), which resends SABME on retry and
-    /// handles the FRMR/DM fallbacks. See <see cref="Ax25SessionQuirks"/> for the
-    /// full rationale, the graphml citation, and the direwolf cross-reference.
-    /// </para>
-    /// <para>
-    /// Scope is deliberately tight: only the exact <c>Disconnected</c> DL-CONNECT
-    /// transition (matched on <c>From</c> + <c>On</c> + <c>Next</c>, so it survives a
-    /// transition-id renumber), only when <see cref="Ax25SessionContext.IsExtended"/>.
-    /// Every other transition is returned unchanged — a mod-8 connect (not extended)
-    /// keeps figc4.2's <c>AwaitingConnection</c> target, and the figc4.6 FRMR fallback
-    /// (<c>t14</c>) which forces version 2.0 — clearing <c>IsExtended</c> — and routes
-    /// to <c>AwaitingConnection</c> is untouched, so the redirect is self-consistent
-    /// with the fallback (a later connect from that mod-8 state stays mod-8).
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// figc4.6 DM-no-degrade gap (<see cref="Ax25SessionQuirks.Ax25Spec48DmRejectionDegradesToV20"/>):
     /// when a <c>DM received</c> fires in <c>AwaitingV22Connection</c> and the quirk is on,
     /// substitute the matched DM transition (either F-branch — the F=1
@@ -498,6 +467,37 @@ public sealed class Ax25Session
         return match;   // defensive: figc4.6 always carries t14_frmr_received
     }
 
+    /// <summary>
+    /// Compute the state a just-committed transition advances to — normally
+    /// <see cref="TransitionSpec.Next"/>, but with the figc4.2 connect-routing
+    /// defect corrected when the relevant quirk is on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// figc4.2 routes the <c>Disconnected</c> <c>DL-CONNECT request</c>
+    /// (<c>t03_dl_connect_request</c>) unconditionally to <c>AwaitingConnection</c>,
+    /// with no version branch — so a v2.2-preferred connect (which the figc4.7
+    /// <c>Establish_Data_Link</c> subroutine correctly sends as a <i>SABME</i>,
+    /// branching on <c>mod_128</c>) ends up parked in the mod-8 establishment state.
+    /// That state's T1 retry resends a hardcoded SABM (downgrading the link) and it
+    /// has no FRMR handler (so the §975 v2.0 fallback can't fire). When
+    /// <see cref="Ax25SessionQuirks.Ax25Spec44Mod128ConnectRoutesToV22"/> is on
+    /// (default) and the link is extended at dispatch time, the target is rewritten
+    /// to <c>AwaitingV22Connection</c> (figc4.6), which resends SABME on retry and
+    /// handles the FRMR/DM fallbacks. See <see cref="Ax25SessionQuirks"/> for the
+    /// full rationale, the graphml citation, and the direwolf cross-reference.
+    /// </para>
+    /// <para>
+    /// Scope is deliberately tight: only the exact <c>Disconnected</c> DL-CONNECT
+    /// transition (matched on <c>From</c> + <c>On</c> + <c>Next</c>, so it survives a
+    /// transition-id renumber), only when <see cref="Ax25SessionContext.IsExtended"/>.
+    /// Every other transition is returned unchanged — a mod-8 connect (not extended)
+    /// keeps figc4.2's <c>AwaitingConnection</c> target, and the figc4.6 FRMR fallback
+    /// (<c>t14</c>) which forces version 2.0 — clearing <c>IsExtended</c> — and routes
+    /// to <c>AwaitingConnection</c> is untouched, so the redirect is self-consistent
+    /// with the fallback (a later connect from that mod-8 state stays mod-8).
+    /// </para>
+    /// </remarks>
     private string ResolveNextState(TransitionSpec match)
     {
         if (Context.Quirks.Ax25Spec44Mod128ConnectRoutesToV22

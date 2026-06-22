@@ -119,9 +119,9 @@ public sealed class Ax25Adapter
                 if (signal is not LinkMultiplexerSeizeRequest) return;
                 if (context.T2 > TimeSpan.Zero)
                 {
-                    if (!scheduler.IsRunning("T2"))
+                    if (!scheduler.IsRunning(Ax25TimerNames.T2))
                     {
-                        scheduler.Arm("T2", context.T2, () => Session!.PostEvent(new LmSeizeConfirm()));
+                        scheduler.Arm(Ax25TimerNames.T2, context.T2, () => Session!.PostEvent(new LmSeizeConfirm()));
                     }
                 }
                 else
@@ -189,9 +189,9 @@ public sealed class Ax25Adapter
 
     private static Ax25Event TimerExpiryEvent(string name) => name switch
     {
-        "T1" => new T1Expiry(),
-        "T2" => new T2Expiry(),
-        "T3" => new T3Expiry(),
+        Ax25TimerNames.T1 => new T1Expiry(),
+        Ax25TimerNames.T2 => new T2Expiry(),
+        Ax25TimerNames.T3 => new T3Expiry(),
         _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 }

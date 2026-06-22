@@ -507,7 +507,7 @@ public sealed class ActionDispatcher : IActionDispatcher
             Ax25ActionVerb.ClearAcknowledgePending => Do(() =>
             {
                 ctx.AcknowledgePending = false;
-                scheduler.Cancel("T2");
+                scheduler.Cancel(Ax25TimerNames.T2);
             }),
             Ax25ActionVerb.SetLayer3Initiated     => Do(() => ctx.Layer3Initiated    = true),
             Ax25ActionVerb.ClearLayer3Initiated   => Do(() => ctx.Layer3Initiated    = false),
@@ -522,18 +522,18 @@ public sealed class ActionDispatcher : IActionDispatcher
             // get wired (the SDL pages don't currently mutate them). The
             // figc4.7 title-case spellings (Start T1 / Stop T3 / …) fold to
             // the same enum members as the snake_case state-page forms.
-            Ax25ActionVerb.StartT1                => Do(() => scheduler.Arm("T1", ctx.T1V,    () => onTimerExpiry("T1"))),
-            Ax25ActionVerb.StartT3                => Do(() => scheduler.Arm("T3", T3Duration, () => onTimerExpiry("T3"))),
+            Ax25ActionVerb.StartT1                => Do(() => scheduler.Arm(Ax25TimerNames.T1, ctx.T1V,    () => onTimerExpiry(Ax25TimerNames.T1))),
+            Ax25ActionVerb.StartT3                => Do(() => scheduler.Arm(Ax25TimerNames.T3, T3Duration, () => onTimerExpiry(Ax25TimerNames.T3))),
             // stop_T1: capture remaining time BEFORE cancelling so the next
             // Select_T1_Value gets a real round-trip sample for its IIR. The
             // spec calls this "Remaining Time on T1 When Last Stopped"; after
             // Cancel the timer is gone and queries return zero.
             Ax25ActionVerb.StopT1                 => Do(() =>
             {
-                ctx.T1RemainingWhenLastStopped = scheduler.TimeRemaining("T1");
-                scheduler.Cancel("T1");
+                ctx.T1RemainingWhenLastStopped = scheduler.TimeRemaining(Ax25TimerNames.T1);
+                scheduler.Cancel(Ax25TimerNames.T1);
             }),
-            Ax25ActionVerb.StopT3                 => Do(() => scheduler.Cancel("T3")),
+            Ax25ActionVerb.StopT3                 => Do(() => scheduler.Cancel(Ax25TimerNames.T3)),
 
             // ─── Supervisory-frame transmissions ───────────────────────
             //
@@ -679,8 +679,8 @@ public sealed class ActionDispatcher : IActionDispatcher
             // each XID-command send, cancelled when negotiation completes;
             // expiry routes through onTimerExpiry("TM201") like the data-link
             // timers, which the MDL driver maps to a Tm201Expiry event.
-            Ax25ActionVerb.StartTM201             => Do(() => scheduler.Arm("TM201", Tm201Duration, () => onTimerExpiry("TM201"))),
-            Ax25ActionVerb.StopTM201              => Do(() => scheduler.Cancel("TM201")),
+            Ax25ActionVerb.StartTM201             => Do(() => scheduler.Arm(Ax25TimerNames.TM201, Tm201Duration, () => onTimerExpiry(Ax25TimerNames.TM201))),
+            Ax25ActionVerb.StopTM201              => Do(() => scheduler.Cancel(Ax25TimerNames.TM201)),
             // Apply Negotiated Parameters (figc5.2, subroutine placeholder): the
             // §6.3.2 reverts-to merge. The MDL driver supplies the real merge
             // (XidNegotiator.ApplyNegotiated); default is a no-op.

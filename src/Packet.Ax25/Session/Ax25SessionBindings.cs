@@ -151,7 +151,7 @@ public static class Ax25SessionBindings
                 Ax25Guard.VsEqX             => () => context.X.HasValue && context.VS == context.X.Value,
 
                 // ─── Timer state ───────────────────────────────────────────
-                Ax25Guard.T1Running         => () => scheduler.IsRunning("T1"),
+                Ax25Guard.T1Running         => () => scheduler.IsRunning(Ax25TimerNames.T1),
                 // legacy binding: t1_expired (Select_T1_Value middle branch)
                 Ax25Guard.T1Expired         => () => context.T1HadExpired,
 
