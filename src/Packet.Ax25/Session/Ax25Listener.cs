@@ -795,92 +795,131 @@ public sealed class Ax25Listener : IAsyncDisposable
             return;
         }
 
-        // Connectionless TEST (§4.3.4.2), addressed to us — handle it BEFORE any
-        // session routing. TEST is link-independent: it must never enter the
-        // session machine (where it would fall to the Disconnected t05 catch-all
-        // and provoke a spurious DM, or disturb a live QSO's state).
-        //
-        //  • TEST *command* → we are the responder: reply with a TEST response
-        //    echoing the information field (the "axping" answer).
-        //  • TEST *response* → the echo to our own axping. The AxPinger initiator
-        //    correlates it via FrameTraced, which already fired upstream on the
-        //    pump (before DispatchInbound) — so we simply absorb it here. Routing
-        //    it onward would only emit a connectionless DM (the t05 catch-all),
-        //    which is spec-noise back at a station that just answered our probe.
-        //
-        // Either way we return without touching a session — observation-safe.
-        if ((parsed.Control & UFrameControlMask) == TestControl)
+        // Connectionless TEST (§4.3.4.2) is link-independent and must be handled BEFORE any
+        // session routing — see TryInterceptConnectionlessTest for the full rationale.
+        if (TryInterceptConnectionlessTest(parsed))
         {
-            if (parsed.IsCommand)
-            {
-                RespondToTest(parsed);
-            }
             return;
         }
 
-        var peer = parsed.Source.Callsign;
-
-        // Existing session — deliver to the cached state machine and
-        // we're done. SABM from a peer we've seen before lands in the
-        // cached session's Disconnected state and runs figc4.1 t14
-        // just like a fresh one. We re-fire SessionAccepted in that
-        // case so consumers can re-arm any per-session handlers they
-        // attached the last time around.
-        if (sessions.TryGetValue(key, out var cached))
+        // Existing session — deliver to the cached state machine and we're done.
+        if (TryRouteToCachedSession(key, parsed, payload, parseOptions))
         {
-            TouchLru(key);
-
-            // The routing parse (line ~268) was modulo-8 — we didn't yet know
-            // which session, hence which modulo. Addresses precede the control
-            // field and are modulo-independent, so routing is valid; but an
-            // extended (modulo-128) I/S frame's 2-octet control field was
-            // mis-read. Re-decode at the session's negotiated modulo before
-            // classifying so N(S)/N(R)/PID/info land correctly.
-            var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context, parseOptions);
-            var cachedClassified = Ax25FrameClassifier.Classify(frame);
-
-            // XID / FRMR-of-XID routing — these belong to the MDL machine, not
-            // the data-link session (the data-link Connected state has no XID
-            // handler, and would FRMR-handle a FRMR as a full link reset):
-            //
-            //  • XID *command* → we are the responder: build + send the XID
-            //    response (the un-transcribed figc5.1 responder path).
-            //  • XID *response* while negotiating → we are the initiator: figc5.2
-            //    applies the negotiated parameters.
-            //  • FRMR while negotiating → figc5.2 §6.3.2 ¶1 v2.0 fallback.
-            //
-            // Outside those, frames fall through to the data-link session
-            // unchanged (e.g. a stray XID response with no negotiation → the
-            // data-link catch-all; a real FRMR on an established link → the
-            // data-link FRMR handling).
-            if (cachedClassified is XidReceived && frame.IsCommand)
-            {
-                cached.Mdl.RespondToXidCommand(frame);
-                return;
-            }
-            if (cached.Mdl.IsNegotiating && cachedClassified is XidReceived)
-            {
-                cached.Mdl.OnXidReceived(frame);
-                return;
-            }
-            if (cached.Mdl.IsNegotiating && cachedClassified is FrmrReceived)
-            {
-                cached.Mdl.OnFrmrReceived(frame);
-                return;
-            }
-
-            bool wasDisconnected = cached.Session.CurrentState == "Disconnected";
-            bool isReconnectSabm = wasDisconnected && (cachedClassified is SabmReceived or SabmeReceived);
-
-            cached.Session.PostEvent(cachedClassified);
-
-            if (isReconnectSabm && cached.Session.CurrentState == "Connected")
-            {
-                RaiseSessionAccepted(cached.Session);
-            }
             return;
         }
 
+        // No cached session — run the establishment / transient handling.
+        HandleNoCachedSession(key, local, parsed.Source.Callsign, parsed);
+    }
+
+    /// <summary>
+    /// Intercept a connectionless TEST frame (§4.3.4.2) addressed to us, handled BEFORE
+    /// any session routing. TEST is link-independent: it must never enter the session
+    /// machine (where it would fall to the Disconnected t05 catch-all and provoke a
+    /// spurious DM, or disturb a live QSO's state).
+    /// <list type="bullet">
+    /// <item>TEST <em>command</em> → we are the responder: reply with a TEST response
+    /// echoing the information field (the "axping" answer).</item>
+    /// <item>TEST <em>response</em> → the echo to our own axping. The AxPinger initiator
+    /// correlates it via <c>FrameTraced</c>, which already fired upstream on the pump
+    /// (before <see cref="DispatchInbound"/>) — so we simply absorb it here. Routing it
+    /// onward would only emit a connectionless DM (the t05 catch-all), which is
+    /// spec-noise back at a station that just answered our probe.</item>
+    /// </list>
+    /// Returns <c>true</c> when the frame was a TEST and has been absorbed (the caller
+    /// returns without touching a session — observation-safe); <c>false</c> otherwise.
+    /// </summary>
+    private bool TryInterceptConnectionlessTest(Ax25Frame parsed)
+    {
+        if ((parsed.Control & UFrameControlMask) != TestControl)
+        {
+            return false;
+        }
+        if (parsed.IsCommand)
+        {
+            RespondToTest(parsed);
+        }
+        return true;
+    }
+    /// <summary>
+    /// Route an inbound frame to its cached session, if one exists for <paramref name="key"/>.
+    /// Re-decodes at the session's negotiated modulo, splits XID/FRMR off to the MDL machine,
+    /// and posts the data-link event (re-firing <c>SessionAccepted</c> on a reconnect SABM that
+    /// reaches Connected). Returns <c>true</c> when a cached session handled the frame;
+    /// <c>false</c> when there is no cached session (the caller falls through to establishment).
+    /// </summary>
+    private bool TryRouteToCachedSession(
+        SessionKey key, Ax25Frame parsed, ReadOnlyMemory<byte> payload, Ax25ParseOptions parseOptions)
+    {
+        // Existing session — deliver to the cached state machine and we're done. SABM from a
+        // peer we've seen before lands in the cached session's Disconnected state and runs
+        // figc4.1 t14 just like a fresh one. We re-fire SessionAccepted in that case so
+        // consumers can re-arm any per-session handlers they attached the last time around.
+        if (!sessions.TryGetValue(key, out var cached))
+        {
+            return false;
+        }
+
+        TouchLru(key);
+
+        // The routing parse (line ~268) was modulo-8 — we didn't yet know
+        // which session, hence which modulo. Addresses precede the control
+        // field and are modulo-independent, so routing is valid; but an
+        // extended (modulo-128) I/S frame's 2-octet control field was
+        // mis-read. Re-decode at the session's negotiated modulo before
+        // classifying so N(S)/N(R)/PID/info land correctly.
+        var frame = ReparseAtSessionModulo(parsed, payload, cached.Session.Context, parseOptions);
+        var cachedClassified = Ax25FrameClassifier.Classify(frame);
+
+        // XID / FRMR-of-XID routing — these belong to the MDL machine, not
+        // the data-link session (the data-link Connected state has no XID
+        // handler, and would FRMR-handle a FRMR as a full link reset):
+        //
+        //  • XID *command* → we are the responder: build + send the XID
+        //    response (the un-transcribed figc5.1 responder path).
+        //  • XID *response* while negotiating → we are the initiator: figc5.2
+        //    applies the negotiated parameters.
+        //  • FRMR while negotiating → figc5.2 §6.3.2 ¶1 v2.0 fallback.
+        //
+        // Outside those, frames fall through to the data-link session
+        // unchanged (e.g. a stray XID response with no negotiation → the
+        // data-link catch-all; a real FRMR on an established link → the
+        // data-link FRMR handling).
+        if (cachedClassified is XidReceived && frame.IsCommand)
+        {
+            cached.Mdl.RespondToXidCommand(frame);
+            return true;
+        }
+        if (cached.Mdl.IsNegotiating && cachedClassified is XidReceived)
+        {
+            cached.Mdl.OnXidReceived(frame);
+            return true;
+        }
+        if (cached.Mdl.IsNegotiating && cachedClassified is FrmrReceived)
+        {
+            cached.Mdl.OnFrmrReceived(frame);
+            return true;
+        }
+
+        bool wasDisconnected = cached.Session.CurrentState == "Disconnected";
+        bool isReconnectSabm = wasDisconnected && (cachedClassified is SabmReceived or SabmeReceived);
+
+        cached.Session.PostEvent(cachedClassified);
+
+        if (isReconnectSabm && cached.Session.CurrentState == "Connected")
+        {
+            RaiseSessionAccepted(cached.Session);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Handle an inbound frame addressed to us for which no session is cached: the connection
+    /// establishment (SABM accept), the pre-session XID responder, and the transient
+    /// fall-through that emits the appropriate Disconnected-state response (DM / etc.).
+    /// </summary>
+    private void HandleNoCachedSession(SessionKey key, Callsign local, Callsign peer, Ax25Frame parsed)
+    {
         // No cached session — the establishment / transient paths below deal in
         // U-frames (SABM/SABME) or fall to the Disconnected catch-all (→ DM),
         // all correctly decoded at modulo-8: an unknown peer can't already have
@@ -1140,14 +1179,12 @@ public sealed class Ax25Listener : IAsyncDisposable
         }
     }
 
-    private CachedSession BuildSession(Callsign local, Callsign peer, bool allowAccept)
+    // Build the per-session context, seeding the port's configured parameters. Pure and
+    // side-effect-free (no closures, no scheduler) — the build-time seed of N1/N2/K/T1V/T2
+    // and the session quirks. A later reseed never reaches into an existing session's context.
+    private static Ax25SessionContext SeedSessionContext(
+        Callsign local, Callsign peer, bool allowAccept, Ax25SessionParameters sp)
     {
-        // Snapshot the live per-session parameters once (single volatile read) so a
-        // concurrent UpdateSessionParameters can't tear this build. New sessions
-        // pick up the latest reseed; sessions already cached are never rebuilt.
-        var sp = Volatile.Read(ref sessionParameters);
-
-        var scheduler = new SystemTimerScheduler(timeProvider);
         var ctx = new Ax25SessionContext
         {
             Local = local,         // MyCall, or a registered alias / origination override
@@ -1194,6 +1231,19 @@ public sealed class Ax25Listener : IAsyncDisposable
             ctx.T1V = t1v;
             ctx.Srt = t1v / 2;
         }
+
+        return ctx;
+    }
+
+    private CachedSession BuildSession(Callsign local, Callsign peer, bool allowAccept)
+    {
+        // Snapshot the live per-session parameters once (single volatile read) so a
+        // concurrent UpdateSessionParameters can't tear this build. New sessions
+        // pick up the latest reseed; sessions already cached are never rebuilt.
+        var sp = Volatile.Read(ref sessionParameters);
+
+        var scheduler = new SystemTimerScheduler(timeProvider);
+        var ctx = SeedSessionContext(local, peer, allowAccept, sp);
 
         var signals = new ConcurrentQueue<DataLinkSignal>();
         var segmentation = new SegmentationLayer(ctx);
