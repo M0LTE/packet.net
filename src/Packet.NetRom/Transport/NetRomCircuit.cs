@@ -133,13 +133,13 @@ public sealed class NetRomCircuit
     public Callsign RemoteNode => remoteNode;
 
     /// <summary>The current lifecycle state (snapshot).</summary>
-    public NetRomCircuitState State { get { lock (gate) return state; } }
+    public NetRomCircuitState State { get { lock (gate) { return state; } } }
 
     /// <summary>The negotiated send-window size (after connect).</summary>
-    public int Window { get { lock (gate) return window; } }
+    public int Window { get { lock (gate) { return window; } } }
 
     /// <summary>True while the peer has us choked (we are holding Information back).</summary>
-    public bool PeerChoked { get { lock (gate) return peerChoked; } }
+    public bool PeerChoked { get { lock (gate) { return peerChoked; } } }
 
     // ─── Origination ────────────────────────────────────────────────────
 

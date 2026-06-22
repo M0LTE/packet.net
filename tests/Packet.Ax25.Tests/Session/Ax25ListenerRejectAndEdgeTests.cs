@@ -134,8 +134,15 @@ public class Ax25ListenerRejectAndEdgeTests
         var bAccepted = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.SessionAccepted += (_, e) =>
         {
-            if (e.Session.Context.Remote.Equals(PeerCallA)) aAccepted.TrySetResult(e.Session);
-            if (e.Session.Context.Remote.Equals(PeerCallB)) bAccepted.TrySetResult(e.Session);
+            if (e.Session.Context.Remote.Equals(PeerCallA))
+            {
+                aAccepted.TrySetResult(e.Session);
+            }
+
+            if (e.Session.Context.Remote.Equals(PeerCallB))
+            {
+                bAccepted.TrySetResult(e.Session);
+            }
         };
         await listener.StartAsync();
 
@@ -152,7 +159,10 @@ public class Ax25ListenerRejectAndEdgeTests
         var aData = new ConcurrentQueue<DataLinkDataIndication>();
         sessionA.DataLinkSignalEmitted += (_, sig) =>
         {
-            if (sig is DataLinkDataIndication d) aData.Enqueue(d);
+            if (sig is DataLinkDataIndication d)
+            {
+                aData.Enqueue(d);
+            }
         };
 
         modem.InjectInbound(Ax25Frame.I(LocalCall, PeerCallA, nr: 0, ns: 0,
@@ -438,13 +448,13 @@ public class Ax25ListenerRejectAndEdgeTests
         using var scheduler = new SystemTimerScheduler(TimeProvider.System);
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    spec => { captured = spec; emitted.Add(spec); },
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: spec => { captured = spec; emitted.Add(spec); },
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
 
         // Inbound SABM via [digi1, digi2] (transmission order).
         var inbound = Ax25Frame.Sabm(localCall, peer, digipeaters: new[] { digi1, digi2 });

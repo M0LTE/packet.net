@@ -193,8 +193,8 @@ public sealed class PacingKissModemTests
         public byte? SlotTime { get; private set; }
         public byte? TxTail { get; private set; }
 
-        public IReadOnlyList<string> Started { get { lock (gate) return started.ToArray(); } }
-        public IReadOnlyList<string> Completed { get { lock (gate) return completed.ToArray(); } }
+        public IReadOnlyList<string> Started { get { lock (gate) { return started.ToArray(); } } }
+        public IReadOnlyList<string> Completed { get { lock (gate) { return completed.ToArray(); } } }
 
         /// <summary>Release one blocked send (one frame's TX-completion).</summary>
         public void SignalAck() => ackGate.Release();
@@ -205,7 +205,11 @@ public sealed class PacingKissModemTests
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
             while (DateTime.UtcNow < deadline)
             {
-                lock (gate) { if (started.Contains(payload)) return true; }
+                lock (gate) { if (started.Contains(payload))
+                    {
+                        return true;
+                    }
+                }
                 await Task.Delay(5).ConfigureAwait(false);
             }
             return false;
@@ -216,7 +220,11 @@ public sealed class PacingKissModemTests
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
             while (DateTime.UtcNow < deadline)
             {
-                lock (gate) { if (completed.Count >= count) return true; }
+                lock (gate) { if (completed.Count >= count)
+                    {
+                        return true;
+                    }
+                }
                 await Task.Delay(5).ConfigureAwait(false);
             }
             return false;
@@ -226,7 +234,10 @@ public sealed class PacingKissModemTests
             ReadOnlyMemory<byte> ax25, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         {
             var payload = Encoding.ASCII.GetString(ax25.Span);
-            lock (gate) started.Add(payload);
+            lock (gate)
+            {
+                started.Add(payload);
+            }
 
             if (ThrowTimeoutOnce)
             {
@@ -238,7 +249,11 @@ public sealed class PacingKissModemTests
             // Block until the test signals this frame's completion — this is what lets the
             // test prove the pump holds the next frame.
             await ackGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            lock (gate) completed.Add(payload);
+            lock (gate)
+            {
+                completed.Add(payload);
+            }
+
             var now = DateTimeOffset.UtcNow;
             return new TxCompletion(now, now);
         }

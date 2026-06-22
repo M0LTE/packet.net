@@ -42,7 +42,11 @@ public sealed class SocketApplicationTests : IDisposable
             {
                 int n;
                 try { n = await conn.ReceiveAsync(buf); } catch { break; }
-                if (n == 0) break;   // node closed the connection (user gone)
+                if (n == 0)
+                {
+                    break;   // node closed the connection (user gone)
+                }
+
                 await conn.SendAsync(buf.AsMemory(0, n));
             }
         });
@@ -64,7 +68,10 @@ public sealed class SocketApplicationTests : IDisposable
     [Fact]
     public async Task Writes_the_connect_header_then_bridges_user_lines_over_the_socket()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
 
         var (listener, serve) = StartEchoDaemon();
         using (listener)
@@ -90,7 +97,10 @@ public sealed class SocketApplicationTests : IDisposable
     [Fact]
     public async Task A_daemon_that_is_not_listening_throws_ApplicationStartException()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
 
         // No daemon bound at socketPath → connect refused.
         var conn = new DriveableConnection("M0LTE-7", NodeTransportKind.Ax25);

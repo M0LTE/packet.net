@@ -84,6 +84,8 @@ public class NinoTncEnumeration
         }
 
         foreach (var name in SerialPort.GetPortNames())
+        {
             yield return name;
+        }
     }
 }

@@ -125,10 +125,24 @@ public class XidInfoFieldProperties
         bytes ??= [];
 
         bool strict = XidInfoField.TryParse(bytes, XidParseOptions.Strict, out var a);
-        if (strict) a.Should().NotBeNull(); else a.Should().BeNull();
+        if (strict)
+        {
+            a.Should().NotBeNull();
+        }
+        else
+        {
+            a.Should().BeNull();
+        }
 
         bool lenient = XidInfoField.TryParse(bytes, XidParseOptions.Lenient, out var b);
-        if (lenient) b.Should().NotBeNull(); else b.Should().BeNull();
+        if (lenient)
+        {
+            b.Should().NotBeNull();
+        }
+        else
+        {
+            b.Should().BeNull();
+        }
 
         // A value the parser accepted must re-encode without throwing — the
         // semantic view always maps back to some well-formed wire form.
@@ -145,7 +159,10 @@ public class XidInfoFieldProperties
     public void Lenient_Accepts_Everything_Strict_Accepts(byte[] bytes)
     {
         bytes ??= [];
-        if (!XidInfoField.TryParse(bytes, XidParseOptions.Strict, out var strict)) return;
+        if (!XidInfoField.TryParse(bytes, XidParseOptions.Strict, out var strict))
+        {
+            return;
+        }
 
         XidInfoField.TryParse(bytes, XidParseOptions.Lenient, out var lenient)
             .Should().BeTrue("lenient must accept any well-formed (strict-acceptable) field");
@@ -197,7 +214,11 @@ public class XidInfoFieldProperties
     /// </summary>
     private static HdlcOptionalFunctions? BuildHdlc(byte selector)
     {
-        if ((selector & 0x80) == 0) return null;   // ~half the time, absent
+        if ((selector & 0x80) == 0)
+        {
+            return null;   // ~half the time, absent
+        }
+
         return new HdlcOptionalFunctions
         {
             Reject = (selector & 0x01) != 0 ? RejectMode.ImplicitReject : RejectMode.SelectiveReject,

@@ -366,7 +366,10 @@ public class Inp3RifTests
     public void Short_or_truncated_input_never_throws(int length)
     {
         var bytes = new byte[length];
-        if (length > 0) bytes[0] = Inp3Rif.Signature;
+        if (length > 0)
+        {
+            bytes[0] = Inp3Rif.Signature;
+        }
 
         var act = () =>
         {

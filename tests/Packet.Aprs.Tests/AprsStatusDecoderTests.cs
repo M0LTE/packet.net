@@ -61,9 +61,9 @@ public class AprsStatusDecoderTests
     [Fact]
     public void Strips_DTI_If_Present()
     {
-        var with    = System.Text.Encoding.ASCII.GetBytes(">Status text");
+        var with = System.Text.Encoding.ASCII.GetBytes(">Status text");
         var without = System.Text.Encoding.ASCII.GetBytes("Status text");
-        AprsStatusDecoder.TryDecode(with,    out var a).Should().BeTrue();
+        AprsStatusDecoder.TryDecode(with, out var a).Should().BeTrue();
         AprsStatusDecoder.TryDecode(without, out var b).Should().BeTrue();
         a.Should().Be(b);
     }

@@ -87,12 +87,21 @@ internal static class SlowModeProbe
             var info = new byte[PayloadBytes];
             var prefix = Encoding.ASCII.GetBytes($"M{mode}-{label}-{i:00}");
             Array.Copy(prefix, info, Math.Min(prefix.Length, info.Length));
-            for (int j = prefix.Length; j < info.Length; j++) info[j] = (byte)('A' + (j % 26));
+            for (int j = prefix.Length; j < info.Length; j++)
+            {
+                info[j] = (byte)('A' + (j % 26));
+            }
 
             var ax25 = Ax25Frame.Ui(new Callsign("BB", 2), new Callsign("AA", 1), info);
             var ms = await OneRoundTrip(tx, rx, ax25, TimeSpan.FromSeconds(15));
-            if (ms >= 0) ok++;
-            else failures.Add(i);
+            if (ms >= 0)
+            {
+                ok++;
+            }
+            else
+            {
+                failures.Add(i);
+            }
 
             if ((i + 1) % 10 == 0)
             {
@@ -109,8 +118,16 @@ internal static class SlowModeProbe
         var sw = Stopwatch.StartNew();
         EventHandler<KissFrame> handler = (_, frame) =>
         {
-            if (frame.Command != KissCommand.Data) return;
-            if (!Ax25Frame.TryParse(frame.Payload, out var parsed)) return;
+            if (frame.Command != KissCommand.Data)
+            {
+                return;
+            }
+
+            if (!Ax25Frame.TryParse(frame.Payload, out var parsed))
+            {
+                return;
+            }
+
             if (parsed.Source.Callsign == ax25.Source.Callsign &&
                 parsed.Destination.Callsign == ax25.Destination.Callsign &&
                 parsed.Info.Span.SequenceEqual(ax25.Info.Span))
@@ -135,9 +152,20 @@ internal static class SlowModeProbe
     /// </summary>
     private static string Pattern(List<int> failures)
     {
-        if (failures.Count == 0) return "—";
-        if (failures.Count == 1 && failures[0] == 0) return "first only";
-        if (failures.Count == 1) return $"index {failures[0]}";
+        if (failures.Count == 0)
+        {
+            return "—";
+        }
+
+        if (failures.Count == 1 && failures[0] == 0)
+        {
+            return "first only";
+        }
+
+        if (failures.Count == 1)
+        {
+            return $"index {failures[0]}";
+        }
 
         // Try to recognise "frame 0 dropped, then contiguous run from some N".
         bool first = failures[0] == 0;

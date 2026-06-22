@@ -66,31 +66,31 @@ public sealed class TransitionContext
     /// <summary>Construct a transition context, extracting any frame attached to the trigger.</summary>
     public TransitionContext(Ax25SessionContext session, ITimerScheduler scheduler, Ax25Event trigger)
     {
-        Session   = session   ?? throw new ArgumentNullException(nameof(session));
+        Session = session ?? throw new ArgumentNullException(nameof(session));
         Scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
-        Trigger   = trigger   ?? throw new ArgumentNullException(nameof(trigger));
+        Trigger = trigger ?? throw new ArgumentNullException(nameof(trigger));
         IncomingFrame = ExtractFrame(trigger);
     }
 
     private static Ax25Frame? ExtractFrame(Ax25Event e) => e switch
     {
-        IFrameReceived f     => f.Frame,
-        RrReceived f         => f.Frame,
-        RnrReceived f        => f.Frame,
-        RejReceived f        => f.Frame,
-        SrejReceived f       => f.Frame,
-        UiReceived f         => f.Frame,
-        SabmReceived f       => f.Frame,
-        SabmeReceived f      => f.Frame,
-        DiscReceived f       => f.Frame,
-        UaReceived f         => f.Frame,
-        DmReceived f         => f.Frame,
-        FrmrReceived f       => f.Frame,
-        XidReceived f        => f.Frame,
+        IFrameReceived f => f.Frame,
+        RrReceived f => f.Frame,
+        RnrReceived f => f.Frame,
+        RejReceived f => f.Frame,
+        SrejReceived f => f.Frame,
+        UiReceived f => f.Frame,
+        SabmReceived f => f.Frame,
+        SabmeReceived f => f.Frame,
+        DiscReceived f => f.Frame,
+        UaReceived f => f.Frame,
+        DmReceived f => f.Frame,
+        FrmrReceived f => f.Frame,
+        XidReceived f => f.Frame,
         XidResponseReceived f => f.Frame,
-        TestReceived f       => f.Frame,
+        TestReceived f => f.Frame,
         IOrSCommandReceived f => f.Frame,
-        AllOtherCommands f    => f.Frame,
+        AllOtherCommands f => f.Frame,
         _ => null,
     };
 }

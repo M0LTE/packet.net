@@ -17,16 +17,16 @@ public class Ax25AdapterTests
 {
     private static IReadOnlyDictionary<string, IReadOnlyList<TransitionSpec>> RealTransitions => new Dictionary<string, IReadOnlyList<TransitionSpec>>
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
     };
 
     private static Ax25SessionContext NewContext(string local, string remote) => new()
     {
-        Local  = new Callsign(local, 0),
+        Local = new Callsign(local, 0),
         Remote = new Callsign(remote, 0),
     };
 
@@ -38,21 +38,21 @@ public class Ax25AdapterTests
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, new SystemTimerScheduler(new FakeTimeProvider())))
         {
-            [Ax25Guard.PEq1]            = () => false,
+            [Ax25Guard.PEq1] = () => false,
             [Ax25Guard.AbleToEstablish] = () => true,
         };
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
 
         var adapter = new Ax25Adapter(
-            context:      ctx,
-            scheduler:    scheduler,
-            transitions:  RealTransitions,
+            context: ctx,
+            scheduler: scheduler,
+            transitions: RealTransitions,
             initialState: "Disconnected",
-            sendBytes:    b => emittedBytes.Add(b.ToArray()),
-            bindings:     new Dictionary<Ax25Guard, Func<bool>>(Ax25SessionBindings.CreateDefault(ctx, scheduler))
+            sendBytes: b => emittedBytes.Add(b.ToArray()),
+            bindings: new Dictionary<Ax25Guard, Func<bool>>(Ax25SessionBindings.CreateDefault(ctx, scheduler))
             {
-                [Ax25Guard.PEq1]            = () => false,
+                [Ax25Guard.PEq1] = () => false,
                 [Ax25Guard.AbleToEstablish] = () => true,
             });
 
@@ -77,29 +77,29 @@ public class Ax25AdapterTests
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.PEq1]            = () => false,
+            [Ax25Guard.PEq1] = () => false,
             [Ax25Guard.AbleToEstablish] = () => true,
         };
         var registry = new DefaultSubroutineRegistry();
         registry.Register("UI_Check", _ => receivedFromSubroutine.Add("UI_Check fired"));
 
         var adapter = new Ax25Adapter(
-            context:      ctx,
-            scheduler:    scheduler,
-            transitions:  RealTransitions,
+            context: ctx,
+            scheduler: scheduler,
+            transitions: RealTransitions,
             initialState: "Disconnected",
-            sendBytes:    _ => { },
-            bindings:     bindings,
-            subroutines:  registry);
+            sendBytes: _ => { },
+            bindings: bindings,
+            subroutines: registry);
 
         // Build an inbound UI frame with P=0 and feed its bytes.
         var inbound = Ax25Frame.Ui(
             destination: ctx.Local,
-            source:      ctx.Remote,
-            info:        "hello"u8,
-            pid:         Ax25Frame.PidNoLayer3,
-            isCommand:   true,
-            pollFinal:   false);
+            source: ctx.Remote,
+            info: "hello"u8,
+            pid: Ax25Frame.PidNoLayer3,
+            isCommand: true,
+            pollFinal: false);
 
         bool parsed = adapter.OnReceivedAx25Bytes(inbound.ToBytes());
 
@@ -163,13 +163,13 @@ public class Ax25AdapterTests
         var bindingsA = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctxA, schedA))
         {
-            [Ax25Guard.PEq1]            = () => false,
+            [Ax25Guard.PEq1] = () => false,
             [Ax25Guard.AbleToEstablish] = () => true,
         };
         var bindingsB = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctxB, schedB))
         {
-            [Ax25Guard.PEq1]            = () => true,  // SABM came in with P=1
+            [Ax25Guard.PEq1] = () => true,  // SABM came in with P=1
             [Ax25Guard.AbleToEstablish] = () => true,
         };
 
@@ -217,11 +217,11 @@ public class Ax25AdapterTests
         // Default (frame-aware) bindings; session parked directly in
         // Connected with a fresh context (V(s)=V(r)=V(a)=0).
         var adapter = new Ax25Adapter(
-            context:      ctx,
-            scheduler:    scheduler,
-            transitions:  RealTransitions,
+            context: ctx,
+            scheduler: scheduler,
+            transitions: RealTransitions,
             initialState: "Connected",
-            sendBytes:    b => emittedBytes.Add(b.ToArray()));
+            sendBytes: b => emittedBytes.Add(b.ToArray()));
 
         // Peer sends an in-sequence I-frame (N(s)=0, P=0). We send nothing.
         var inbound = Ax25Frame.I(

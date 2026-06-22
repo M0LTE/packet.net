@@ -159,7 +159,10 @@ public sealed class AgwClient : IAsyncDisposable
         lock (sessionsLock)
         {
             if (sessions.ContainsKey(key))
+            {
                 throw new InvalidOperationException($"AGW session for {from}->{to} on port {radioPort} already exists.");
+            }
+
             sessions[key] = session;
         }
 
@@ -187,7 +190,11 @@ public sealed class AgwClient : IAsyncDisposable
         {
             // Connect refused or timed out. Remove the session from the
             // table so a retry attempt doesn't collide.
-            lock (sessionsLock) sessions.Remove(key);
+            lock (sessionsLock)
+            {
+                sessions.Remove(key);
+            }
+
             throw new TimeoutException($"AGW connect from {from} to {to} on port {radioPort} did not receive a 'C' ack within {budget}.");
         }
 
@@ -213,11 +220,17 @@ public sealed class AgwClient : IAsyncDisposable
             timeout: TimeSpan.FromSeconds(5),
             ct).ConfigureAwait(false);
 
-        if (reply is null) return Array.Empty<string>();
+        if (reply is null)
+        {
+            return Array.Empty<string>();
+        }
 
         var text = Encoding.ASCII.GetString(reply.Data.Span).TrimEnd('\0', ';', '\r', '\n');
         var parts = text.Split(';', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return Array.Empty<string>();
+        if (parts.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
         // First field is count — skip if numeric. Some servers omit it.
         var start = int.TryParse(parts[0], out _) ? 1 : 0;
         return parts.Skip(start).Select(p => p.Trim()).ToList();
@@ -231,7 +244,10 @@ public sealed class AgwClient : IAsyncDisposable
     internal void RemoveSession(AgwSession session)
     {
         var key = (session.From, session.To, session.RadioPort);
-        lock (sessionsLock) sessions.Remove(key);
+        lock (sessionsLock)
+        {
+            sessions.Remove(key);
+        }
     }
 
     private async Task RunDispatchLoopAsync(CancellationToken ct)
@@ -269,13 +285,23 @@ public sealed class AgwClient : IAsyncDisposable
                 {
                     foreach (var w in waiters)
                     {
-                        if (w.Tcs.Task.IsCompleted) continue;
-                        if (w.Predicate(frame)) (toComplete ??= new()).Add(w);
+                        if (w.Tcs.Task.IsCompleted)
+                        {
+                            continue;
+                        }
+
+                        if (w.Predicate(frame))
+                        {
+                            (toComplete ??= new()).Add(w);
+                        }
                     }
                 }
                 if (toComplete is not null)
                 {
-                    foreach (var w in toComplete) w.Tcs.TrySetResult(frame);
+                    foreach (var w in toComplete)
+                    {
+                        w.Tcs.TrySetResult(frame);
+                    }
                 }
 
                 if (session is not null)
@@ -291,12 +317,20 @@ public sealed class AgwClient : IAsyncDisposable
             // block forever on a dead connection.
             lock (waitersLock)
             {
-                foreach (var w in waiters) w.Tcs.TrySetException(ex);
+                foreach (var w in waiters)
+                {
+                    w.Tcs.TrySetException(ex);
+                }
+
                 waiters.Clear();
             }
             lock (sessionsLock)
             {
-                foreach (var s in sessions.Values) s.OnStreamFault(ex);
+                foreach (var s in sessions.Values)
+                {
+                    s.OnStreamFault(ex);
+                }
+
                 sessions.Clear();
             }
         }
@@ -309,7 +343,11 @@ public sealed class AgwClient : IAsyncDisposable
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(interval, ct).ConfigureAwait(false);
-                if (framing.IsClosed) return;
+                if (framing.IsClosed)
+                {
+                    return;
+                }
+
                 try
                 {
                     await framing.WriteAsync(new AgwFrame(
@@ -356,7 +394,11 @@ public sealed class AgwClient : IAsyncDisposable
 
         var tcs = new TaskCompletionSource<AgwFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var waiter = new FrameWaiter(predicate, tcs);
-        lock (waitersLock) waiters.Add(waiter);
+        lock (waitersLock)
+        {
+            waiters.Add(waiter);
+        }
+
         try
         {
             await framing.WriteAsync(request, ct).ConfigureAwait(false);
@@ -368,7 +410,10 @@ public sealed class AgwClient : IAsyncDisposable
         }
         finally
         {
-            lock (waitersLock) waiters.Remove(waiter);
+            lock (waitersLock)
+            {
+                waiters.Remove(waiter);
+            }
         }
     }
 

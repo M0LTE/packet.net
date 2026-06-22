@@ -50,7 +50,7 @@ public class Ax25SessionIntegrationTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         var sFrames = new List<SupervisoryFrameSpec>();
@@ -100,10 +100,10 @@ public class Ax25SessionIntegrationTests
             from: "S1",
             on: SdlEvent.DLCONNECTRequest,
             next: "S1",
-            (Ax25ActionVerb.VSAssign0,           ActionKind.Processing),
-            (Ax25ActionVerb.VRAssign0,           ActionKind.Processing),
-            (Ax25ActionVerb.VAAssign0,           ActionKind.Processing),
-            (Ax25ActionVerb.RCAssign0,             ActionKind.Processing),
+            (Ax25ActionVerb.VSAssign0, ActionKind.Processing),
+            (Ax25ActionVerb.VRAssign0, ActionKind.Processing),
+            (Ax25ActionVerb.VAAssign0, ActionKind.Processing),
+            (Ax25ActionVerb.RCAssign0, ActionKind.Processing),
             (Ax25ActionVerb.SetLayer3Initiated, ActionKind.Processing));
 
         var (session, ctx, _, _, _) = NewSession(SingleStateMap("S1", t), "S1");
@@ -154,9 +154,9 @@ public class Ax25SessionIntegrationTests
             from: "S1",
             on: SdlEvent.DLCONNECTRequest,
             next: "S1",
-            (Ax25ActionVerb.RCAssign0,      ActionKind.Processing),
-            (Ax25ActionVerb.StartT1,     ActionKind.Processing),
-            (Ax25ActionVerb.RRCommand,   ActionKind.SignalLower));
+            (Ax25ActionVerb.RCAssign0, ActionKind.Processing),
+            (Ax25ActionVerb.StartT1, ActionKind.Processing),
+            (Ax25ActionVerb.RRCommand, ActionKind.SignalLower));
 
         var (session, ctx, scheduler, _, sFrames) = NewSession(SingleStateMap("S1", t), "S1");
         ctx.RC = 9;
@@ -233,8 +233,8 @@ public class Ax25SessionIntegrationTests
 
         // Build a mod-8 RR command with N(R)=5.
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (5 << 5) | 0x01;
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
 

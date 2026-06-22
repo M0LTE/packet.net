@@ -57,7 +57,7 @@ public sealed class AgwFrameStream : IAsyncDisposable
         {
             SingleReader = false,   // Multiple AgwClient methods may concurrently await different frame kinds
             SingleWriter = true,    // Only the read loop writes
-            FullMode     = BoundedChannelFullMode.Wait,
+            FullMode = BoundedChannelFullMode.Wait,
         });
         this.readCts = new CancellationTokenSource();
         this.readLoop = Task.Run(() => RunReadLoopAsync(readCts.Token));
@@ -164,7 +164,11 @@ public sealed class AgwFrameStream : IAsyncDisposable
             int n = await stream.ReadAsync(buffer.Slice(totalRead), ct).ConfigureAwait(false);
             if (n == 0)
             {
-                if (totalRead == 0) return false;
+                if (totalRead == 0)
+                {
+                    return false;
+                }
+
                 throw new EndOfStreamException(
                     $"AGW stream ended mid-read: expected {buffer.Length} bytes, got {totalRead}.");
             }

@@ -211,7 +211,10 @@ internal sealed partial class PacingKissModem : ITxCompletionTransport, ICsmaCha
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
 
         // Stop accepting new frames, cancel the pump, and wait for it to drain out.
         queue.Writer.TryComplete();

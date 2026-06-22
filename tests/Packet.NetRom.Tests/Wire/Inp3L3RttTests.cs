@@ -149,8 +149,12 @@ public sealed class Inp3L3RttTests
             },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 0, CircuitId = 0, TxSequence = 0, RxSequence = 0,
-                Opcode = (NetRomOpcode)0x02, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 0,
+                CircuitId = 0,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = (NetRomOpcode)0x02,
+                Flags = NetRomTransportFlags.None,
             },
             Payload = "$N$Z9$I4 "u8.ToArray(),
         };
@@ -175,8 +179,12 @@ public sealed class Inp3L3RttTests
             },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 0, CircuitId = 0, TxSequence = 0, RxSequence = 0,
-                Opcode = (NetRomOpcode)0x02, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 0,
+                CircuitId = 0,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = (NetRomOpcode)0x02,
+                Flags = NetRomTransportFlags.None,
             },
             Payload = "        "u8.ToArray(),
         };
@@ -202,8 +210,12 @@ public sealed class Inp3L3RttTests
             },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 1, CircuitId = 1, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.ConnectAcknowledge, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 1,
+                CircuitId = 1,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.ConnectAcknowledge,
+                Flags = NetRomTransportFlags.None,
             },
         };
 
@@ -224,8 +236,12 @@ public sealed class Inp3L3RttTests
             },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 0, CircuitId = 0, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.Information, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 0,
+                CircuitId = 0,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.Information,
+                Flags = NetRomTransportFlags.None,
             },
         };
 

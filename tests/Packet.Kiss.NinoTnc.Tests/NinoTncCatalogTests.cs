@@ -15,13 +15,13 @@ public class NinoTncCatalogTests
     }
 
     [Theory]
-    [InlineData(0,  "9600 GFSK AX.25",      9600)]
-    [InlineData(1,  "19200 4FSK",          19200)]
-    [InlineData(2,  "9600 GFSK IL2P+CRC",   9600)]
-    [InlineData(6,  "1200 AFSK AX.25",      1200)]
-    [InlineData(8,  "300 BPSK IL2P+CRC",     300)]
-    [InlineData(14, "300 AFSKPLL IL2P+CRC",  300)]
-    [InlineData(15, "Set from KISS",           0)]
+    [InlineData(0, "9600 GFSK AX.25", 9600)]
+    [InlineData(1, "19200 4FSK", 19200)]
+    [InlineData(2, "9600 GFSK IL2P+CRC", 9600)]
+    [InlineData(6, "1200 AFSK AX.25", 1200)]
+    [InlineData(8, "300 BPSK IL2P+CRC", 300)]
+    [InlineData(14, "300 AFSKPLL IL2P+CRC", 300)]
+    [InlineData(15, "Set from KISS", 0)]
     public void Catalog_Matches_Kissproxy_Source(byte mode, string expectedName, int expectedBitRate)
     {
         var entry = NinoTncCatalog.ByMode[mode];

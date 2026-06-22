@@ -98,7 +98,11 @@ public sealed class SqliteSink : IAsyncDisposable
 
     async Task EnsureTransactionAsync(CancellationToken ct)
     {
-        if (_tx is not null) return;
+        if (_tx is not null)
+        {
+            return;
+        }
+
         _tx = (SqliteTransaction)await _conn!.BeginTransactionAsync(ct);
         _insertCmd!.Transaction = _tx;
         _txOpenedAt = DateTime.UtcNow;
@@ -107,12 +111,19 @@ public sealed class SqliteSink : IAsyncDisposable
 
     async Task CommitAsync(CancellationToken ct)
     {
-        if (_tx is null) return;
+        if (_tx is null)
+        {
+            return;
+        }
+
         await _tx.CommitAsync(ct);
         await _tx.DisposeAsync();
         _tx = null;
         _txPending = 0;
-        if (_insertCmd is not null) _insertCmd.Transaction = null;
+        if (_insertCmd is not null)
+        {
+            _insertCmd.Transaction = null;
+        }
     }
 
     async Task RotateToAsync(string dateUtc, CancellationToken ct)

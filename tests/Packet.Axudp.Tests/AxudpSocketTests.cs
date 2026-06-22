@@ -21,8 +21,8 @@ public class AxudpSocketTests
 
         var frame = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("G7XYZ", 0),
-            info:        "x"u8);
+            source: new Callsign("G7XYZ", 0),
+            info: "x"u8);
 
         var receiveTask = rawReceiver.ReceiveAsync(cts.Token);
         await sender.SendAsync(new IPEndPoint(IPAddress.Loopback, receivePort), frame, cts.Token);

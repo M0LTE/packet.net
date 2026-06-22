@@ -50,9 +50,17 @@ public sealed class OarcReporterTests
             return Task.FromResult(r);
         }
 
-        public IReadOnlyList<OarcEvent> Posted { get { lock (gate) return posted.ToList(); } }
-        public int CountOf<T>() { lock (gate) return posted.OfType<T>().Count(); }
-        public T? Last<T>() where T : class { lock (gate) return posted.OfType<T>().LastOrDefault(); }
+        public IReadOnlyList<OarcEvent> Posted { get { lock (gate) { return posted.ToList(); } } }
+        public int CountOf<T>() { lock (gate)
+            {
+                return posted.OfType<T>().Count();
+            }
+        }
+        public T? Last<T>() where T : class { lock (gate)
+            {
+                return posted.OfType<T>().LastOrDefault();
+            }
+        }
     }
 
     private sealed class CapturingLogger<T> : ILogger<T>
@@ -62,9 +70,17 @@ public sealed class OarcReporterTests
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel level, EventId id, TState state, Exception? ex, Func<TState, Exception?, string> fmt)
-        { lock (gate) Messages.Add((level, fmt(state, ex))); }
+        { lock (gate)
+            {
+                Messages.Add((level, fmt(state, ex)));
+            }
+        }
         public bool Has(LogLevel level, string contains)
-        { lock (gate) return Messages.Any(m => m.Level == level && m.Text.Contains(contains)); }
+        { lock (gate)
+            {
+                return Messages.Any(m => m.Level == level && m.Text.Contains(contains));
+            }
+        }
         private sealed class NullScope : IDisposable { public static readonly NullScope Instance = new(); public void Dispose() { } }
     }
 
@@ -73,13 +89,25 @@ public sealed class OarcReporterTests
 
     private static OarcLinkState Link(int id, bool inbound, string remote = "G7XYZ-2", string port = "vhf") => new()
     {
-        Id = id, Port = port, Local = "M0LTE-1", Remote = remote, Inbound = inbound,
-        FramesSent = 5, FramesReceived = 7, BytesSent = 100, BytesReceived = 200, UpForSeconds = 30,
+        Id = id,
+        Port = port,
+        Local = "M0LTE-1",
+        Remote = remote,
+        Inbound = inbound,
+        FramesSent = 5,
+        FramesReceived = 7,
+        BytesSent = 100,
+        BytesReceived = 200,
+        UpForSeconds = 30,
     };
 
     private static OarcCircuitState Circuit(int id, bool inbound, string remote = "GB7RDG") => new()
     {
-        Id = id, Local = "M0LTE-1", Remote = remote, Inbound = inbound, UpForSeconds = 12,
+        Id = id,
+        Local = "M0LTE-1",
+        Remote = remote,
+        Inbound = inbound,
+        UpForSeconds = 12,
     };
 
     private sealed record Harness(
@@ -119,8 +147,12 @@ public sealed class OarcReporterTests
 
     private static OarcConfig On() => new()
     {
-        Enabled = true, ReportNodeStatus = true, ReportLinks = true, ReportCircuits = true,
-        StatusIntervalSecs = 300, SessionStatusIntervalSecs = 300,
+        Enabled = true,
+        ReportNodeStatus = true,
+        ReportLinks = true,
+        ReportCircuits = true,
+        StatusIntervalSecs = 300,
+        SessionStatusIntervalSecs = 300,
     };
 
     // ── Tests ────────────────────────────────────────────────────────────
@@ -214,7 +246,8 @@ public sealed class OarcReporterTests
         await using var h = await StartAsync(On() with { StatusIntervalSecs = 1 });
         h.State.Set(new OarcNodeSnapshot
         {
-            UptimeSeconds = 42, L3Relayed = 9,
+            UptimeSeconds = 42,
+            L3Relayed = 9,
             Links = [Link(1, inbound: true), Link(2, inbound: false)],
         });
         await Wait.ForAsync(() => h.Client.CountOf<OarcNodeUpEvent>() >= 1, "node-up first");

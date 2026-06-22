@@ -144,7 +144,11 @@ public class AgwClientInMemoryTests
         while (totalRead < 23) // banner + prompt
         {
             int n = await session.ReadAsync(buffer.AsMemory(totalRead), readCts.Token);
-            if (n == 0) break;
+            if (n == 0)
+            {
+                break;
+            }
+
             totalRead += n;
         }
         await serverTask;
@@ -221,6 +225,85 @@ public class AgwClientInMemoryTests
         dataFrames[0].Data.Length.Should().Be(256);
         dataFrames[1].Data.Length.Should().Be(256);
         dataFrames[2].Data.Length.Should().Be(88);
+    }
+
+    [Fact]
+    public async Task GetPortInfoAsync_parses_the_semicolon_list_and_skips_the_count_field()
+    {
+        await using var pair = new InMemoryAgwPair();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var g = await pair.ServerReadFrame();
+            g.Kind.Should().Be(AgwCommandKind.AskPortInfo);
+            await pair.ServerWriteFrame(new AgwFrame(
+                Port: 0, Kind: AgwCommandKind.AskPortInfo, Pid: 0, From: "", To: "",
+                Data: Encoding.ASCII.GetBytes("2;Packet Radio Port;VHF Port;\0\0")));
+        });
+
+        var ports = await pair.Client.GetPortInfoAsync();
+        await serverTask;
+
+        ports.Should().Equal("Packet Radio Port", "VHF Port");
+    }
+
+    [Fact]
+    public async Task GetPortInfoAsync_returns_empty_for_an_empty_reply_body()
+    {
+        await using var pair = new InMemoryAgwPair();
+
+        var serverTask = Task.Run(async () =>
+        {
+            await pair.ServerReadFrame();
+            await pair.ServerWriteFrame(new AgwFrame(
+                Port: 0, Kind: AgwCommandKind.AskPortInfo, Pid: 0, From: "", To: "",
+                Data: ReadOnlyMemory<byte>.Empty));
+        });
+
+        var ports = await pair.Client.GetPortInfoAsync();
+        await serverTask;
+
+        ports.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task OpenSessionAsync_times_out_when_the_server_never_acks_the_connect()
+    {
+        await using var pair = new InMemoryAgwPair();
+
+        // Server reads the 'C' (so the client's write completes) but never acks.
+        var serverTask = Task.Run(async () => await pair.ServerReadFrame());
+
+        var act = async () => await pair.Client.OpenSessionAsync(
+            "M0LTE", "PN0TST", connectTimeout: TimeSpan.FromMilliseconds(300));
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        await serverTask;
+
+        // The failed session was removed from the table, so a retry doesn't collide
+        // with a phantom "already exists".
+        var retry = async () => await pair.Client.OpenSessionAsync(
+            "M0LTE", "PN0TST", connectTimeout: TimeSpan.FromMilliseconds(100));
+        await retry.Should().ThrowAsync<TimeoutException>("the slot is free to retry, not an InvalidOperationException");
+    }
+
+    [Fact]
+    public async Task OpenSessionAsync_rejects_a_duplicate_live_session()
+    {
+        await using var pair = new InMemoryAgwPair();
+
+        var serverTask = Task.Run(async () =>
+        {
+            await pair.ServerReadFrame();
+            await pair.ServerWriteFrame(MakeConnectAck());
+        });
+
+        await using var session = await pair.Client.OpenSessionAsync("M0LTE", "PN0TST");
+        await serverTask;
+
+        // A second open for the same (from, to, port) while the first is live is refused.
+        var act = async () => await pair.Client.OpenSessionAsync("M0LTE", "PN0TST");
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     private static AgwFrame MakeConnectAck() => new(

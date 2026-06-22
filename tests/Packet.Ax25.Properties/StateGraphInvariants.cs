@@ -34,12 +34,12 @@ public class StateGraphInvariants
     /// </summary>
     private static IEnumerable<(string Name, IReadOnlyList<TransitionSpec> Transitions)> AllDataLinkTables()
     {
-        yield return (nameof(DataLink_Disconnected),         DataLink_Disconnected.Transitions);
-        yield return (nameof(DataLink_AwaitingConnection),   DataLink_AwaitingConnection.Transitions);
-        yield return (nameof(DataLink_AwaitingRelease),      DataLink_AwaitingRelease.Transitions);
-        yield return (nameof(DataLink_Connected),            DataLink_Connected.Transitions);
+        yield return (nameof(DataLink_Disconnected), DataLink_Disconnected.Transitions);
+        yield return (nameof(DataLink_AwaitingConnection), DataLink_AwaitingConnection.Transitions);
+        yield return (nameof(DataLink_AwaitingRelease), DataLink_AwaitingRelease.Transitions);
+        yield return (nameof(DataLink_Connected), DataLink_Connected.Transitions);
         yield return (nameof(DataLink_AwaitingV22Connection), DataLink_AwaitingV22Connection.Transitions);
-        yield return (nameof(DataLink_TimerRecovery),        DataLink_TimerRecovery.Transitions);
+        yield return (nameof(DataLink_TimerRecovery), DataLink_TimerRecovery.Transitions);
     }
 
     /// <summary>
@@ -78,7 +78,10 @@ public class StateGraphInvariants
         // transition table, every transition must have the same From.
         foreach (var (name, transitions) in AllDataLinkTables())
         {
-            if (transitions.Count == 0) continue;
+            if (transitions.Count == 0)
+            {
+                continue;
+            }
 
             var distinctFroms = transitions.Select(t => t.From).Distinct().ToArray();
             distinctFroms.Should().HaveCount(1,
@@ -158,7 +161,10 @@ public class StateGraphInvariants
             var byEvent = transitions.GroupBy(t => t.On);
             foreach (var group in byEvent)
             {
-                if (group.Count() == 1) continue;
+                if (group.Count() == 1)
+                {
+                    continue;
+                }
 
                 var unguarded = group.Where(t => t.Guard is null).ToArray();
                 unguarded.Should().BeEmpty(

@@ -145,10 +145,10 @@ public class SessionRuntimeInvariants
         // Peer replies RR, response, F=1, N(r)=1 — acks the outstanding frame.
         var rr = Ax25Frame.Rr(
             destination: rig.Context.Local,
-            source:      rig.Context.Remote,
-            nr:          1,
-            isCommand:   false,
-            pollFinal:   true);
+            source: rig.Context.Remote,
+            nr: 1,
+            isCommand: false,
+            pollFinal: true);
         rig.Session.PostEvent(new RrReceived(rr));
 
         rig.Session.CurrentState.Should().Be("Connected",
@@ -190,38 +190,52 @@ public class SessionRuntimeInvariants
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             IsExtended = isExtended,
         };
-        if (n2 is { } n2v)   ctx.N2 = n2v;
-        if (t1vMs is { } t)  ctx.T1V = TimeSpan.FromMilliseconds(t);
-        if (k is { } kv)     ctx.K  = kv;
+        if (n2 is { } n2v)
+        {
+            ctx.N2 = n2v;
+        }
+
+        if (t1vMs is { } t)
+        {
+            ctx.T1V = TimeSpan.FromMilliseconds(t);
+        }
+
+        if (k is { } kv)
+        {
+            ctx.K = kv;
+        }
 
         Ax25Session? sessionRef = null;
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    _ => { },
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendIFrame:    _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendIFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { });
 
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
         var guards = new GuardEvaluator(bindings);
-        if (dispatcher.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(dispatcher, guards);
+        if (dispatcher.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(dispatcher, guards);
+        }
 
         var session = new Ax25Session(ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]          = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["Connected"]             = DataLink_Connected.Transitions,
-                ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-                ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
             },
             initialState: "Connected");
         sessionRef = session;
@@ -233,6 +247,6 @@ public class SessionRuntimeInvariants
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
     };
 }

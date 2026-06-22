@@ -26,10 +26,10 @@ namespace Packet.Interop.Tests.Netsim;
 [Collection(NetsimCollection.Name)]
 public class NetsimKissTcpInterop
 {
-    private const string Host        = "127.0.0.1";
-    private const int    NodeAKissPort = 8100;
-    private const int    NodeBKissPort = 8101;
-    private const int    NetsimWebPort = 8080;
+    private const string Host = "127.0.0.1";
+    private const int NodeAKissPort = 8100;
+    private const int NodeBKissPort = 8101;
+    private const int NetsimWebPort = 8080;
 
     [SkippableFact]
     public async Task UI_Frame_Sent_On_Node_A_Is_Received_On_Node_B()
@@ -39,7 +39,7 @@ public class NetsimKissTcpInterop
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
-        await using var sender   = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
+        await using var sender = await KissTcpClient.ConnectAsync(Host, NodeAKissPort, cts.Token);
         await using var receiver = await KissTcpClient.ConnectAsync(Host, NodeBKissPort, cts.Token);
 
         // Give net-sim a moment to register both clients before we transmit.
@@ -48,8 +48,8 @@ public class NetsimKissTcpInterop
 
         var outbound = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("PN0TST", 9),
-            info:        "Packet.NET → net-sim"u8);
+            source: new Callsign("PN0TST", 9),
+            info: "Packet.NET → net-sim"u8);
 
         await sender.SendAsync(port: 0, KissCommand.Data, outbound.ToBytes(), cts.Token);
 
@@ -61,8 +61,16 @@ public class NetsimKissTcpInterop
             var frames = await receiver.ReceiveAsync(cts.Token);
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
-                if (!Ax25Frame.TryParse(f.Payload, out var parsed)) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
+                if (!Ax25Frame.TryParse(f.Payload, out var parsed))
+                {
+                    continue;
+                }
+
                 if (parsed.Source.Callsign == new Callsign("PN0TST", 9))
                 {
                     decoded = parsed;
@@ -83,7 +91,11 @@ public class NetsimKissTcpInterop
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
             var resp = await http.GetAsync($"http://{Host}:{NetsimWebPort}/healthz");
-            if (!resp.IsSuccessStatusCode) return false;
+            if (!resp.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
             var body = await resp.Content.ReadAsStringAsync();
             return body.Trim() == "ok";
         }

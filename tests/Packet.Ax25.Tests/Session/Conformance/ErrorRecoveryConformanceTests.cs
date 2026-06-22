@@ -43,14 +43,14 @@ public class ErrorRecoveryConformanceTests
     private static byte[] FrmrTo(TwoStationHarness.Endpoint target) =>
         Ax25Frame.Frmr(
             destination: target.Context.Local,
-            source:      target.Context.Remote,
-            info:        ReadOnlySpan<byte>.Empty).ToBytes();
+            source: target.Context.Remote,
+            info: ReadOnlySpan<byte>.Empty).ToBytes();
 
     /// <summary>A DM addressed to <paramref name="target"/>.</summary>
     private static byte[] DmTo(TwoStationHarness.Endpoint target) =>
         Ax25Frame.Dm(
             destination: target.Context.Local,
-            source:      target.Context.Remote).ToBytes();
+            source: target.Context.Remote).ToBytes();
 
     private static bool SawSabmFrom(TwoStationHarness.Endpoint peerThatReceives) =>
         peerThatReceives.ReceivedFromPeer.Any(f => Ax25FrameClassifier.Classify(f) is SabmReceived);

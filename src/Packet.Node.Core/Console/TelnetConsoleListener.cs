@@ -127,10 +127,17 @@ public sealed partial class TelnetConsoleListener : IAsyncDisposable
 
     private void TrackSession(Task t)
     {
-        lock (gate) sessions.Add(t);
+        lock (gate)
+        {
+            sessions.Add(t);
+        }
+
         _ = t.ContinueWith(done =>
         {
-            lock (gate) sessions.Remove(done);
+            lock (gate)
+            {
+                sessions.Remove(done);
+            }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
@@ -151,7 +158,11 @@ public sealed partial class TelnetConsoleListener : IAsyncDisposable
         }
 
         Task[] outstanding;
-        lock (gate) outstanding = sessions.ToArray();
+        lock (gate)
+        {
+            outstanding = sessions.ToArray();
+        }
+
         try { await Task.WhenAll(outstanding).ConfigureAwait(false); }
         catch { /* sessions tearing down */ }
     }

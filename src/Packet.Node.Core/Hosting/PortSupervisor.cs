@@ -137,7 +137,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         string portId, Callsign neighbour, PeerDialPlan plan, CancellationToken ct)
     {
         RunningPort? port;
-        lock (ports) ports.TryGetValue(portId, out port);
+        lock (ports)
+        {
+            ports.TryGetValue(portId, out port);
+        }
+
         var listener = port?.Listener
             ?? throw new InvalidOperationException($"NET/ROM interlink: port '{portId}' is not running.");
 
@@ -176,13 +180,26 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
     /// cross-check). Snapshot; ordering not guaranteed.</summary>
     public IReadOnlyCollection<string> RunningPortIds
     {
-        get { lock (ports) return ports.Keys.ToArray(); }
+        get { lock (ports)
+            {
+                return ports.Keys.ToArray();
+            }
+        }
     }
 
     /// <summary>Look up a running port by id (for tests).</summary>
-    public RunningPort? GetPort(string id)
+    public RunningPort? GetPort(string id) => TryGetRunning(id);
+
+    // Centralises the `lock (ports) { TryGetValue }` read so the running-port
+    // synchronisation invariant lives in one place rather than being open-coded at
+    // every lookup site. Returns null when no running port has that id (e.g. it is
+    // disabled, faulted, or mid-restart).
+    private RunningPort? TryGetRunning(string id)
     {
-        lock (ports) return ports.TryGetValue(id, out var p) ? p : null;
+        lock (ports)
+        {
+            return ports.TryGetValue(id, out var p) ? p : null;
+        }
     }
 
     /// <summary>
@@ -201,8 +218,8 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
     /// </summary>
     public IOutboundConnector? ResolveConnector(string portId, Callsign? localOverride = null)
     {
-        RunningPort? port;
-        lock (ports) ports.TryGetValue(portId, out port);
+        var port = TryGetRunning(portId);
+
         return port is null ? null : new Ax25OutboundConnector(port.Id, port.Listener, r => ClaimOutbound(r), localOverride, capabilityCache);
     }
 
@@ -442,15 +459,24 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         {
             if (outboundInProgress.TryGetValue(remote, out var n))
             {
-                if (n <= 1) outboundInProgress.Remove(remote);
-                else outboundInProgress[remote] = n - 1;
+                if (n <= 1)
+                {
+                    outboundInProgress.Remove(remote);
+                }
+                else
+                {
+                    outboundInProgress[remote] = n - 1;
+                }
             }
         }
     }
 
     private bool IsOutbound(Callsign remote)
     {
-        lock (outboundGate) return outboundInProgress.ContainsKey(remote);
+        lock (outboundGate)
+        {
+            return outboundInProgress.ContainsKey(remote);
+        }
     }
 
     private sealed class OutboundTicket(PortSupervisor owner, Callsign remote) : IDisposable
@@ -458,7 +484,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         private int released;
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref released, 1) == 0) owner.ReleaseOutbound(remote);
+            if (Interlocked.Exchange(ref released, 1) == 0)
+            {
+                owner.ReleaseOutbound(remote);
+            }
         }
     }
 
@@ -519,8 +548,15 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
         // Tear down removed + disabled ports first (frees devices before any
         // restart re-grabs one).
-        foreach (var id in plan.ToTearDown) await TearDownAsync(id).ConfigureAwait(false);
-        foreach (var id in plan.ToDisable) await TearDownAsync(id).ConfigureAwait(false);
+        foreach (var id in plan.ToTearDown)
+        {
+            await TearDownAsync(id).ConfigureAwait(false);
+        }
+
+        foreach (var id in plan.ToDisable)
+        {
+            await TearDownAsync(id).ConfigureAwait(false);
+        }
 
         // Single-port restarts: down then up.
         foreach (var port in plan.ToRestart)
@@ -530,8 +566,15 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         }
 
         // Bring up new + newly-enabled ports.
-        foreach (var port in plan.ToBringUp) await BringUpAsync(port, newConfig.Identity, cancellationToken).ConfigureAwait(false);
-        foreach (var port in plan.ToEnable) await BringUpAsync(port, newConfig.Identity, cancellationToken).ConfigureAwait(false);
+        foreach (var port in plan.ToBringUp)
+        {
+            await BringUpAsync(port, newConfig.Identity, cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (var port in plan.ToEnable)
+        {
+            await BringUpAsync(port, newConfig.Identity, cancellationToken).ConfigureAwait(false);
+        }
 
         // Hot KISS-param changes — apply live, no restart, sessions untouched.
         foreach (var port in plan.KissParamsChanged)
@@ -673,7 +716,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
             Listener = listener,
             Started = true,
         };
-        lock (ports) ports[port.Id] = running;
+        lock (ports)
+        {
+            ports[port.Id] = running;
+        }
 
         // A fresh listener must answer for the app callsigns registered while the port was
         // down/restarting (the RHPv2 server's binds outlive any individual port lifecycle).
@@ -704,7 +750,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         RunningPort? running;
         lock (ports)
         {
-            if (!ports.Remove(id, out running)) return;
+            if (!ports.Remove(id, out running))
+            {
+                return;
+            }
         }
         // Detach the NET/ROM tap and cleanly disconnect any interlink AX.25 sessions
         // on this port BEFORE disposing the listener — DetachPortAsync DISCs each
@@ -712,7 +761,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         // the neighbour isn't left with a half-open link it polls (the #309
         // contamination class). The listener is still alive here to carry the DISC.
         // Learned routes survive; their neighbours age out via obsolescence.
-        if (netRom is not null) await netRom.DetachPortAsync(id).ConfigureAwait(false);
+        if (netRom is not null)
+        {
+            await netRom.DetachPortAsync(id).ConfigureAwait(false);
+        }
+
         telemetry?.DetachPort(id);
         beacons?.DetachPort(id);
         await running.DisposeAsync().ConfigureAwait(false);
@@ -732,7 +785,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
             // Clean interlink DISC (bounded) before disposing the listener — see
             // TearDownAsync for the rationale (avoid leaving a neighbour a half-open
             // link it polls onto the shared channel).
-            if (netRom is not null) await netRom.DetachPortAsync(p.Id).ConfigureAwait(false);
+            if (netRom is not null)
+            {
+                await netRom.DetachPortAsync(p.Id).ConfigureAwait(false);
+            }
+
             telemetry?.DetachPort(p.Id);
             beacons?.DetachPort(p.Id);
             await p.DisposeAsync().ConfigureAwait(false);
@@ -741,12 +798,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private async Task ApplyKissParamsAsync(PortConfig port, CancellationToken ct)
     {
-        RunningPort? running;
-        lock (ports)
+        var running = TryGetRunning(port.Id);
+        if (running is null)
         {
-            ports.TryGetValue(port.Id, out running);
+            return;   // not up (e.g. faulted) — nothing live to tune
         }
-        if (running is null) return;   // not up (e.g. faulted) — nothing live to tune
 
         // Resolve the profile here too so a live KISS re-apply uses the same
         // effective values a fresh bring-up would (explicit wins, profile fills).
@@ -758,12 +814,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private void ApplyAx25Params(PortConfig port)
     {
-        RunningPort? running;
-        lock (ports)
+        var running = TryGetRunning(port.Id);
+        if (running is null)
         {
-            ports.TryGetValue(port.Id, out running);
+            return;   // not up (e.g. faulted) — the next bring-up reads the new config
         }
-        if (running is null) return;   // not up (e.g. faulted) — the next bring-up reads the new config
 
         // Resolve the profile here too so a live AX.25 reseed uses the same
         // effective values a fresh bring-up would (explicit wins, profile fills).
@@ -778,12 +833,11 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private void ApplyCompat(PortConfig port)
     {
-        RunningPort? running;
-        lock (ports)
+        var running = TryGetRunning(port.Id);
+        if (running is null)
         {
-            ports.TryGetValue(port.Id, out running);
+            return;   // not up (e.g. faulted) — the next bring-up reads the new config
         }
-        if (running is null) return;   // not up (e.g. faulted) — the next bring-up reads the new config
 
         var (effectiveAx25, _) = ChannelProfiles.Resolve(port);
 
@@ -800,7 +854,10 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         // CSMA params are meaningful only on a transport that exposes them. A transport
         // with no CSMA channel (none today — AXUDP exposes them as no-ops through the
         // migration shim) is simply skipped, preserving today's behaviour.
-        if (transport is not ICsmaChannelParams csma) return;
+        if (transport is not ICsmaChannelParams csma)
+        {
+            return;
+        }
 
         // TXDELAY/PERSIST/SLOTTIME stay opt-in — unset means "leave the modem at its
         // own default", because the right value for those is firmware-specific and a
@@ -813,9 +870,21 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
         // Dire Wolf — or a NinoTNC into a non-zero-latency audio path), which the node
         // can't infer, so the operator sets `kiss.txTail` per port and that explicit
         // value wins here (the `?? 0` only supplies the default when unset).
-        if (kiss?.TxDelay is { } txd) await csma.SetTxDelayAsync(txd, ct).ConfigureAwait(false);
-        if (kiss?.Persistence is { } per) await csma.SetPersistenceAsync(per, ct).ConfigureAwait(false);
-        if (kiss?.SlotTime is { } slot) await csma.SetSlotTimeAsync(slot, ct).ConfigureAwait(false);
+        if (kiss?.TxDelay is { } txd)
+        {
+            await csma.SetTxDelayAsync(txd, ct).ConfigureAwait(false);
+        }
+
+        if (kiss?.Persistence is { } per)
+        {
+            await csma.SetPersistenceAsync(per, ct).ConfigureAwait(false);
+        }
+
+        if (kiss?.SlotTime is { } slot)
+        {
+            await csma.SetSlotTimeAsync(slot, ct).ConfigureAwait(false);
+        }
+
         await csma.SetTxTailAsync(kiss?.TxTail ?? 0, ct).ConfigureAwait(false);
     }
 

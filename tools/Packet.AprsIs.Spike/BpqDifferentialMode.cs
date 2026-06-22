@@ -96,9 +96,13 @@ public static class BpqDifferentialMode
                         streams[key] = sp;
                     }
                     if (fmt == "kiss")
+                    {
                         sp.Kiss.Add((id, ts, payload));
+                    }
                     else
+                    {
                         sp.Bpq.Add((id, ts, payload));
+                    }
                 }
             }
 
@@ -125,9 +129,15 @@ public static class BpqDifferentialMode
 
                     ProcessPair(kid, bid, kpayload, bpayload, port, stats);
                     processed++;
-                    if (opts.Limit > 0 && processed >= opts.Limit) break;
+                    if (opts.Limit > 0 && processed >= opts.Limit)
+                    {
+                        break;
+                    }
                 }
-                if (opts.Limit > 0 && processed >= opts.Limit) break;
+                if (opts.Limit > 0 && processed >= opts.Limit)
+                {
+                    break;
+                }
             }
         }
 
@@ -363,13 +373,24 @@ public static class BpqDifferentialMode
     /// </summary>
     static bool HasBlankCallsignField(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length < 14) return false;
+        if (bytes.Length < 14)
+        {
+            return false;
+        }
+
         return AllShiftedSpaces(bytes[..6]) || AllShiftedSpaces(bytes[7..13]);
     }
 
     static bool AllShiftedSpaces(ReadOnlySpan<byte> slot)
     {
-        foreach (var b in slot) if (b != 0x40) return false;
+        foreach (var b in slot)
+        {
+            if (b != 0x40)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -382,7 +403,10 @@ public static class BpqDifferentialMode
     {
         for (int i = 6; i < Math.Min(bytes.Length, 7 + 9 * 7); i += 7)
         {
-            if ((bytes[i] & 0x01) != 0) return i + 1;
+            if ((bytes[i] & 0x01) != 0)
+            {
+                return i + 1;
+            }
         }
         return -1;
     }
@@ -390,21 +414,21 @@ public static class BpqDifferentialMode
     // Map our classifier event → BPQ short tag.
     static string TagFor(Ax25Event ev) => ev switch
     {
-        IFrameReceived  => "I",
-        RrReceived      => "RR",
-        RnrReceived     => "RNR",
-        RejReceived     => "REJ",
-        SrejReceived    => "SREJ",
-        SabmReceived    => "C",       // BPQ writes <C> for Connect = SABM
-        SabmeReceived   => "C",       // mod-128 also rendered as <C> by BPQ
-        DiscReceived    => "D",
-        UaReceived      => "UA",
-        DmReceived      => "DM",
-        FrmrReceived    => "FRMR",
-        XidReceived     => "XID",
-        TestReceived    => "TEST",
-        UiReceived      => "UI",
-        _               => "?",
+        IFrameReceived => "I",
+        RrReceived => "RR",
+        RnrReceived => "RNR",
+        RejReceived => "REJ",
+        SrejReceived => "SREJ",
+        SabmReceived => "C",       // BPQ writes <C> for Connect = SABM
+        SabmeReceived => "C",       // mod-128 also rendered as <C> by BPQ
+        DiscReceived => "D",
+        UaReceived => "UA",
+        DmReceived => "DM",
+        FrmrReceived => "FRMR",
+        XidReceived => "XID",
+        TestReceived => "TEST",
+        UiReceived => "UI",
+        _ => "?",
     };
 
     static bool CallsignEqual(string ours, string theirs)
@@ -415,10 +439,17 @@ public static class BpqDifferentialMode
 
     static bool DigiListEqual(IList<string> a, IList<string> b)
     {
-        if (a.Count != b.Count) return false;
+        if (a.Count != b.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < a.Count; i++)
         {
-            if (!CallsignEqual(a[i], b[i])) return false;
+            if (!CallsignEqual(a[i], b[i]))
+            {
+                return false;
+            }
         }
         return true;
     }
@@ -455,14 +486,21 @@ public static class BpqDifferentialMode
         public static BpqLine? Parse(string payload)
         {
             var m = Re.Match(payload);
-            if (!m.Success) return null;
+            if (!m.Success)
+            {
+                return null;
+            }
+
             var digis = new List<string>();
             if (m.Groups["via"].Success)
             {
                 foreach (var raw in m.Groups["via"].Value.Split(','))
                 {
                     var token = raw.TrimEnd('*');  // strip H-bit marker
-                    if (token.Length > 0) digis.Add(token);
+                    if (token.Length > 0)
+                    {
+                        digis.Add(token);
+                    }
                 }
             }
 
@@ -474,10 +512,22 @@ public static class BpqDifferentialMode
             int? nr = null;
             foreach (var rawTok in flagsText.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (rawTok == "C") isCommand = true;
-                else if (rawTok == "R") isCommand = false;
-                else if (rawTok == "P") pollFinal = true;
-                else if (rawTok == "F") pollFinal = true;   // F is the response-side P/F
+                if (rawTok == "C")
+                {
+                    isCommand = true;
+                }
+                else if (rawTok == "R")
+                {
+                    isCommand = false;
+                }
+                else if (rawTok == "P")
+                {
+                    pollFinal = true;
+                }
+                else if (rawTok == "F")
+                {
+                    pollFinal = true;   // F is the response-side P/F
+                }
                 else if (rawTok.Length >= 2 && rawTok[0] == 'S' && char.IsDigit(rawTok[1])
                          && int.TryParse(rawTok.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var s))
                 {
@@ -506,17 +556,23 @@ public static class BpqDifferentialMode
     static List<string> ResolveDatabases(Options opts)
     {
         if (!string.IsNullOrEmpty(opts.Db) && File.Exists(opts.Db))
+        {
             return [opts.Db];
+        }
+
         if (Directory.Exists(opts.DataDir))
+        {
             return Directory.EnumerateFiles(opts.DataDir, "*.sqlite")
                 .OrderBy(p => p, StringComparer.Ordinal).ToList();
+        }
+
         return [];
     }
 
     sealed class StreamPair
     {
         public List<(long id, long ts, byte[] payload)> Kiss { get; } = new();
-        public List<(long id, long ts, byte[] payload)> Bpq  { get; } = new();
+        public List<(long id, long ts, byte[] payload)> Bpq { get; } = new();
     }
 
     enum Bucket
@@ -555,7 +611,9 @@ public static class BpqDifferentialMode
                 examples[bucket] = list;
             }
             if (list.Count < MaxExamplesPerBucket)
+            {
                 list.Add($"id={id} {detail}");
+            }
         }
 
         public void WriteShortSummary(TextWriter w)
@@ -590,7 +648,11 @@ public static class BpqDifferentialMode
             sb.AppendLine();
             foreach (var bucket in Enum.GetValues<Bucket>())
             {
-                if (!examples.TryGetValue(bucket, out var list) || list.Count == 0) continue;
+                if (!examples.TryGetValue(bucket, out var list) || list.Count == 0)
+                {
+                    continue;
+                }
+
                 sb.AppendLine(CultureInfo.InvariantCulture, $"### `{bucket}`");
                 foreach (var ex in list)
                 {

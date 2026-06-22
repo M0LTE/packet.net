@@ -7,7 +7,7 @@ public class Ax25SessionContextTests
 {
     private static Ax25SessionContext NewContext() => new()
     {
-        Local  = new Callsign("M0LTE", 0),
+        Local = new Callsign("M0LTE", 0),
         Remote = new Callsign("G7XYZ", 7),
     };
 

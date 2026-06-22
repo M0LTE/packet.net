@@ -59,7 +59,11 @@ public static class InMemoryRadio
                 {
                     // The medium only ever carries KISS Data frames, but filter for parity
                     // with the real transports' RX seam.
-                    if (f.Command != KissCommand.Data) continue;
+                    if (f.Command != KissCommand.Data)
+                    {
+                        continue;
+                    }
+
                     yield return new Ax25InboundFrame(f.Payload, f.Port, DateTimeOffset.UtcNow);
                 }
             }

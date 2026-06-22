@@ -41,7 +41,10 @@ public class Ax25ListenerMultiPeerTests
         listener.SessionAccepted += (_, e) =>
         {
             sessions[e.Session.Context.Remote] = e.Session;
-            if (sessions.Count >= 2) bothAccepted.TrySetResult(true);
+            if (sessions.Count >= 2)
+            {
+                bothAccepted.TrySetResult(true);
+            }
         };
 
         await listener.StartAsync();
@@ -90,17 +93,26 @@ public class Ax25ListenerMultiPeerTests
             {
                 e.Session.DataLinkSignalEmitted += (_, sig) =>
                 {
-                    if (sig is DataLinkDataIndication d) dataFromA.Enqueue(d);
+                    if (sig is DataLinkDataIndication d)
+                    {
+                        dataFromA.Enqueue(d);
+                    }
                 };
             }
             else if (e.Session.Context.Remote.Equals(peerB))
             {
                 e.Session.DataLinkSignalEmitted += (_, sig) =>
                 {
-                    if (sig is DataLinkDataIndication d) dataFromB.Enqueue(d);
+                    if (sig is DataLinkDataIndication d)
+                    {
+                        dataFromB.Enqueue(d);
+                    }
                 };
             }
-            if (sessions.Count >= 2) bothAccepted.TrySetResult(true);
+            if (sessions.Count >= 2)
+            {
+                bothAccepted.TrySetResult(true);
+            }
         };
 
         await listener.StartAsync();
@@ -149,7 +161,10 @@ public class Ax25ListenerMultiPeerTests
         listener.SessionAccepted += (_, e) =>
         {
             sessions[e.Session.Context.Remote] = e.Session;
-            if (sessions.Count >= 2) bothAccepted.TrySetResult(true);
+            if (sessions.Count >= 2)
+            {
+                bothAccepted.TrySetResult(true);
+            }
         };
 
         await listener.StartAsync();
@@ -187,14 +202,17 @@ public class Ax25ListenerMultiPeerTests
         var gate = new object();
         listener.SessionAccepted += (_, e) =>
         {
-            lock (gate) accepted.Add(e.Session);
+            lock (gate)
+            {
+                accepted.Add(e.Session);
+            }
         };
 
         await listener.StartAsync();
 
         // Connect 1.
         modem.InjectInbound(Ax25Frame.Sabm(LocalCall, peerA));
-        await ListenerTestSupport.WaitFor(() => { lock (gate) return accepted.Count >= 1; }, TimeSpan.FromSeconds(2));
+        await ListenerTestSupport.WaitFor(() => { lock (gate) { return accepted.Count >= 1; } }, TimeSpan.FromSeconds(2));
         var first = accepted[0];
         first.CurrentState.Should().Be("Connected");
 
@@ -221,7 +239,7 @@ public class Ax25ListenerMultiPeerTests
 
         // Reconnect.
         modem.InjectInbound(Ax25Frame.Sabm(LocalCall, peerA));
-        await ListenerTestSupport.WaitFor(() => { lock (gate) return accepted.Count >= 2; }, TimeSpan.FromSeconds(2));
+        await ListenerTestSupport.WaitFor(() => { lock (gate) { return accepted.Count >= 2; } }, TimeSpan.FromSeconds(2));
         var second = accepted[1];
         second.Should().BeSameAs(first, "the cached session instance must be returned on reconnect");
 
@@ -321,7 +339,7 @@ public class Ax25ListenerMultiPeerTests
         });
 
         var firstAccepted = new ConcurrentDictionary<Callsign, Ax25Session>();
-        var allAccepted   = new ConcurrentQueue<Ax25Session>();
+        var allAccepted = new ConcurrentQueue<Ax25Session>();
         listener.SessionAccepted += (_, e) =>
         {
             firstAccepted.TryAdd(e.Session.Context.Remote, e.Session);
@@ -382,7 +400,10 @@ public class Ax25ListenerMultiPeerTests
         listener.SessionAccepted += (_, e) =>
         {
             sessions.Add(e.Session);
-            if (sessions.Count >= 2) twoAccepted.TrySetResult(true);
+            if (sessions.Count >= 2)
+            {
+                twoAccepted.TrySetResult(true);
+            }
         };
         await listener.StartAsync();
 

@@ -210,7 +210,11 @@ public sealed record NinoTncTxTestFrame
 
     private static string? NormaliseSerial(string? raw)
     {
-        if (raw is null) return null;
+        if (raw is null)
+        {
+            return null;
+        }
+
         var cleaned = raw.Replace("\0", string.Empty, StringComparison.Ordinal).Trim();
         return cleaned.Length == 0 ? null : cleaned;
     }

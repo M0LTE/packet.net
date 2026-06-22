@@ -124,7 +124,10 @@ public class NodesBroadcastParseTests
     public void Short_or_truncated_input_returns_false_without_throwing(int length)
     {
         var bytes = new byte[length];
-        if (length > 0) bytes[0] = NodesBroadcast.Signature;
+        if (length > 0)
+        {
+            bytes[0] = NodesBroadcast.Signature;
+        }
 
         var act = () => NodesBroadcast.TryParse(bytes, out _);
         act.Should().NotThrow();

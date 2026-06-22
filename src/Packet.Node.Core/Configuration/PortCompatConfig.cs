@@ -96,7 +96,11 @@ public static class Ax25CompatPresets
     public static Ax25ParseOptions ResolveParseOptions(PortCompatConfig? compat)
     {
         var preset = PresetFor(compat?.Preset) ?? Ax25ParseOptions.Lenient;
-        if (compat is null) return preset;
+        if (compat is null)
+        {
+            return preset;
+        }
+
         return preset with
         {
             AllowEmptyCallsignBase = compat.AllowEmptyCallsignBase ?? preset.AllowEmptyCallsignBase,
@@ -113,7 +117,11 @@ public static class Ax25CompatPresets
 
     private static Ax25ParseOptions? PresetFor(string? preset)
     {
-        if (string.IsNullOrWhiteSpace(preset)) return null;
+        if (string.IsNullOrWhiteSpace(preset))
+        {
+            return null;
+        }
+
         return Normalise(preset) switch
         {
             "strict" => Ax25ParseOptions.Strict,
@@ -127,7 +135,11 @@ public static class Ax25CompatPresets
 
     private static Ax25SessionQuirks? QuirksFor(string? quirks)
     {
-        if (string.IsNullOrWhiteSpace(quirks)) return null;
+        if (string.IsNullOrWhiteSpace(quirks))
+        {
+            return null;
+        }
+
         return Normalise(quirks) switch
         {
             "default" => Ax25SessionQuirks.Default,

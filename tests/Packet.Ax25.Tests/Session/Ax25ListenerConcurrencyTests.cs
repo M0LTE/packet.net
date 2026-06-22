@@ -23,10 +23,10 @@ namespace Packet.Ax25.Tests.Session;
 /// </remarks>
 public class Ax25ListenerConcurrencyTests
 {
-    private static readonly Callsign LocalCall  = new("M0LTE", 0);
-    private static readonly Callsign PeerCallA  = new("G7XYZ", 7);
-    private static readonly Callsign PeerCallB  = new("M5ABC", 3);
-    private static readonly Callsign PeerCallC  = new("VK2DEF", 1);
+    private static readonly Callsign LocalCall = new("M0LTE", 0);
+    private static readonly Callsign PeerCallA = new("G7XYZ", 7);
+    private static readonly Callsign PeerCallB = new("M5ABC", 3);
+    private static readonly Callsign PeerCallC = new("VK2DEF", 1);
 
     // ─── Category 1: concurrency / collisions ───────────────────────────
 
@@ -54,7 +54,10 @@ public class Ax25ListenerConcurrencyTests
         listener.SessionAccepted += (_, e) =>
         {
             int n = Interlocked.Increment(ref acceptedCount);
-            if (n == 1) firstAccepted.TrySetResult(e.Session);
+            if (n == 1)
+            {
+                firstAccepted.TrySetResult(e.Session);
+            }
         };
 
         await listener.StartAsync();
@@ -156,7 +159,10 @@ public class Ax25ListenerConcurrencyTests
         var cAccepted = new TaskCompletionSource<Ax25Session>(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.SessionAccepted += (_, e) =>
         {
-            if (e.Session.Context.Remote.Equals(PeerCallC)) cAccepted.TrySetResult(e.Session);
+            if (e.Session.Context.Remote.Equals(PeerCallC))
+            {
+                cAccepted.TrySetResult(e.Session);
+            }
         };
 
         await listener.StartAsync();
@@ -212,7 +218,10 @@ public class Ax25ListenerConcurrencyTests
         listener.SessionAccepted += (_, e) =>
         {
             sessions.Add(e.Session);
-            if (sessions.Count >= 2) twoAccepted.TrySetResult(true);
+            if (sessions.Count >= 2)
+            {
+                twoAccepted.TrySetResult(true);
+            }
         };
 
         await listener.StartAsync();
@@ -372,7 +381,7 @@ public class Ax25ListenerConcurrencyTests
         // handler — surface that.
         await ListenerTestSupport.WaitFor(() => stamps.Count >= 2, TimeSpan.FromSeconds(5));
         var arrivals = stamps.ToArray();
-        var firstDelta  = arrivals[0] - t0;
+        var firstDelta = arrivals[0] - t0;
         var secondDelta = arrivals[1] - t0;
 
         // Document the current behaviour. Pump invokes handlers synchronously,

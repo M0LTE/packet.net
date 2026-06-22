@@ -115,7 +115,11 @@ public sealed partial class GitHubNinoTncFirmwareCatalogue : INinoTncFirmwareCat
         foreach (var entry in byName.Values)
         {
             var match = HexFileNameRegex().Match(entry.Name);
-            if (!match.Success) continue;
+            if (!match.Success)
+            {
+                continue;
+            }
+
             int major = int.Parse(match.Groups[1].ValueSpan, provider: System.Globalization.CultureInfo.InvariantCulture);
             int minor = int.Parse(match.Groups[2].ValueSpan, provider: System.Globalization.CultureInfo.InvariantCulture);
             var version = new NinoTncFirmwareVersion(major, minor);

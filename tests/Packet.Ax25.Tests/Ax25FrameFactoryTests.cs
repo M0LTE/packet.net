@@ -13,13 +13,13 @@ namespace Packet.Ax25.Tests;
 public class Ax25FrameFactoryTests
 {
     private static readonly Callsign Dest = new("M0LTE", 0);
-    private static readonly Callsign Src  = new("G7XYZ", 7);
+    private static readonly Callsign Src = new("G7XYZ", 7);
 
     // ─── U-frame control bytes (§4.3.3) ────────────────────────────────
 
     [Theory]
     [InlineData(false, 0x2F)]
-    [InlineData(true,  0x3F)]
+    [InlineData(true, 0x3F)]
     public void Sabm_Encodes_With_P_Bit(bool pollBit, byte expectedControl)
     {
         var frame = Ax25Frame.Sabm(Dest, Src, pollBit);
@@ -31,7 +31,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0x6F)]
-    [InlineData(true,  0x7F)]
+    [InlineData(true, 0x7F)]
     public void Sabme_Encodes_With_P_Bit(bool pollBit, byte expectedControl)
     {
         var frame = Ax25Frame.Sabme(Dest, Src, pollBit);
@@ -41,7 +41,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0x43)]
-    [InlineData(true,  0x53)]
+    [InlineData(true, 0x53)]
     public void Disc_Encodes_With_P_Bit(bool pollBit, byte expectedControl)
     {
         var frame = Ax25Frame.Disc(Dest, Src, pollBit);
@@ -51,7 +51,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0x63)]
-    [InlineData(true,  0x73)]
+    [InlineData(true, 0x73)]
     public void Ua_Encodes_With_F_Bit_As_Response(bool finalBit, byte expectedControl)
     {
         var frame = Ax25Frame.Ua(Dest, Src, finalBit);
@@ -61,7 +61,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0x0F)]
-    [InlineData(true,  0x1F)]
+    [InlineData(true, 0x1F)]
     public void Dm_Encodes_With_F_Bit_As_Response(bool finalBit, byte expectedControl)
     {
         var frame = Ax25Frame.Dm(Dest, Src, finalBit);
@@ -71,7 +71,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0x87)]
-    [InlineData(true,  0x97)]
+    [InlineData(true, 0x97)]
     public void Frmr_Encodes_With_F_Bit_As_Response(bool finalBit, byte expectedControl)
     {
         var frame = Ax25Frame.Frmr(Dest, Src, info: stackalloc byte[] { 0x00, 0x00, 0x00 }, finalBit);
@@ -82,7 +82,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0xAF)]
-    [InlineData(true,  0xBF)]
+    [InlineData(true, 0xBF)]
     public void Xid_Command_Encodes_With_P_Bit(bool pollFinal, byte expectedControl)
     {
         var frame = Ax25Frame.Xid(Dest, Src, info: ReadOnlySpan<byte>.Empty,
@@ -93,7 +93,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(false, 0xE3)]
-    [InlineData(true,  0xF3)]
+    [InlineData(true, 0xF3)]
     public void Test_Command_Encodes_With_P_Bit(bool pollFinal, byte expectedControl)
     {
         var frame = Ax25Frame.Test(Dest, Src, info: ReadOnlySpan<byte>.Empty,
@@ -109,10 +109,10 @@ public class Ax25FrameFactoryTests
     //   REJ  base = 0x09;  SREJ base = 0x0D
 
     [Theory]
-    [InlineData(0, false, true,  0x01)]  // RR command, N(R)=0, P=0: 0<<5 | 0<<4 | 0x01
+    [InlineData(0, false, true, 0x01)]  // RR command, N(R)=0, P=0: 0<<5 | 0<<4 | 0x01
     [InlineData(3, false, false, 0x61)]  // RR response, N(R)=3, F=0: 3<<5 | 0<<4 | 0x01
-    [InlineData(5, true,  false, 0xB1)]  // RR response, N(R)=5, F=1: 5<<5 | 1<<4 | 0x01
-    [InlineData(7, true,  true,  0xF1)]  // RR command, N(R)=7, P=1: 7<<5 | 1<<4 | 0x01
+    [InlineData(5, true, false, 0xB1)]  // RR response, N(R)=5, F=1: 5<<5 | 1<<4 | 0x01
+    [InlineData(7, true, true, 0xF1)]  // RR command, N(R)=7, P=1: 7<<5 | 1<<4 | 0x01
     public void Rr_Control_Byte_Includes_Nr_And_Pf(byte nr, bool pollFinal, bool isCommand, byte expectedControl)
     {
         var frame = Ax25Frame.Rr(Dest, Src, nr, isCommand, pollFinal);
@@ -122,7 +122,7 @@ public class Ax25FrameFactoryTests
 
     [Theory]
     [InlineData(0, false, 0x05)]  // RNR, N(R)=0, F=0
-    [InlineData(4, true,  0x95)]  // RNR, N(R)=4, F=1 (4<<5 | 0x10 | 0x05 = 0x95)
+    [InlineData(4, true, 0x95)]  // RNR, N(R)=4, F=1 (4<<5 | 0x10 | 0x05 = 0x95)
     public void Rnr_Control_Byte_Includes_Nr_And_Pf(byte nr, bool pollFinal, byte expectedControl)
     {
         var frame = Ax25Frame.Rnr(Dest, Src, nr, isCommand: false, pollFinal);
@@ -130,7 +130,7 @@ public class Ax25FrameFactoryTests
     }
 
     [Theory]
-    [InlineData(2, true,  0x59)]  // REJ, N(R)=2, F=1 (2<<5 | 0x10 | 0x09 = 0x59)
+    [InlineData(2, true, 0x59)]  // REJ, N(R)=2, F=1 (2<<5 | 0x10 | 0x09 = 0x59)
     [InlineData(6, false, 0xC9)]  // REJ, N(R)=6, F=0 (6<<5 | 0x09 = 0xC9)
     public void Rej_Control_Byte_Includes_Nr_And_Pf(byte nr, bool pollFinal, byte expectedControl)
     {
@@ -153,8 +153,8 @@ public class Ax25FrameFactoryTests
     [Theory]
     [InlineData(0, 0, false, 0x00)]  // N(R)=0, N(S)=0, P=0
     [InlineData(3, 2, false, 0x64)]  // N(R)=3, N(S)=2, P=0 → 0x60 | 0x04
-    [InlineData(5, 4, true,  0xB8)]  // N(R)=5, N(S)=4, P=1 → 0xA0 | 0x10 | 0x08
-    [InlineData(7, 7, true,  0xFE)]  // N(R)=7, N(S)=7, P=1 → 0xE0 | 0x10 | 0x0E
+    [InlineData(5, 4, true, 0xB8)]  // N(R)=5, N(S)=4, P=1 → 0xA0 | 0x10 | 0x08
+    [InlineData(7, 7, true, 0xFE)]  // N(R)=7, N(S)=7, P=1 → 0xE0 | 0x10 | 0x0E
     public void I_Frame_Control_Byte_Composes_Nr_Ns_P(byte nr, byte ns, bool pollBit, byte expectedControl)
     {
         var frame = Ax25Frame.I(Dest, Src, nr, ns, info: "hi"u8, pollBit: pollBit);
@@ -228,11 +228,11 @@ public class Ax25FrameFactoryTests
     {
         Ax25Frame original = factory switch
         {
-            nameof(Ax25Frame.Sabm)  => Ax25Frame.Sabm (Dest, Src, pollBit: true),
+            nameof(Ax25Frame.Sabm) => Ax25Frame.Sabm(Dest, Src, pollBit: true),
             nameof(Ax25Frame.Sabme) => Ax25Frame.Sabme(Dest, Src, pollBit: false),
-            nameof(Ax25Frame.Disc)  => Ax25Frame.Disc (Dest, Src, pollBit: true),
-            nameof(Ax25Frame.Ua)    => Ax25Frame.Ua   (Dest, Src, finalBit: true),
-            nameof(Ax25Frame.Dm)    => Ax25Frame.Dm   (Dest, Src, finalBit: false),
+            nameof(Ax25Frame.Disc) => Ax25Frame.Disc(Dest, Src, pollBit: true),
+            nameof(Ax25Frame.Ua) => Ax25Frame.Ua(Dest, Src, finalBit: true),
+            nameof(Ax25Frame.Dm) => Ax25Frame.Dm(Dest, Src, finalBit: false),
             _ => throw new ArgumentOutOfRangeException(nameof(factory)),
         };
 

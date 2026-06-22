@@ -28,7 +28,7 @@ public class AprsMessageDecoderTests
     [Theory]
     // Real corpus telemetry-definition messages.
     [InlineData(":ER-DK5OH :UNIT.RX Erlang,TX Erlang,RXcount/10m,TXcount/10m,none1,STxxxxxx,logic",
-                "ER-DK5OH",  "UNIT.RX Erlang,TX Erlang,RXcount/10m,TXcount/10m,none1,STxxxxxx,logic")]
+                "ER-DK5OH", "UNIT.RX Erlang,TX Erlang,RXcount/10m,TXcount/10m,none1,STxxxxxx,logic")]
     [InlineData(":EL-PI3ZUT:PARM.RX Avg 10m,TX Avg 10m,RX Count 10m,TX Count 10m,,RX,TX",
                 "EL-PI3ZUT", "PARM.RX Avg 10m,TX Avg 10m,RX Count 10m,TX Count 10m,,RX,TX")]
     [InlineData(":EL-PI3ZUT:BITS.11111111,SvxLink RepeaterLogic",
@@ -89,9 +89,9 @@ public class AprsMessageDecoderTests
     [Fact]
     public void Strips_DTI_If_Present()
     {
-        var with    = System.Text.Encoding.ASCII.GetBytes(":KH6XYZ   :hi");
+        var with = System.Text.Encoding.ASCII.GetBytes(":KH6XYZ   :hi");
         var without = System.Text.Encoding.ASCII.GetBytes("KH6XYZ   :hi");
-        AprsMessageDecoder.TryDecode(with,    out var a).Should().BeTrue();
+        AprsMessageDecoder.TryDecode(with, out var a).Should().BeTrue();
         AprsMessageDecoder.TryDecode(without, out var b).Should().BeTrue();
         a.Should().Be(b);
     }

@@ -149,11 +149,19 @@ public static class DirewolfPipeline
                 current.Clear();
                 currentHasHeader = false;
             }
-            if (isBoundary) currentHasHeader = true;
+            if (isBoundary)
+            {
+                currentHasHeader = true;
+            }
+
             current.AppendLine(line);
             previousBlank = isBlank;
         }
-        if (current.Length > 0 && currentHasHeader) frames.Add(current.ToString().TrimEnd());
+        if (current.Length > 0 && currentHasHeader)
+        {
+            frames.Add(current.ToString().TrimEnd());
+        }
+
         return frames;
     }
 
@@ -161,7 +169,10 @@ public static class DirewolfPipeline
     {
         var result = new DirewolfRow();
         var lines = frame.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
-        if (lines.Length == 0) return result;
+        if (lines.Length == 0)
+        {
+            return result;
+        }
 
         for (int i = 1; i < lines.Length; i++)
         {
@@ -185,10 +196,18 @@ public static class DirewolfPipeline
             {
                 double lat = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)
                            + double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) / 60.0;
-                if (m.Groups[1].Value == "S") lat = -lat;
+                if (m.Groups[1].Value == "S")
+                {
+                    lat = -lat;
+                }
+
                 double lon = double.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture)
                            + double.Parse(m.Groups[6].Value, CultureInfo.InvariantCulture) / 60.0;
-                if (m.Groups[4].Value == "W") lon = -lon;
+                if (m.Groups[4].Value == "W")
+                {
+                    lon = -lon;
+                }
+
                 result.Latitude = lat;
                 result.Longitude = lon;
                 if (m.Groups[7].Success)

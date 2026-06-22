@@ -33,10 +33,10 @@ var opts = ParseArgs(args);
 
 return opts.Mode switch
 {
-    "probe"   => await ProbeMode.RunAsync(opts),
+    "probe" => await ProbeMode.RunAsync(opts),
     "monitor" => await MonitorMode.RunAsync(opts),
     "collect" => await CollectMode.RunAsync(opts),
-    _         => Fail($"unknown mode: {opts.Mode}"),
+    _ => Fail($"unknown mode: {opts.Mode}"),
 };
 
 static int Fail(string msg) { Console.Error.WriteLine($"# {msg}"); return 1; }

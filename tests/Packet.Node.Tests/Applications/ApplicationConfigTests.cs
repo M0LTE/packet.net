@@ -175,7 +175,9 @@ public sealed class ApplicationConfigTests
     {
         var cfg = Valid(new ApplicationConfig
         {
-            Id = "wall", Command = "WALL", Executable = "/bin/cat",
+            Id = "wall",
+            Command = "WALL",
+            Executable = "/bin/cat",
             Ui = new AppUiConfig { Upstream = "http://127.0.0.1:9090", Name = "WALL" },
         });
         Assert.True(Validate(cfg).IsValid);
@@ -220,7 +222,9 @@ public sealed class ApplicationConfigTests
     {
         var cfg = Valid(new ApplicationConfig
         {
-            Id = "wall", Command = "WALL", Executable = "/bin/cat",
+            Id = "wall",
+            Command = "WALL",
+            Executable = "/bin/cat",
             Ui = new AppUiConfig { Upstream = upstream },
         });
         Assert.False(Validate(cfg).IsValid);

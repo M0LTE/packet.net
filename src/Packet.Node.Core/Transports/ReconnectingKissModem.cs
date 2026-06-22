@@ -124,22 +124,37 @@ internal sealed partial class ReconnectingKissModem : ITxCompletionTransport, IC
                         // swallows the IOException and completes the stream); catch
                         // defensively so an unexpected throw becomes a reconnect, not a
                         // dead port.
-                        if (!ct.IsCancellationRequested) LogInnerFaulted(ex, endpoint);
+                        if (!ct.IsCancellationRequested)
+                        {
+                            LogInnerFaulted(ex, endpoint);
+                        }
+
                         has = false;
                     }
-                    if (!has) break;
+                    if (!has)
+                    {
+                        break;
+                    }
+
                     yield return e.Current;
                 }
             }
 
-            if (ct.IsCancellationRequested) yield break;
+            if (ct.IsCancellationRequested)
+            {
+                yield break;
+            }
 
             // End of stream with no cancellation = the far end dropped.
             LogDisconnected(endpoint);
             await DisposeQuietlyAsync(live).ConfigureAwait(false);
 
             var next = await ReconnectAsync(ct).ConfigureAwait(false);
-            if (next is null) yield break;   // cancelled while reconnecting
+            if (next is null)
+            {
+                yield break;   // cancelled while reconnecting
+            }
+
             inner = next;
             LogReconnected(endpoint);
             await ReplayParamsAsync(next, ct).ConfigureAwait(false);
@@ -215,28 +230,44 @@ internal sealed partial class ReconnectingKissModem : ITxCompletionTransport, IC
     /// <inheritdoc/>
     public Task SetTxDelayAsync(byte tenMsUnits, CancellationToken cancellationToken = default)
     {
-        lock (paramGate) txDelay = tenMsUnits;
+        lock (paramGate)
+        {
+            txDelay = tenMsUnits;
+        }
+
         return ApplyParamAsync(m => m.SetTxDelayAsync(tenMsUnits, cancellationToken));
     }
 
     /// <inheritdoc/>
     public Task SetPersistenceAsync(byte value, CancellationToken cancellationToken = default)
     {
-        lock (paramGate) persistence = value;
+        lock (paramGate)
+        {
+            persistence = value;
+        }
+
         return ApplyParamAsync(m => m.SetPersistenceAsync(value, cancellationToken));
     }
 
     /// <inheritdoc/>
     public Task SetSlotTimeAsync(byte tenMsUnits, CancellationToken cancellationToken = default)
     {
-        lock (paramGate) slotTime = tenMsUnits;
+        lock (paramGate)
+        {
+            slotTime = tenMsUnits;
+        }
+
         return ApplyParamAsync(m => m.SetSlotTimeAsync(tenMsUnits, cancellationToken));
     }
 
     /// <inheritdoc/>
     public Task SetTxTailAsync(byte tenMsUnits, CancellationToken cancellationToken = default)
     {
-        lock (paramGate) txTail = tenMsUnits;
+        lock (paramGate)
+        {
+            txTail = tenMsUnits;
+        }
+
         return ApplyParamAsync(m => m.SetTxTailAsync(tenMsUnits, cancellationToken));
     }
 
@@ -246,7 +277,11 @@ internal sealed partial class ReconnectingKissModem : ITxCompletionTransport, IC
     // no-ops, exactly as the native AXUDP transport (no ICsmaChannelParams) does.
     private async Task ApplyParamAsync(Func<ICsmaChannelParams, Task> op)
     {
-        if (inner is not ICsmaChannelParams csma) return;
+        if (inner is not ICsmaChannelParams csma)
+        {
+            return;
+        }
+
         try
         {
             await op(csma).ConfigureAwait(false);
@@ -262,15 +297,34 @@ internal sealed partial class ReconnectingKissModem : ITxCompletionTransport, IC
     // no CSMA params is skipped.
     private async Task ReplayParamsAsync(IAx25Transport m, CancellationToken ct)
     {
-        if (m is not ICsmaChannelParams csma) return;
+        if (m is not ICsmaChannelParams csma)
+        {
+            return;
+        }
+
         byte? d, p, s, t;
         lock (paramGate) { d = txDelay; p = persistence; s = slotTime; t = txTail; }
         try
         {
-            if (d is { } dd) await csma.SetTxDelayAsync(dd, ct).ConfigureAwait(false);
-            if (p is { } pp) await csma.SetPersistenceAsync(pp, ct).ConfigureAwait(false);
-            if (s is { } ss) await csma.SetSlotTimeAsync(ss, ct).ConfigureAwait(false);
-            if (t is { } tt) await csma.SetTxTailAsync(tt, ct).ConfigureAwait(false);
+            if (d is { } dd)
+            {
+                await csma.SetTxDelayAsync(dd, ct).ConfigureAwait(false);
+            }
+
+            if (p is { } pp)
+            {
+                await csma.SetPersistenceAsync(pp, ct).ConfigureAwait(false);
+            }
+
+            if (s is { } ss)
+            {
+                await csma.SetSlotTimeAsync(ss, ct).ConfigureAwait(false);
+            }
+
+            if (t is { } tt)
+            {
+                await csma.SetTxTailAsync(tt, ct).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when (IsTransient(ex))
         {
@@ -296,7 +350,11 @@ internal sealed partial class ReconnectingKissModem : ITxCompletionTransport, IC
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
         await lifecycle.CancelAsync().ConfigureAwait(false);
         await DisposeQuietlyAsync(inner).ConfigureAwait(false);
         lifecycle.Dispose();

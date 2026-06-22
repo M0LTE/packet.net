@@ -63,7 +63,10 @@ public static class Wait
     public static async Task ForAsync(Func<bool> condition, string because, TimeSpan budget)
     {
         // Fast path: already satisfied.
-        if (condition()) return;
+        if (condition())
+        {
+            return;
+        }
 
         var deadline = DateTimeOffset.UtcNow + budget;
         // Timer-queue-driven poll: the tick fires independently of thread-pool
@@ -72,7 +75,11 @@ public static class Wait
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(15));
         while (await timer.WaitForNextTickAsync().ConfigureAwait(false))
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             if (DateTimeOffset.UtcNow >= deadline)
             {
                 throw new TimeoutException($"condition not met within {budget.TotalSeconds:0.#}s: {because}");

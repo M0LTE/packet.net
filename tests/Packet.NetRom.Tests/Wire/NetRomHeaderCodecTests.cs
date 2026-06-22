@@ -77,7 +77,10 @@ public sealed class NetRomHeaderCodecTests
     {
         var header = new NetRomTransportHeader
         {
-            CircuitIndex = 0, CircuitId = 0, TxSequence = 0, RxSequence = 0,
+            CircuitIndex = 0,
+            CircuitId = 0,
+            TxSequence = 0,
+            RxSequence = 0,
             Opcode = NetRomOpcode.Information,
             Flags = NetRomTransportFlags.Choke | NetRomTransportFlags.Nak,
         };
@@ -97,8 +100,12 @@ public sealed class NetRomHeaderCodecTests
             Network = new NetRomNetworkHeader { Origin = Origin, Destination = Dest, TimeToLive = 20 },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 1, CircuitId = 1, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.Information, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 1,
+                CircuitId = 1,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.Information,
+                Flags = NetRomTransportFlags.None,
             },
             Payload = payload,
         };
@@ -122,8 +129,12 @@ public sealed class NetRomHeaderCodecTests
             Network = new NetRomNetworkHeader { Origin = Origin, Destination = Dest, TimeToLive = 25 },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 1, CircuitId = 1, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.ConnectRequest, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 1,
+                CircuitId = 1,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.ConnectRequest,
+                Flags = NetRomTransportFlags.None,
             },
         };
         packet.ToBytes().Length.Should().Be(20);

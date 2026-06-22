@@ -75,7 +75,10 @@ public sealed class AgwSession : Stream
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        if (buffer.IsEmpty) return 0;
+        if (buffer.IsEmpty)
+        {
+            return 0;
+        }
 
         // Drain leftover bytes from a previous partial-frame read first.
         if (!readResidual.IsEmpty)
@@ -99,7 +102,11 @@ public sealed class AgwSession : Stream
         }
         catch (ChannelClosedException)
         {
-            if (streamFault is not null) throw streamFault;
+            if (streamFault is not null)
+            {
+                throw streamFault;
+            }
+
             return 0;   // EOF — server sent 'd' (Disconnect).
         }
     }
@@ -114,10 +121,17 @@ public sealed class AgwSession : Stream
     {
         if (disconnected.Task.IsCompleted)
         {
-            if (streamFault is not null) throw streamFault;
+            if (streamFault is not null)
+            {
+                throw streamFault;
+            }
+
             throw new InvalidOperationException("AGW session is disconnected.");
         }
-        if (buffer.IsEmpty) return;
+        if (buffer.IsEmpty)
+        {
+            return;
+        }
 
         // AGW servers cap per-frame data size at ~256 bytes by
         // convention (matches the typical PACLEN on the radio side).
@@ -152,7 +166,11 @@ public sealed class AgwSession : Stream
     /// </summary>
     public async Task DisconnectAsync(CancellationToken ct = default)
     {
-        if (disconnected.Task.IsCompleted) return;
+        if (disconnected.Task.IsCompleted)
+        {
+            return;
+        }
+
         try
         {
             await client.WriteFrameAsync(new AgwFrame(

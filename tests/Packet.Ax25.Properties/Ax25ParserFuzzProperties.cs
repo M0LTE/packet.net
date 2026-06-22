@@ -54,7 +54,10 @@ public class Ax25ParserFuzzProperties
     public void Parsed_Frame_Round_Trips_Through_ToBytes(byte[] bytes)
     {
         bytes ??= [];
-        if (!Ax25Frame.TryParse(bytes, out var first)) return;
+        if (!Ax25Frame.TryParse(bytes, out var first))
+        {
+            return;
+        }
 
         var rewritten = first!.ToBytes();
         Ax25Frame.TryParse(rewritten, out var second).Should().BeTrue();
@@ -104,7 +107,10 @@ public class Ax25ParserFuzzProperties
     public void RequiredBytes_Is_Exact(byte[] bytes)
     {
         bytes ??= [];
-        if (!Ax25Frame.TryParse(bytes, out var frame)) return;
+        if (!Ax25Frame.TryParse(bytes, out var frame))
+        {
+            return;
+        }
 
         var dest = new byte[frame!.RequiredBytes];
         int written = frame.WriteTo(dest);
@@ -124,9 +130,9 @@ public class Ax25ParserFuzzProperties
         // I-frame control byte: N(R) N(R) N(R) P N(S) N(S) N(S) 0
         byte control = (byte)(((nr & 0x07) << 5) | ((pollFinal ? 1 : 0) << 4) | ((ns & 0x07) << 1));
         var dest = new Callsign("WB2OSZ", 0);
-        var src  = new Callsign("M0LTE", 1);
-        var destAddr = new Ax25Address(dest, CrhBit: true,  ExtensionBit: false);
-        var srcAddr  = new Ax25Address(src,  CrhBit: false, ExtensionBit: true);
+        var src = new Callsign("M0LTE", 1);
+        var destAddr = new Ax25Address(dest, CrhBit: true, ExtensionBit: false);
+        var srcAddr = new Ax25Address(src, CrhBit: false, ExtensionBit: true);
 
         // Hand-assemble: dest + src + control + pid + info.
         var bytes = new byte[7 + 7 + 1 + 1 + info.Length];
@@ -160,6 +166,9 @@ public class Ax25ParserFuzzProperties
         var decoded = Ax25Address.Read(buf);
         decoded.Should().Be(addr);
         // All six callsign-character bytes must be the space-shift padding.
-        for (int i = 0; i < 6; i++) buf[i].Should().Be((byte)(' ' << 1));
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i].Should().Be((byte)(' ' << 1));
+        }
     }
 }

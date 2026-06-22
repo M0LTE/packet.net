@@ -155,7 +155,10 @@ public sealed class KissTcpClientAckModeTests : IDisposable
             await foreach (var frame in client.ReadFramesAsync(cts.Token))
             {
                 surfaced.Add(frame);
-                if (surfaced.Count == 2) break;
+                if (surfaced.Count == 2)
+                {
+                    break;
+                }
             }
         });
 
@@ -191,7 +194,10 @@ public sealed class KissTcpClientAckModeTests : IDisposable
             await foreach (var frame in client.ReadFramesAsync(cts.Token))
             {
                 surfaced.Add(frame);
-                if (surfaced.Count == 2) break;
+                if (surfaced.Count == 2)
+                {
+                    break;
+                }
             }
         });
 
@@ -227,7 +233,11 @@ public sealed class KissTcpClientAckModeTests : IDisposable
         while (peerDecoded.Count == 0)
         {
             int n = await peer.ReadAsync(buf, cts.Token);
-            if (n == 0) throw new IOException("client closed the stream");
+            if (n == 0)
+            {
+                throw new IOException("client closed the stream");
+            }
+
             foreach (var f in peerDecoder.Push(buf.AsSpan(0, n)))
             {
                 peerDecoded.Enqueue(f);

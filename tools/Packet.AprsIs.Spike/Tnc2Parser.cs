@@ -58,16 +58,28 @@ public static class Tnc2Parser
     public static bool TryParse(string line, out Tnc2Line parsed)
     {
         parsed = null!;
-        if (string.IsNullOrEmpty(line)) return false;
+        if (string.IsNullOrEmpty(line))
+        {
+            return false;
+        }
 
         // Header lines from APRS-IS start with '#' — comments / server keepalives.
-        if (line[0] == '#') return false;
+        if (line[0] == '#')
+        {
+            return false;
+        }
 
         int gt = line.IndexOf('>', StringComparison.Ordinal);
-        if (gt <= 0) return false;
+        if (gt <= 0)
+        {
+            return false;
+        }
 
         int colon = line.IndexOf(':', gt + 1);
-        if (colon < 0) return false;
+        if (colon < 0)
+        {
+            return false;
+        }
 
         string source = line[..gt];
         string addressTail = line[(gt + 1)..colon];
@@ -75,7 +87,10 @@ public static class Tnc2Parser
 
         // addressTail is DEST[,VIA1,VIA2,...]
         var parts = addressTail.Split(',');
-        if (parts.Length == 0) return false;
+        if (parts.Length == 0)
+        {
+            return false;
+        }
 
         string destination = parts[0];
 
@@ -83,7 +98,11 @@ public static class Tnc2Parser
         for (int i = 1; i < parts.Length; i++)
         {
             string entry = parts[i];
-            if (entry.Length == 0) continue;
+            if (entry.Length == 0)
+            {
+                continue;
+            }
+
             bool hasBeenRepeated = entry[^1] == '*';
             string call = hasBeenRepeated ? entry[..^1] : entry;
             digipeaters.Add(new DigipeaterEntry(call, hasBeenRepeated));
@@ -120,12 +139,22 @@ public static class Tnc2Parser
     /// </remarks>
     public static string? TryRewriteForAx25(string line)
     {
-        if (!TryParse(line, out var parsed)) return null;
+        if (!TryParse(line, out var parsed))
+        {
+            return null;
+        }
 
-        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Source,      out var srcA))  return null;
-        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Destination, out var destA)) return null;
+        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Source, out var srcA))
+        {
+            return null;
+        }
 
-        string newSrc  = srcA .ToStrictCallsignOrCoerced().ToString();
+        if (!Packet.Aprs.AprsCallsign.TryParse(parsed.Destination, out var destA))
+        {
+            return null;
+        }
+
+        string newSrc = srcA.ToStrictCallsignOrCoerced().ToString();
         string newDest = destA.ToStrictCallsignOrCoerced().ToString();
 
         var sb = new StringBuilder(line.Length);
@@ -149,7 +178,10 @@ public static class Tnc2Parser
                 // Unparseable — leave as-is and let direwolf decide.
                 sb.Append(d.Callsign);
             }
-            if (d.HasBeenRepeated) sb.Append('*');
+            if (d.HasBeenRepeated)
+            {
+                sb.Append('*');
+            }
         }
 
         sb.Append(':');

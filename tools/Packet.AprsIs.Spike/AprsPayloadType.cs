@@ -21,7 +21,11 @@ public static class AprsPayloadType
     /// </summary>
     public static string Classify(ReadOnlySpan<byte> info)
     {
-        if (info.Length == 0) return "empty";
+        if (info.Length == 0)
+        {
+            return "empty";
+        }
+
         byte b = info[0];
         return b switch
         {

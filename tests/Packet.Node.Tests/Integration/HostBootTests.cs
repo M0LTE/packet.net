@@ -85,7 +85,10 @@ public sealed class HostBootTests : IDisposable
         try
         {
             var dir = Path.GetDirectoryName(configPath);
-            if (dir is not null) Directory.Delete(dir, recursive: true);
+            if (dir is not null)
+            {
+                Directory.Delete(dir, recursive: true);
+            }
         }
         catch { /* best effort */ }
     }

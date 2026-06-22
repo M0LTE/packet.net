@@ -19,7 +19,10 @@ public class EnvelopeConformanceTests
         h.A.Context.IsExtended.Should().BeTrue("DL-CONNECT with IsExtended must negotiate mod-128 via SABME");
         h.B.Context.IsExtended.Should().BeTrue("the peer must adopt mod-128 on receiving SABME");
 
-        for (byte i = 0; i < 8; i++) h.Submit(h.A, i);
+        for (byte i = 0; i < 8; i++)
+        {
+            h.Submit(h.A, i);
+        }
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(Enumerable.Range(0, 8).Select(i => (byte)i));
         h.AssertConverged();
@@ -55,7 +58,10 @@ public class EnvelopeConformanceTests
         foreach (var seg in segments)
         {
             h.Submit(h.A, seg);
-            if (++sent % 4 == 0) h.FlushAcks();   // reopen the k=4 window mid-series
+            if (++sent % 4 == 0)
+            {
+                h.FlushAcks();   // reopen the k=4 window mid-series
+            }
         }
         h.FlushAcks();
 
@@ -66,7 +72,10 @@ public class EnvelopeConformanceTests
         foreach (var info in h.B.Delivered)
         {
             var done = reassembler.Push(info);
-            if (done is not null) reassembled = done;
+            if (done is not null)
+            {
+                reassembled = done;
+            }
         }
         reassembled.Should().Equal(payload);
         h.AssertConverged();

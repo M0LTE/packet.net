@@ -140,10 +140,16 @@ public sealed class HalfDuplexContentionTests
             for (int i = 0; i < 50 && !(Node.State == "Connected" && Peer.State == "Connected"); i++)
             {
                 Transmit();
-                if (i % 2 == 1) time.Advance(TimeSpan.FromMilliseconds(50));
+                if (i % 2 == 1)
+                {
+                    time.Advance(TimeSpan.FromMilliseconds(50));
+                }
             }
             if (Node.State != "Connected" || Peer.State != "Connected")
+            {
                 throw new InvalidOperationException($"connect failed: node={Node.State} peer={Peer.State}");
+            }
+
             Node.DrainSignals();
             Peer.DrainSignals();
         }
@@ -160,7 +166,11 @@ public sealed class HalfDuplexContentionTests
             // Sub-T1 granularity so a due timer fires in the turn it is due, not
             // lumped with the other station's.
             var step = smaller / 4;
-            if (step < TimeSpan.FromMilliseconds(50)) step = TimeSpan.FromMilliseconds(50);
+            if (step < TimeSpan.FromMilliseconds(50))
+            {
+                step = TimeSpan.FromMilliseconds(50);
+            }
+
             var total = TimeSpan.FromTicks(smaller.Ticks * rounds);
             SettleTransmissions();
             for (var elapsed = TimeSpan.Zero; elapsed < total; elapsed += step)
@@ -176,7 +186,10 @@ public sealed class HalfDuplexContentionTests
         {
             for (int i = 0; i < 256; i++)
             {
-                if (!Transmit()) return;
+                if (!Transmit())
+                {
+                    return;
+                }
             }
             throw new InvalidOperationException("half-duplex medium did not settle — possible livelock");
         }
@@ -200,12 +213,20 @@ public sealed class HalfDuplexContentionTests
             }
             else if (nodeTx.Count > 0)
             {
-                foreach (var f in nodeTx) Peer.DeliverFromAir(f);
+                foreach (var f in nodeTx)
+                {
+                    Peer.DeliverFromAir(f);
+                }
+
                 moved = true;
             }
             else if (peerTx.Count > 0)
             {
-                foreach (var f in peerTx) Node.DeliverFromAir(f);
+                foreach (var f in peerTx)
+                {
+                    Node.DeliverFromAir(f);
+                }
+
                 moved = true;
             }
 
@@ -256,7 +277,9 @@ public sealed class HalfDuplexContentionTests
             {
                 signals.Enqueue(sig);
                 if (sig is DataLinkDataIndication di)
+                {
                     delivered.Append(Encoding.UTF8.GetString(di.Info.Span));
+                }
             }
 
             var dispatcher = new ActionDispatcher(
@@ -299,7 +322,9 @@ public sealed class HalfDuplexContentionTests
             foreach (var bytes in outbox)
             {
                 if (Ax25Frame.TryParse(bytes, Ax25ParseOptions.Lenient, extended: false, out var f))
+                {
                     frames.Add(f);
+                }
             }
             outbox.Clear();
             return frames;
@@ -312,9 +337,16 @@ public sealed class HalfDuplexContentionTests
         /// if anything was processed.</summary>
         public bool ProcessInbound()
         {
-            if (inbound.Count == 0) return false;
+            if (inbound.Count == 0)
+            {
+                return false;
+            }
+
             while (inbound.TryDequeue(out var frame))
+            {
                 Session.PostEvent(Ax25FrameClassifier.Classify(frame));
+            }
+
             return true;
         }
 

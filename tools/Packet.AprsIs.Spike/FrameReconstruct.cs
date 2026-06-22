@@ -36,14 +36,21 @@ public static class FrameReconstruct
         var digiCalls = new List<Callsign>();
         foreach (var entry in parsed.Digipeaters)
         {
-            if (Tnc2Parser.IsQConstruct(entry.Callsign)) break;
+            if (Tnc2Parser.IsQConstruct(entry.Callsign))
+            {
+                break;
+            }
+
             if (!Callsign.TryParse(entry.Callsign, out var digi))
             {
                 error = $"invalid digipeater callsign: '{entry.Callsign}'";
                 return false;
             }
             digiCalls.Add(digi);
-            if (digiCalls.Count >= 8) break;
+            if (digiCalls.Count >= 8)
+            {
+                break;
+            }
         }
 
         try
@@ -64,16 +71,43 @@ public static class FrameReconstruct
 
     public static bool StructurallyEqual(Ax25Frame built, Ax25Frame decoded)
     {
-        if (built.Destination.Callsign != decoded.Destination.Callsign) return false;
-        if (built.Source.Callsign != decoded.Source.Callsign) return false;
-        if (built.Digipeaters.Count != decoded.Digipeaters.Count) return false;
+        if (built.Destination.Callsign != decoded.Destination.Callsign)
+        {
+            return false;
+        }
+
+        if (built.Source.Callsign != decoded.Source.Callsign)
+        {
+            return false;
+        }
+
+        if (built.Digipeaters.Count != decoded.Digipeaters.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < built.Digipeaters.Count; i++)
         {
-            if (built.Digipeaters[i].Callsign != decoded.Digipeaters[i].Callsign) return false;
+            if (built.Digipeaters[i].Callsign != decoded.Digipeaters[i].Callsign)
+            {
+                return false;
+            }
         }
-        if (built.Control != decoded.Control) return false;
-        if (built.Pid != decoded.Pid) return false;
-        if (!built.Info.Span.SequenceEqual(decoded.Info.Span)) return false;
+        if (built.Control != decoded.Control)
+        {
+            return false;
+        }
+
+        if (built.Pid != decoded.Pid)
+        {
+            return false;
+        }
+
+        if (!built.Info.Span.SequenceEqual(decoded.Info.Span))
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -82,8 +116,8 @@ public static class FrameReconstruct
     /// strings, useful for histograms.
     /// </summary>
     public static string BucketReconstructError(string err) =>
-        err.StartsWith("invalid source callsign", StringComparison.Ordinal)      ? "invalid_source" :
+        err.StartsWith("invalid source callsign", StringComparison.Ordinal) ? "invalid_source" :
         err.StartsWith("invalid destination callsign", StringComparison.Ordinal) ? "invalid_destination" :
-        err.StartsWith("invalid digipeater callsign", StringComparison.Ordinal)  ? "invalid_digipeater" :
+        err.StartsWith("invalid digipeater callsign", StringComparison.Ordinal) ? "invalid_digipeater" :
         "other";
 }

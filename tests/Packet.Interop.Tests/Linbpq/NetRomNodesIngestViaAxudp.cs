@@ -296,9 +296,16 @@ public class NetRomNodesIngestViaAxudp
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
-                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal)) break;
+                if (needle.Length > 0 && sb.ToString().Contains(needle, StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -314,9 +321,16 @@ public class NetRomNodesIngestViaAxudp
                 int n;
                 try { n = await stream.ReadAsync(buf, cts.Token); }
                 catch (OperationCanceledException) { break; }
-                if (n == 0) break;
+                if (n == 0)
+                {
+                    break;
+                }
+
                 AppendStripIac(stream, sb, buf, n);
-                if (sb.ToString().Contains('\n', StringComparison.Ordinal)) break;
+                if (sb.ToString().Contains('\n', StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
             return sb.ToString();
         }
@@ -330,7 +344,11 @@ public class NetRomNodesIngestViaAxudp
                     sb.Append((char)buf[i]);
                     continue;
                 }
-                if (i + 2 >= n) break;
+                if (i + 2 >= n)
+                {
+                    break;
+                }
+
                 byte verb = buf[i + 1];
                 byte opt = buf[i + 2];
                 i += 2;

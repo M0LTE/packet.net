@@ -81,13 +81,21 @@ public class SrejXidViaNetsim
     // ─── Wire predicates (mod-8 S-frame nibble) ───────────────────────────
     private static bool IsSrej(Ax25Frame f)
     {
-        if (f.IsExtendedControl) return false;
+        if (f.IsExtendedControl)
+        {
+            return false;
+        }
+
         return (f.Control & 0x03) == 0x01 && ((f.Control >> 2) & 0x03) == 0x03;   // SREJ
     }
 
     private static bool IsRej(Ax25Frame f)
     {
-        if (f.IsExtendedControl) return false;
+        if (f.IsExtendedControl)
+        {
+            return false;
+        }
+
         return (f.Control & 0x03) == 0x01 && ((f.Control >> 2) & 0x03) == 0x02;   // REJ
     }
 
@@ -150,7 +158,11 @@ public class SrejXidViaNetsim
         var dropped = false;
         rig.DropOutboundIFrame = f =>
         {
-            if (dropped || !f.Pid.HasValue || f.Ns != 1) return false;
+            if (dropped || !f.Pid.HasValue || f.Ns != 1)
+            {
+                return false;
+            }
+
             dropped = true; return true;
         };
         var payloads = new[]
@@ -159,7 +171,10 @@ public class SrejXidViaNetsim
             System.Text.Encoding.ASCII.GetBytes("srej-bpq-1\r"),
             System.Text.Encoding.ASCII.GetBytes("srej-bpq-2\r"),
         };
-        foreach (var p in payloads) rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        foreach (var p in payloads)
+        {
+            rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        }
 
         var sawSrej = await WaitForObserved(rig, IsSrej, DataBudget, pumps.Tasks, cts.Token);
 
@@ -196,7 +211,11 @@ public class SrejXidViaNetsim
         var dropped = false;
         rig.DropOutboundIFrame = f =>
         {
-            if (dropped || !f.Pid.HasValue || f.Ns != 1) return false;
+            if (dropped || !f.Pid.HasValue || f.Ns != 1)
+            {
+                return false;
+            }
+
             dropped = true; return true;
         };
         var payloads = new[]
@@ -205,7 +224,10 @@ public class SrejXidViaNetsim
             System.Text.Encoding.ASCII.GetBytes("rej-bpq-1\r"),
             System.Text.Encoding.ASCII.GetBytes("rej-bpq-2\r"),
         };
-        foreach (var p in payloads) rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        foreach (var p in payloads)
+        {
+            rig.Session.PostEvent(new DlDataRequest(p, Ax25Frame.PidNoLayer3));
+        }
 
         var sawRej = await WaitForObserved(rig, IsRej, DataBudget, pumps.Tasks, cts.Token);
         dropped.Should().BeTrue("the test must have dropped I-frame N(S)=1");
@@ -232,7 +254,11 @@ public class SrejXidViaNetsim
         void SendBytes(ReadOnlyMemory<byte> bytes) => _ = kiss.SendAsync(port: 0, KissCommand.Data, bytes);
         void SendIFrame(Ax25Frame frame)
         {
-            if (rigRef?.DropOutboundIFrame is { } drop && drop(frame)) return;
+            if (rigRef?.DropOutboundIFrame is { } drop && drop(frame))
+            {
+                return;
+            }
+
             SendBytes(frame.ToBytes());
         }
 
@@ -266,10 +292,22 @@ public class SrejXidViaNetsim
             catch (System.IO.IOException) { return; }
             foreach (var f in frames)
             {
-                if (f.Command != KissCommand.Data) continue;
+                if (f.Command != KissCommand.Data)
+                {
+                    continue;
+                }
+
                 if (!Ax25Frame.TryParse(f.Payload, Ax25ParseOptions.Lenient,
-                        rig.Session.Context.IsExtended, out var parsed)) continue;
-                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local)) continue;
+                        rig.Session.Context.IsExtended, out var parsed))
+                {
+                    continue;
+                }
+
+                if (!parsed.Destination.Callsign.Equals(rig.Session.Context.Local))
+                {
+                    continue;
+                }
+
                 rig.Observed.Enqueue(parsed);
                 rig.Session.PostEvent(Ax25FrameClassifier.Classify(parsed));
             }
@@ -286,7 +324,10 @@ public class SrejXidViaNetsim
         {
             await rig.Kiss.SendAsync(port: 0, KissCommand.Data, bytes, ct);
             try { await Task.Delay(gap, ct); } catch (OperationCanceledException) { break; }
-            if (rig.Observed.Any(predicate)) return true;
+            if (rig.Observed.Any(predicate))
+            {
+                return true;
+            }
         }
         return rig.Observed.Any(predicate);
     }
@@ -299,7 +340,11 @@ public class SrejXidViaNetsim
         while (!cts.IsCancellationRequested)
         {
             ThrowIfAnyFaulted(bg);
-            if (rig.Observed.Any(predicate)) return true;
+            if (rig.Observed.Any(predicate))
+            {
+                return true;
+            }
+
             try { await Task.Delay(50, cts.Token); } catch (OperationCanceledException) { break; }
         }
         return rig.Observed.Any(predicate);
@@ -314,7 +359,14 @@ public class SrejXidViaNetsim
         while (!cts.IsCancellationRequested)
         {
             ThrowIfAnyFaulted(bg);
-            while (signals.TryDequeue(out var sig)) if (sig is T m) return m;
+            while (signals.TryDequeue(out var sig))
+            {
+                if (sig is T m)
+                {
+                    return m;
+                }
+            }
+
             try { await Task.Delay(50, cts.Token); } catch (OperationCanceledException) { return null; }
         }
         return null;
@@ -323,9 +375,13 @@ public class SrejXidViaNetsim
     private static void ThrowIfAnyFaulted(IReadOnlyList<Task> tasks)
     {
         foreach (var t in tasks)
+        {
             if (t.IsFaulted)
+            {
                 throw t.Exception?.GetBaseException()
                     ?? new InvalidOperationException("background task faulted with no exception attached");
+            }
+        }
     }
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
@@ -340,7 +396,9 @@ public class SrejXidViaNetsim
 
     private static Ax25Event TimerExpiry(string name) => name switch
     {
-        "T1" => new T1Expiry(), "T2" => new T2Expiry(), "T3" => new T3Expiry(),
+        "T1" => new T1Expiry(),
+        "T2" => new T2Expiry(),
+        "T3" => new T3Expiry(),
         _ => throw new InvalidOperationException($"unexpected timer '{name}'"),
     };
 }

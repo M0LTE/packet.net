@@ -49,6 +49,16 @@ public sealed record TailscaleStatusSnapshot(
     /// <summary>The default / not-configured-to-run snapshot.</summary>
     public static TailscaleStatusSnapshot Disabled { get; } =
         new(Enabled: false, State: "disabled", Fqdn: null, AuthUrl: null, Error: null, Funnel: false);
+
+    /// <summary>A <c>starting</c> snapshot — the child has launched (or is relaunching after a
+    /// backoff) but has not yet joined the tailnet.</summary>
+    public static TailscaleStatusSnapshot Starting(bool funnel) =>
+        new(Enabled: true, State: "starting", Fqdn: null, AuthUrl: null, Error: null, Funnel: funnel);
+
+    /// <summary>An <c>error</c> snapshot carrying <paramref name="message"/> — the child reported
+    /// or hit a fault; the supervisor backs off and retries.</summary>
+    public static TailscaleStatusSnapshot Faulted(string message, bool funnel) =>
+        new(Enabled: true, State: "error", Fqdn: null, AuthUrl: null, Error: message, Funnel: funnel);
 }
 
 /// <summary>

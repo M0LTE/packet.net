@@ -129,17 +129,17 @@ public class Ax25FrameTests
         // order of the serialised octets).
         var frame = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("G7XYZ", 7),
-            info:        "hello"u8);
+            source: new Callsign("G7XYZ", 7),
+            info: "hello"u8);
 
-        var withFcs  = frame.ToBytesWithFcs();
-        var body     = frame.ToBytes();
+        var withFcs = frame.ToBytesWithFcs();
+        var body = frame.ToBytes();
 
         withFcs.Length.Should().Be(body.Length + 2, "FCS adds exactly 2 bytes");
         withFcs.AsSpan(0, body.Length).SequenceEqual(body).Should().BeTrue("body must be unchanged");
 
         var expectedCrc = Crc16Ccitt.Compute(body);
-        withFcs[^2].Should().Be((byte)(expectedCrc & 0xFF),        "low byte first");
+        withFcs[^2].Should().Be((byte)(expectedCrc & 0xFF), "low byte first");
         withFcs[^1].Should().Be((byte)((expectedCrc >> 8) & 0xFF), "high byte second");
     }
 
@@ -148,8 +148,8 @@ public class Ax25FrameTests
     {
         var frame = Ax25Frame.Ui(
             destination: new Callsign("APRS", 0),
-            source:      new Callsign("G7XYZ", 0),
-            info:        new byte[] { 0xAA });
+            source: new Callsign("G7XYZ", 0),
+            info: new byte[] { 0xAA });
 
         var buf = new byte[frame.RequiredBytesWithFcs];
         var written = frame.WriteToWithFcs(buf);

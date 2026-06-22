@@ -47,7 +47,11 @@ public class HappyPathConformanceTests
         var h = TwoStationHarness.Build(k: 4);
         h.Connect();
 
-        for (byte i = 0; i < 4; i++) h.Submit(h.A, i);
+        for (byte i = 0; i < 4; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
         h.FlushAcks();
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(new byte[] { 0, 1, 2, 3 });
@@ -82,7 +86,10 @@ public class HappyPathConformanceTests
         for (byte i = 0; i < 12; i++)
         {
             h.Submit(h.A, i);
-            if ((i + 1) % 4 == 0) h.FlushAcks();
+            if ((i + 1) % 4 == 0)
+            {
+                h.FlushAcks();
+            }
         }
         h.FlushAcks();
 
@@ -116,7 +123,11 @@ public class HappyPathConformanceTests
         var h = TwoStationHarness.Build(k: 7);   // largest mod-8 send window
         h.Connect();
 
-        for (byte i = 0; i < 7; i++) h.Submit(h.A, i);
+        for (byte i = 0; i < 7; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
         h.FlushAcks();
 
         h.B.Delivered.Select(p => p[0]).Should().Equal(Enumerable.Range(0, 7).Select(i => (byte)i));
@@ -136,7 +147,10 @@ public class HappyPathConformanceTests
         for (byte i = 0; i < n; i++)
         {
             h.Submit(h.A, i);
-            if ((i + 1) % 4 == 0) h.FlushAcks();
+            if ((i + 1) % 4 == 0)
+            {
+                h.FlushAcks();
+            }
         }
         h.FlushAcks();
 

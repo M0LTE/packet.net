@@ -225,8 +225,16 @@ sealed class AnalyseCounters
         sb.AppendLine();
         sb.AppendLine($"- **Run at**: {DateTime.UtcNow:O}");
         sb.AppendLine($"- **Sources**: {dbs.Count} sqlite file(s)");
-        foreach (var db in dbs) sb.AppendLine($"  - `{Path.GetFileName(db)}`");
-        if (opts.Limit > 0) sb.AppendLine($"- **Per-file limit**: {opts.Limit}");
+        foreach (var db in dbs)
+        {
+            sb.AppendLine($"  - `{Path.GetFileName(db)}`");
+        }
+
+        if (opts.Limit > 0)
+        {
+            sb.AppendLine($"- **Per-file limit**: {opts.Limit}");
+        }
+
         sb.AppendLine();
 
         sb.AppendLine("## Headline");

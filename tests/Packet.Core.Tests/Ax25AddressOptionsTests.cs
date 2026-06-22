@@ -8,7 +8,11 @@ public class Ax25AddressOptionsTests
     public void Strict_Rejects_All_Space_Callsign_Slot()
     {
         var buf = new byte[Ax25Address.EncodedLength];
-        for (int i = 0; i < 6; i++) buf[i] = 0x40;   // ' ' << 1
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i] = 0x40;   // ' ' << 1
+        }
+
         buf[6] = 0x60;                                // C=0, R=11, SSID=0, E=0
 
         Action act = () => { _ = Ax25Address.Read(buf, Ax25ParseOptions.Strict); };
@@ -20,7 +24,11 @@ public class Ax25AddressOptionsTests
     {
         // The BPQ-style `>IS` beacon shape. Default behaviour.
         Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
-        for (int i = 0; i < 6; i++) buf[i] = 0x40;
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i] = 0x40;
+        }
+
         buf[6] = 0x60;
 
         var addr = Ax25Address.Read(buf, Ax25ParseOptions.Lenient);
@@ -32,7 +40,11 @@ public class Ax25AddressOptionsTests
     {
         // Back-compat path. Same input as the Lenient case above.
         Span<byte> buf = stackalloc byte[Ax25Address.EncodedLength];
-        for (int i = 0; i < 6; i++) buf[i] = 0x40;
+        for (int i = 0; i < 6; i++)
+        {
+            buf[i] = 0x40;
+        }
+
         buf[6] = 0x60;
 
         var addr = Ax25Address.Read(buf);

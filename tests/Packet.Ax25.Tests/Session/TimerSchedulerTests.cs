@@ -59,7 +59,7 @@ public class TimerSchedulerTests
         using var sched = new SystemTimerScheduler(time);
         var fireOrder = new List<string>();
         sched.Arm("T1", TimeSpan.FromMilliseconds(2000), () => fireOrder.Add("T1"));
-        sched.Arm("T2", TimeSpan.FromMilliseconds(500),  () => fireOrder.Add("T2"));
+        sched.Arm("T2", TimeSpan.FromMilliseconds(500), () => fireOrder.Add("T2"));
         sched.Arm("T3", TimeSpan.FromMilliseconds(1500), () => fireOrder.Add("T3"));
 
         time.Advance(TimeSpan.FromMilliseconds(3000));

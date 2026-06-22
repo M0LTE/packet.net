@@ -92,7 +92,11 @@ public sealed class SystemTimerScheduler : ITimerScheduler, IDisposable
     {
         lock (gate)
         {
-            if (!timers.TryGetValue(name, out var entry)) return TimeSpan.Zero;
+            if (!timers.TryGetValue(name, out var entry))
+            {
+                return TimeSpan.Zero;
+            }
+
             var remaining = entry.Deadline - time.GetUtcNow();
             return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }

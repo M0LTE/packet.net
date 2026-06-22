@@ -49,7 +49,10 @@ public class ReconcilePlannerProperties
     {
         // Find an enabled port to perturb; if none, the property holds vacuously.
         var target = before.Ports.FirstOrDefault(p => p.Enabled);
-        if (target is null) return;
+        if (target is null)
+        {
+            return;
+        }
 
         var mutated = target with { Kiss = Bump(target.Kiss) };
         var to = before with { Ports = before.Ports.Select(p => p.Id == target.Id ? mutated : p).ToList() };
@@ -71,7 +74,10 @@ public class ReconcilePlannerProperties
     {
         // Find an enabled port to perturb; if none, the property holds vacuously.
         var target = before.Ports.FirstOrDefault(p => p.Enabled);
-        if (target is null) return;
+        if (target is null)
+        {
+            return;
+        }
 
         var mutated = target with { Ax25 = BumpAx25(target.Ax25) };
         var to = before with { Ports = before.Ports.Select(p => p.Id == target.Id ? mutated : p).ToList() };
@@ -94,7 +100,10 @@ public class ReconcilePlannerProperties
     public void A_transport_edit_to_one_enabled_port_restarts_only_that_port(NodeConfig before)
     {
         var target = before.Ports.FirstOrDefault(p => p.Enabled);
-        if (target is null) return;
+        if (target is null)
+        {
+            return;
+        }
 
         // Change the transport to a definitely-different endpoint.
         var mutated = target with { Transport = new KissTcpTransport { Host = "changed.invalid", Port = 65000 } };

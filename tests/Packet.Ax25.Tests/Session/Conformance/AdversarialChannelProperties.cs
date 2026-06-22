@@ -19,8 +19,8 @@ public class AdversarialChannelProperties
     [Property(MaxTest = 300)]
     public bool A_duplicating_channel_never_double_delivers(int seedN, int seedPattern)
     {
-        int n   = 1 + Mod(seedN, 6);     // 1..6 I-frames
-        int k   = System.Math.Max(4, n);
+        int n = 1 + Mod(seedN, 6);     // 1..6 I-frames
+        int k = System.Math.Max(4, n);
         var rng = new System.Random(seedPattern);
 
         var h = TwoStationHarness.Build(k: k);
@@ -31,8 +31,15 @@ public class AdversarialChannelProperties
         // perturbation, so every submitted payload must still arrive exactly once.
         h.Link.Duplicate = _ => rng.NextDouble() < 0.5;
 
-        for (byte i = 0; i < n; i++) h.Submit(h.A, i);
-        for (int r = 0; r < 40 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < n; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
+        for (int r = 0; r < 40 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         // Oracle: in-order, gap-free, DUPLICATE-FREE delivery both ways + windows empty.
         h.AssertConverged();
@@ -43,10 +50,10 @@ public class AdversarialChannelProperties
     public bool A_lossy_and_duplicating_channel_recovers_cleanly(
         int seedN, int seedBudget, int seedPattern, bool srej)
     {
-        int n      = 1 + Mod(seedN, 6);        // 1..6 I-frames
+        int n = 1 + Mod(seedN, 6);        // 1..6 I-frames
         int budget = Mod(seedBudget, n + 1);   // 0..n finite drops — channel then clears
-        int k      = System.Math.Max(4, n);
-        var rng    = new System.Random(seedPattern);
+        int k = System.Math.Max(4, n);
+        var rng = new System.Random(seedPattern);
 
         var h = TwoStationHarness.Build(srej: srej, k: k, n2: 40);
         h.Connect();
@@ -59,8 +66,15 @@ public class AdversarialChannelProperties
         h.Link.Drop = _ => { if (dropsLeft > 0 && rng.NextDouble() < 0.5) { dropsLeft--; return true; } return false; };
         h.Link.Duplicate = _ => rng.NextDouble() < 0.3;
 
-        for (byte i = 0; i < n; i++) h.Submit(h.A, i);
-        for (int r = 0; r < 80 && !Converged(h); r++) h.AdvanceT1();
+        for (byte i = 0; i < n; i++)
+        {
+            h.Submit(h.A, i);
+        }
+
+        for (int r = 0; r < 80 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.AssertConverged();
         return true;

@@ -87,7 +87,10 @@ public class ConnectionLifecycleConformanceTests
         // Each T1 expiry while RC < N2 retransmits SABM (figc t05_t1_expiry_no);
         // when RC reaches N2 the attempt is abandoned (t05_t1_expiry_yes →
         // DL-ERROR(G) + DL-DISCONNECT indication → Disconnected).
-        for (int r = 0; r < 6 && h.A.State == "AwaitingConnection"; r++) h.AdvanceT1();
+        for (int r = 0; r < 6 && h.A.State == "AwaitingConnection"; r++)
+        {
+            h.AdvanceT1();
+        }
 
         PeerSaw(h.B, IsSabm).Should().BeTrue("T1 expiry must retransmit the SABM");
         h.A.State.Should().Be("Disconnected", "after N2 unacked SABMs the connect attempt is abandoned");
@@ -155,7 +158,10 @@ public class ConnectionLifecycleConformanceTests
 
         // T1 expiry while RC < N2 retransmits DISC (t02_t1_expiry_no); at N2 the
         // release is forced complete (t02_t1_expiry_yes → Disconnected).
-        for (int r = 0; r < 6 && h.A.State == "AwaitingRelease"; r++) h.AdvanceT1();
+        for (int r = 0; r < 6 && h.A.State == "AwaitingRelease"; r++)
+        {
+            h.AdvanceT1();
+        }
 
         PeerSaw(h.B, IsDisc).Should().BeTrue("T1 expiry must retransmit the DISC");
         h.A.State.Should().Be("Disconnected", "after N2 unacked DISCs the release completes anyway");

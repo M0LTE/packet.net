@@ -120,7 +120,10 @@ public class BidirectionalSrejRecoveryTests
         h.Submit(h.A, 0x01);
         h.Submit(h.B, 0x80);
         h.Submit(h.B, 0x81);
-        for (int r = 0; r < 160 && !Converged(h); r++) h.AdvanceT1();
+        for (int r = 0; r < 160 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         Assert.Equal(new[] { 0x80, 0x81 }, h.A.Delivered.Select(p => (int)p[0]));
         Assert.Equal(new[] { 0x01 }, h.B.Delivered.Select(p => (int)p[0]));
@@ -147,7 +150,10 @@ public class BidirectionalSrejRecoveryTests
         h.Submit(h.A, 0x01);
         h.Submit(h.B, 0x80);
         h.Submit(h.B, 0x81);
-        for (int r = 0; r < 160 && !Converged(h); r++) h.AdvanceT1();
+        for (int r = 0; r < 160 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         // The faithful-decrement defect: B's two payloads delivered to A twice, and
         // the link never reconverges (V(R) was left under-advanced).
@@ -166,7 +172,7 @@ public class BidirectionalSrejRecoveryTests
     public bool Simultaneous_bidirectional_lowN_srej_recovers(
         int seedNa, int seedNb, int seedBudget, int seedPattern, bool extended)
     {
-        int k  = extended ? 16 : 7;
+        int k = extended ? 16 : 7;
         int na = 1 + Mod(seedNa, k);
         int nb = 1 + Mod(seedNb, k);
         int budget = Mod(seedBudget, na + nb + 1);   // finite, so the channel always clears
@@ -180,7 +186,10 @@ public class BidirectionalSrejRecoveryTests
         var b = Enumerable.Range(0, nb).Select(i => (byte)(0x80 + i)).ToArray();
         SubmitSimultaneous(h, a, b);
         h.Settle();
-        for (int r = 0; r < 200 && !Converged(h); r++) h.AdvanceT1();
+        for (int r = 0; r < 200 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.AssertConverged();   // exactly-once in-order delivery (both ways) + empty windows
         return true;
@@ -211,7 +220,10 @@ public class BidirectionalSrejRecoveryTests
         var b = Enumerable.Range(0, n).Select(i => (byte)((0x80 + i) & 0xFF)).ToArray();
         SubmitSimultaneous(h, a, b);
         h.Settle();
-        for (int r = 0; r < 200 && !Converged(h); r++) h.AdvanceT1();
+        for (int r = 0; r < 200 && !Converged(h); r++)
+        {
+            h.AdvanceT1();
+        }
 
         h.AssertConverged();
         Assert.Equal(a.Select(x => (int)x), h.B.Delivered.Select(p => (int)p[0]));

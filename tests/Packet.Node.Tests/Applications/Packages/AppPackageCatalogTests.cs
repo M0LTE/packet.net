@@ -38,12 +38,12 @@ public class AppPackageCatalogTests : IDisposable
     private NodeConfig Config(
         IReadOnlyList<AppOverrideConfig>? apps = null,
         IReadOnlyList<ApplicationConfig>? inline = null) => new()
-    {
-        Identity = new Identity { Callsign = "M0LTE-1" },
-        AppPackageRoots = [rootA.FullName, rootB.FullName],
-        Apps = apps ?? [],
-        Applications = inline ?? [],
-    };
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            AppPackageRoots = [rootA.FullName, rootB.FullName],
+            Apps = apps ?? [],
+            Applications = inline ?? [],
+        };
 
     // ---- discovery ------------------------------------------------------------------
 

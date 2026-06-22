@@ -108,8 +108,12 @@ public sealed class CircuitManagerTests
             Network = new NetRomNetworkHeader { Origin = new Callsign("GB7YYY"), Destination = new Callsign("GB7XXX"), TimeToLive = 10 },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 99, CircuitId = 99, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.Information, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 99,
+                CircuitId = 99,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.Information,
+                Flags = NetRomTransportFlags.None,
             },
             Payload = new byte[] { 1, 2, 3 },
         };
@@ -131,8 +135,12 @@ public sealed class CircuitManagerTests
             Network = new NetRomNetworkHeader { Origin = new Callsign("GB7YYY"), Destination = new Callsign("GB7XXX"), TimeToLive = 10 },
             Transport = new NetRomTransportHeader
             {
-                CircuitIndex = 5, CircuitId = 5, TxSequence = 0, RxSequence = 0,
-                Opcode = NetRomOpcode.DisconnectRequest, Flags = NetRomTransportFlags.None,
+                CircuitIndex = 5,
+                CircuitId = 5,
+                TxSequence = 0,
+                RxSequence = 0,
+                Opcode = NetRomOpcode.DisconnectRequest,
+                Flags = NetRomTransportFlags.None,
             },
         };
         manager.OnPacket(disc);

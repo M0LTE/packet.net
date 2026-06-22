@@ -49,7 +49,7 @@ public class DataLinkTransitionRobustnessTests
 
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         var guards = new GuardEvaluator(Ax25SessionBindings.CreateDefault(ctx, scheduler));

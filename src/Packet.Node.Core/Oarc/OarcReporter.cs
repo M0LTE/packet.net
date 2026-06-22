@@ -508,53 +508,98 @@ public sealed partial class OarcReporter : BackgroundService
 
     private static OarcLinkUpEvent BuildLinkUp(Identity identity, OarcLinkState l, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = l.Id, Direction = Direction(l.Inbound),
-        Port = l.Port, Remote = l.Remote, Local = l.Local,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = l.Id,
+        Direction = Direction(l.Inbound),
+        Port = l.Port,
+        Remote = l.Remote,
+        Local = l.Local,
     };
 
     private static OarcLinkStatusEvent BuildLinkStatus(Identity identity, OarcLinkState l, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = l.Id, Direction = Direction(l.Inbound),
-        Port = l.Port, Remote = l.Remote, Local = l.Local,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = l.Id,
+        Direction = Direction(l.Inbound),
+        Port = l.Port,
+        Remote = l.Remote,
+        Local = l.Local,
         UpForSecs = l.UpForSeconds,
-        FramesSent = l.FramesSent, FramesReceived = l.FramesReceived, FramesResent = l.FramesResent,
+        FramesSent = l.FramesSent,
+        FramesReceived = l.FramesReceived,
+        FramesResent = l.FramesResent,
         FramesQueued = 0,
-        BytesSent = l.BytesSent, BytesReceived = l.BytesReceived, L2RttMs = l.L2RttMs,
+        BytesSent = l.BytesSent,
+        BytesReceived = l.BytesReceived,
+        L2RttMs = l.L2RttMs,
     };
 
     private static OarcLinkDownEvent BuildLinkDown(Identity identity, OarcLinkState l, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = l.Id, Direction = Direction(l.Inbound),
-        Port = l.Port, Remote = l.Remote, Local = l.Local,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = l.Id,
+        Direction = Direction(l.Inbound),
+        Port = l.Port,
+        Remote = l.Remote,
+        Local = l.Local,
         UpForSecs = l.UpForSeconds,
-        FramesSent = l.FramesSent, FramesReceived = l.FramesReceived, FramesResent = l.FramesResent,
+        FramesSent = l.FramesSent,
+        FramesReceived = l.FramesReceived,
+        FramesResent = l.FramesResent,
         FramesQueued = 0,
-        BytesSent = l.BytesSent, BytesReceived = l.BytesReceived,
+        BytesSent = l.BytesSent,
+        BytesReceived = l.BytesReceived,
         Reason = "disconnected",
     };
 
     private static OarcCircuitUpEvent BuildCircuitUp(Identity identity, OarcCircuitState c, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = c.Id, Direction = Direction(c.Inbound),
-        Service = c.Service, Remote = c.Remote, Local = c.Local,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = c.Id,
+        Direction = Direction(c.Inbound),
+        Service = c.Service,
+        Remote = c.Remote,
+        Local = c.Local,
     };
 
     private static OarcCircuitStatusEvent BuildCircuitStatus(Identity identity, OarcCircuitState c, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = c.Id, Direction = Direction(c.Inbound),
-        Service = c.Service, Remote = c.Remote, Local = c.Local,
-        SegmentsSent = c.SegmentsSent, SegmentsReceived = c.SegmentsReceived,
-        SegmentsResent = c.SegmentsResent, SegmentsQueued = c.SegmentsQueued,
-        BytesSent = c.BytesSent, BytesReceived = c.BytesReceived, UpForSecs = c.UpForSeconds,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = c.Id,
+        Direction = Direction(c.Inbound),
+        Service = c.Service,
+        Remote = c.Remote,
+        Local = c.Local,
+        SegmentsSent = c.SegmentsSent,
+        SegmentsReceived = c.SegmentsReceived,
+        SegmentsResent = c.SegmentsResent,
+        SegmentsQueued = c.SegmentsQueued,
+        BytesSent = c.BytesSent,
+        BytesReceived = c.BytesReceived,
+        UpForSecs = c.UpForSeconds,
     };
 
     private static OarcCircuitDownEvent BuildCircuitDown(Identity identity, OarcCircuitState c, DateTimeOffset now) => new()
     {
-        Time = Epoch(now), Node = identity.Callsign, Id = c.Id, Direction = Direction(c.Inbound),
-        Service = c.Service, Remote = c.Remote, Local = c.Local,
-        SegmentsSent = c.SegmentsSent, SegmentsReceived = c.SegmentsReceived,
-        SegmentsResent = c.SegmentsResent, SegmentsQueued = c.SegmentsQueued,
-        BytesSent = c.BytesSent, BytesReceived = c.BytesReceived, UpForSecs = c.UpForSeconds,
+        Time = Epoch(now),
+        Node = identity.Callsign,
+        Id = c.Id,
+        Direction = Direction(c.Inbound),
+        Service = c.Service,
+        Remote = c.Remote,
+        Local = c.Local,
+        SegmentsSent = c.SegmentsSent,
+        SegmentsReceived = c.SegmentsReceived,
+        SegmentsResent = c.SegmentsResent,
+        SegmentsQueued = c.SegmentsQueued,
+        BytesSent = c.BytesSent,
+        BytesReceived = c.BytesReceived,
+        UpForSecs = c.UpForSeconds,
         Reason = "disconnected",
     };
 

@@ -107,7 +107,11 @@ internal static class BenchRunner
         {
             s.DataLinkSignalEmitted += (_, sig) =>
             {
-                if (sig is DataLinkDataIndication) return; // too chatty; the byte counts cover it
+                if (sig is DataLinkDataIndication)
+                {
+                    return; // too chatty; the byte counts cover it
+                }
+
                 Journal(endpoint, sig is DataLinkErrorIndication err ? $"DL-ERROR {err.Code}" : sig.Name);
             };
             s.TransitionFired += (_, t) => Journal(endpoint, $"{t.From} → {t.Next} ({t.Id})");
@@ -126,7 +130,10 @@ internal static class BenchRunner
                 s.DataLinkSignalEmitted += (_, sig) =>
                 {
                     sinkOnA.OnSignal(sig);
-                    if (sig is DataLinkDisconnectConfirm) discConfirm.TrySetResult();
+                    if (sig is DataLinkDisconnectConfirm)
+                    {
+                        discConfirm.TrySetResult();
+                    }
                 };
                 WireSessionJournal(s, "A");
             },
@@ -211,7 +218,11 @@ internal static class BenchRunner
 
             // ── Drain ──
             var waits = new List<Task<DateTimeOffset>> { sinkOnB.Done };
-            if (cfg.Bidirectional) waits.Add(sinkOnA.Done);
+            if (cfg.Bidirectional)
+            {
+                waits.Add(sinkOnA.Done);
+            }
+
             DateTimeOffset lastByteAt;
             try
             {
@@ -354,7 +365,11 @@ internal static class BenchRunner
     {
         lock (gate)
         {
-            if (receipts.Count == 0) return (null, null, null, 0);
+            if (receipts.Count == 0)
+            {
+                return (null, null, null, 0);
+            }
+
             var elapsed = receipts.Select(r => r.Elapsed).ToList();
             return (
                 elapsed.Min(),
@@ -381,7 +396,11 @@ internal static class BenchRunner
 
         public void OnSignal(DataLinkSignal sig)
         {
-            if (sig is not DataLinkDataIndication data) return;
+            if (sig is not DataLinkDataIndication data)
+            {
+                return;
+            }
+
             lock (gate)
             {
                 buffer.Write(data.Info.Span);

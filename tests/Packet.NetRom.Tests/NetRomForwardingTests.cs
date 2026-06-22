@@ -189,8 +189,14 @@ public sealed class NetRomForwardingTests
         for (int i = 0; i < 256; i++)
         {
             var d = NetRomForwarding.Decide(Flow(Source, Dest, 20, (byte)i), FromNbr, Me, routing, 25, NetRomForwardMode.PerFlow);
-            if (d.NextHop.Equals(OnwardNbr)) onward++;
-            else if (d.NextHop.Equals(AltNbr)) alt++;
+            if (d.NextHop.Equals(OnwardNbr))
+            {
+                onward++;
+            }
+            else if (d.NextHop.Equals(AltNbr))
+            {
+                alt++;
+            }
         }
 
         onward.Should().BeGreaterThan(0);

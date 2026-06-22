@@ -137,7 +137,11 @@ public class Ax25ListenerReseedTests
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (condition()) return;
+            if (condition())
+            {
+                return;
+            }
+
             await Task.Delay(10);
         }
         throw new TimeoutException($"condition not met within 2s: {reason}");

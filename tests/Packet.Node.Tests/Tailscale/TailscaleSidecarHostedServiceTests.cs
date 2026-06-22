@@ -139,17 +139,21 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     /// apps: overrides that enable the discovered packages.</summary>
     private static NodeConfig NodeWithApps(
         TailscaleConfig tailscale, string appRoot, params AppOverrideConfig[] apps) => new()
-    {
-        Identity = new Identity { Callsign = "M0LTE-1" },
-        Tailscale = tailscale,
-        AppPackageRoots = [appRoot],
-        Apps = apps,
-    };
+        {
+            Identity = new Identity { Callsign = "M0LTE-1" },
+            Tailscale = tailscale,
+            AppPackageRoots = [appRoot],
+            Apps = apps,
+        };
 
     [Fact]
     public async Task Enabled_launches_the_child_and_status_transitions_to_running_with_the_fqdn()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var bin = WriteFakeSidecar("ts-ok", [
             "{\"state\":\"starting\"}",
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -171,7 +175,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Needs_login_status_surfaces_the_auth_url()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var bin = WriteFakeSidecar("ts-login", [
             "{\"state\":\"starting\"}",
             "{\"state\":\"needs-login\",\"authURL\":\"https://login.tailscale.com/a/abc123\"}",
@@ -190,7 +198,10 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Disabled_config_runs_nothing_and_status_stays_disabled()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
         // Point at a path that does not exist — if the service tried to launch it'd error;
         // because the config is disabled it must never launch, so status stays disabled.
         var bin = Path.Combine(dir, "does-not-exist");
@@ -209,7 +220,10 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task A_child_that_exits_triggers_a_backoff_restart()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
         // The fake records each launch, emits running, then exits 1 — so each respawn appends a
         // line. Two-plus launches proves the supervisor restarted on the unexpected exit.
         var runsFile = Path.Combine(dir, "runs.txt");
@@ -231,7 +245,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Disabling_via_config_change_stops_the_running_child()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var bin = WriteFakeSidecar("ts-toggle", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
         ]);
@@ -253,7 +271,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task A_relevant_field_change_restarts_the_child()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var runsFile = Path.Combine(dir, "runs.txt");
         var bin = WriteFakeSidecar("ts-reconf", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -278,7 +300,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task The_child_is_launched_with_the_pinned_flag_contract()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var runsFile = Path.Combine(dir, "args.txt");
         var bin = WriteFakeSidecar("ts-flags", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -314,7 +340,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task An_inline_auth_key_is_passed_via_a_private_temp_file_not_the_command_line()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var runsFile = Path.Combine(dir, "args.txt");
         var bin = WriteFakeSidecar("ts-inlinekey", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -344,7 +374,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task A_missing_binary_when_enabled_yields_error_status_and_no_crash()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var status = new TailscaleStatusHolder();
         var config = new TestConfigProvider(Node(Enabled(Path.Combine(dir, "state"))));
         // Point at a non-existent binary while enabled — the surface must stay total.
@@ -362,7 +396,10 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Stop_sigterms_the_child()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
         // The fake traps TERM and records it before exiting — proving a graceful SIGTERM stop.
         var path = Path.Combine(dir, "ts-polite");
         var marker = Path.Combine(dir, "term.marker");
@@ -393,7 +430,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task An_enabled_package_forward_writes_the_forwards_file_and_passes_the_flag()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var argsLog = Path.Combine(dir, "args.txt");
         var bin = WriteFakeSidecar("ts-fwd", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -428,7 +469,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task A_disabled_forward_package_contributes_no_forwards_and_no_flag()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var argsLog = Path.Combine(dir, "args.txt");
         var bin = WriteFakeSidecar("ts-nofwd", [
             "{\"state\":\"running\",\"fqdn\":\"pdn.test.ts.net\"}",
@@ -457,7 +502,10 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Enabling_a_forward_package_live_reloads_via_sighup_without_restarting_the_sidecar()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
         // The whole point of the fix: a forwards-only change must NOT tear down + rejoin the tailnet
         // (which would drop the operator's control-panel session). It rewrites forwards.json and
         // SIGHUPs the SAME child — proved by exactly one launch line plus a recorded HUP.
@@ -505,7 +553,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Changing_a_forward_target_live_reloads_via_sighup_without_restarting()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var argsLog = Path.Combine(dir, "args.txt");
         var hupLog = Path.Combine(dir, "hup.txt");
         var bin = WriteFakeSidecar("ts-fwd-change", [
@@ -548,7 +600,11 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task Disabling_a_forward_package_live_reloads_to_zero_forwards_via_sighup()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var argsLog = Path.Combine(dir, "args.txt");
         var hupLog = Path.Combine(dir, "hup.txt");
         var bin = WriteFakeSidecar("ts-fwd-off", [
@@ -584,7 +640,10 @@ public sealed class TailscaleSidecarHostedServiceTests : IDisposable
     [Fact]
     public async Task A_node_level_change_still_restarts_the_sidecar_even_with_forwards()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
         // A node-level field (hostname → a fresh tsnet node) must still restart, never SIGHUP — the
         // forwards split must not regress the restart-on-node-change behaviour.
         var argsLog = Path.Combine(dir, "args.txt");

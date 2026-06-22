@@ -17,11 +17,15 @@ public sealed class TestConfigProvider : IConfigProvider
 
     public TestConfigProvider(NodeConfig initial) => current = initial;
 
-    public NodeConfig Current { get { lock (gate) return current; } }
+    public NodeConfig Current { get { lock (gate) { return current; } } }
 
     public IDisposable OnChange(Action<NodeConfig> listener)
     {
-        lock (gate) listeners.Add(listener);
+        lock (gate)
+        {
+            listeners.Add(listener);
+        }
+
         return new Unsub(this, listener);
     }
 
@@ -35,11 +39,18 @@ public sealed class TestConfigProvider : IConfigProvider
             current = next;
             snapshot = listeners.ToArray();
         }
-        foreach (var l in snapshot) l(next);
+        foreach (var l in snapshot)
+        {
+            l(next);
+        }
     }
 
     private sealed class Unsub(TestConfigProvider owner, Action<NodeConfig> listener) : IDisposable
     {
-        public void Dispose() { lock (owner.gate) owner.listeners.Remove(listener); }
+        public void Dispose() { lock (owner.gate)
+            {
+                owner.listeners.Remove(listener);
+            }
+        }
     }
 }

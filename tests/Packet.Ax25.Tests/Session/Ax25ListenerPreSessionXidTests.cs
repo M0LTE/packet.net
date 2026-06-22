@@ -25,18 +25,18 @@ namespace Packet.Ax25.Tests.Session;
 public class Ax25ListenerPreSessionXidTests
 {
     private static readonly Callsign LocalCall = new("M0LTE", 0);
-    private static readonly Callsign PeerCall  = new("G7XYZ", 7);
+    private static readonly Callsign PeerCall = new("G7XYZ", 7);
 
     // U-frame control bytes with the P/F bit (0x10) masked out.
     private const byte XidControl = 0xAF;
-    private const byte UaControl  = 0x63;
-    private const byte DmControl  = 0x0F;
+    private const byte UaControl = 0x63;
+    private const byte DmControl = 0x0F;
 
     // U-frame: the low two control bits are both set (§4.3.3).
     private static bool IsUFrame(Ax25Frame f) => (f.Control & 0x03) == 0x03;
     private static bool IsXid(Ax25Frame f) => IsUFrame(f) && (f.Control & 0xEF) == XidControl;
-    private static bool IsUa(Ax25Frame f)  => IsUFrame(f) && (f.Control & 0xEF) == UaControl;
-    private static bool IsDm(Ax25Frame f)  => IsUFrame(f) && (f.Control & 0xEF) == DmControl;
+    private static bool IsUa(Ax25Frame f) => IsUFrame(f) && (f.Control & 0xEF) == UaControl;
+    private static bool IsDm(Ax25Frame f) => IsUFrame(f) && (f.Control & 0xEF) == DmControl;
 
     /// <summary>A mod-8 XID command offering SREJ — the offer a PDN interlink
     /// initiator puts on the wire before its SABM.</summary>

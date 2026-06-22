@@ -337,8 +337,16 @@ public sealed class Ax25Session
             TransitionSpec? match = null;
             foreach (var t in stateTransitions)
             {
-                if (t.On != on) continue;
-                if (!guards.Evaluate(t.Guard)) continue;
+                if (t.On != on)
+                {
+                    continue;
+                }
+
+                if (!guards.Evaluate(t.Guard))
+                {
+                    continue;
+                }
+
                 match = t;
                 break;
             }
@@ -424,37 +432,6 @@ public sealed class Ax25Session
     }
 
     /// <summary>
-    /// Compute the state a just-committed transition advances to — normally
-    /// <see cref="TransitionSpec.Next"/>, but with the figc4.2 connect-routing
-    /// defect corrected when the relevant quirk is on.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// figc4.2 routes the <c>Disconnected</c> <c>DL-CONNECT request</c>
-    /// (<c>t03_dl_connect_request</c>) unconditionally to <c>AwaitingConnection</c>,
-    /// with no version branch — so a v2.2-preferred connect (which the figc4.7
-    /// <c>Establish_Data_Link</c> subroutine correctly sends as a <i>SABME</i>,
-    /// branching on <c>mod_128</c>) ends up parked in the mod-8 establishment state.
-    /// That state's T1 retry resends a hardcoded SABM (downgrading the link) and it
-    /// has no FRMR handler (so the §975 v2.0 fallback can't fire). When
-    /// <see cref="Ax25SessionQuirks.Ax25Spec44Mod128ConnectRoutesToV22"/> is on
-    /// (default) and the link is extended at dispatch time, the target is rewritten
-    /// to <c>AwaitingV22Connection</c> (figc4.6), which resends SABME on retry and
-    /// handles the FRMR/DM fallbacks. See <see cref="Ax25SessionQuirks"/> for the
-    /// full rationale, the graphml citation, and the direwolf cross-reference.
-    /// </para>
-    /// <para>
-    /// Scope is deliberately tight: only the exact <c>Disconnected</c> DL-CONNECT
-    /// transition (matched on <c>From</c> + <c>On</c> + <c>Next</c>, so it survives a
-    /// transition-id renumber), only when <see cref="Ax25SessionContext.IsExtended"/>.
-    /// Every other transition is returned unchanged — a mod-8 connect (not extended)
-    /// keeps figc4.2's <c>AwaitingConnection</c> target, and the figc4.6 FRMR fallback
-    /// (<c>t14</c>) which forces version 2.0 — clearing <c>IsExtended</c> — and routes
-    /// to <c>AwaitingConnection</c> is untouched, so the redirect is self-consistent
-    /// with the fallback (a later connect from that mod-8 state stays mod-8).
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// figc4.6 DM-no-degrade gap (<see cref="Ax25SessionQuirks.Ax25Spec48DmRejectionDegradesToV20"/>):
     /// when a <c>DM received</c> fires in <c>AwaitingV22Connection</c> and the quirk is on,
     /// substitute the matched DM transition (either F-branch — the F=1
@@ -498,6 +475,37 @@ public sealed class Ax25Session
         return match;   // defensive: figc4.6 always carries t14_frmr_received
     }
 
+    /// <summary>
+    /// Compute the state a just-committed transition advances to — normally
+    /// <see cref="TransitionSpec.Next"/>, but with the figc4.2 connect-routing
+    /// defect corrected when the relevant quirk is on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// figc4.2 routes the <c>Disconnected</c> <c>DL-CONNECT request</c>
+    /// (<c>t03_dl_connect_request</c>) unconditionally to <c>AwaitingConnection</c>,
+    /// with no version branch — so a v2.2-preferred connect (which the figc4.7
+    /// <c>Establish_Data_Link</c> subroutine correctly sends as a <i>SABME</i>,
+    /// branching on <c>mod_128</c>) ends up parked in the mod-8 establishment state.
+    /// That state's T1 retry resends a hardcoded SABM (downgrading the link) and it
+    /// has no FRMR handler (so the §975 v2.0 fallback can't fire). When
+    /// <see cref="Ax25SessionQuirks.Ax25Spec44Mod128ConnectRoutesToV22"/> is on
+    /// (default) and the link is extended at dispatch time, the target is rewritten
+    /// to <c>AwaitingV22Connection</c> (figc4.6), which resends SABME on retry and
+    /// handles the FRMR/DM fallbacks. See <see cref="Ax25SessionQuirks"/> for the
+    /// full rationale, the graphml citation, and the direwolf cross-reference.
+    /// </para>
+    /// <para>
+    /// Scope is deliberately tight: only the exact <c>Disconnected</c> DL-CONNECT
+    /// transition (matched on <c>From</c> + <c>On</c> + <c>Next</c>, so it survives a
+    /// transition-id renumber), only when <see cref="Ax25SessionContext.IsExtended"/>.
+    /// Every other transition is returned unchanged — a mod-8 connect (not extended)
+    /// keeps figc4.2's <c>AwaitingConnection</c> target, and the figc4.6 FRMR fallback
+    /// (<c>t14</c>) which forces version 2.0 — clearing <c>IsExtended</c> — and routes
+    /// to <c>AwaitingConnection</c> is untouched, so the redirect is self-consistent
+    /// with the fallback (a later connect from that mod-8 state stays mod-8).
+    /// </para>
+    /// </remarks>
     private string ResolveNextState(TransitionSpec match)
     {
         if (Context.Quirks.Ax25Spec44Mod128ConnectRoutesToV22
@@ -607,8 +615,16 @@ public sealed class Ax25Session
     /// </remarks>
     private bool CanTransmitIFrame()
     {
-        if (CurrentState is not ("Connected" or "TimerRecovery")) return false;
-        if (Context.PeerReceiverBusy) return false;
+        if (CurrentState is not ("Connected" or "TimerRecovery"))
+        {
+            return false;
+        }
+
+        if (Context.PeerReceiverBusy)
+        {
+            return false;
+        }
+
         int outstanding = (Context.VS - Context.VA + Context.Modulus) % Context.Modulus;
         return outstanding < Context.EffectiveWindow;
     }
@@ -624,51 +640,51 @@ public sealed class Ax25Session
     private static SdlEvent ToSdlEvent(Ax25Event evt) => evt switch
     {
         // ─── Upper-layer (Layer-3 → Data-Link) primitives ──────────────
-        DlConnectRequest        => SdlEvent.DLCONNECTRequest,
-        DlDisconnectRequest     => SdlEvent.DLDISCONNECTRequest,
-        DlDataRequest           => SdlEvent.DLDATARequest,
-        DlUnitDataRequest       => SdlEvent.DLUNITDATARequest,
-        DlFlowOffRequest        => SdlEvent.DLFLOWOFFRequest,
-        DlFlowOnRequest         => SdlEvent.DLFLOWONRequest,
+        DlConnectRequest => SdlEvent.DLCONNECTRequest,
+        DlDisconnectRequest => SdlEvent.DLDISCONNECTRequest,
+        DlDataRequest => SdlEvent.DLDATARequest,
+        DlUnitDataRequest => SdlEvent.DLUNITDATARequest,
+        DlFlowOffRequest => SdlEvent.DLFLOWOFFRequest,
+        DlFlowOnRequest => SdlEvent.DLFLOWONRequest,
 
         // ─── Management Data-Link primitives ────────────────────────────
-        MdlNegotiateRequest     => SdlEvent.MDLNEGOTIATERequest,
-        MdlNegotiateConfirm     => SdlEvent.MDLNEGOTIATEConfirm,
-        MdlErrorIndicate        => SdlEvent.MDLERRORIndicate,
+        MdlNegotiateRequest => SdlEvent.MDLNEGOTIATERequest,
+        MdlNegotiateConfirm => SdlEvent.MDLNEGOTIATEConfirm,
+        MdlErrorIndicate => SdlEvent.MDLERRORIndicate,
 
         // ─── Frame-received events ──────────────────────────────────────
-        IFrameReceived          => SdlEvent.IReceived,
-        RrReceived              => SdlEvent.RRReceived,
-        RnrReceived             => SdlEvent.RNRReceived,
-        RejReceived             => SdlEvent.REJReceived,
-        SrejReceived            => SdlEvent.SREJReceived,
-        UiReceived              => SdlEvent.UIReceived,
-        SabmReceived            => SdlEvent.SABMReceived,
-        SabmeReceived           => SdlEvent.SABMEReceived,
-        DiscReceived            => SdlEvent.DISCReceived,
-        UaReceived              => SdlEvent.UAReceived,
-        DmReceived              => SdlEvent.DMReceived,
-        FrmrReceived            => SdlEvent.FRMRReceived,
-        XidReceived             => SdlEvent.XIDReceived,
-        XidResponseReceived     => SdlEvent.XIDResponseReceived,
-        TestReceived            => SdlEvent.TESTReceived,
-        IOrSCommandReceived     => SdlEvent.IOrSCommandReceived,
+        IFrameReceived => SdlEvent.IReceived,
+        RrReceived => SdlEvent.RRReceived,
+        RnrReceived => SdlEvent.RNRReceived,
+        RejReceived => SdlEvent.REJReceived,
+        SrejReceived => SdlEvent.SREJReceived,
+        UiReceived => SdlEvent.UIReceived,
+        SabmReceived => SdlEvent.SABMReceived,
+        SabmeReceived => SdlEvent.SABMEReceived,
+        DiscReceived => SdlEvent.DISCReceived,
+        UaReceived => SdlEvent.UAReceived,
+        DmReceived => SdlEvent.DMReceived,
+        FrmrReceived => SdlEvent.FRMRReceived,
+        XidReceived => SdlEvent.XIDReceived,
+        XidResponseReceived => SdlEvent.XIDResponseReceived,
+        TestReceived => SdlEvent.TESTReceived,
+        IOrSCommandReceived => SdlEvent.IOrSCommandReceived,
 
         // ─── Internal + catch-all events ────────────────────────────────
-        IFramePopsOffQueue      => SdlEvent.IFramePopsOffQueue,
-        AllOtherCommands        => SdlEvent.AllOtherCommands,
+        IFramePopsOffQueue => SdlEvent.IFramePopsOffQueue,
+        AllOtherCommands => SdlEvent.AllOtherCommands,
         AllOtherPrimitivesFromLowerLayer => SdlEvent.AllOtherPrimitivesFromLowerLayer,
         AllOtherPrimitivesFromUpperLayer => SdlEvent.AllOtherPrimitivesFromUpperLayer,
-        ControlFieldError       => SdlEvent.ControlFieldError,
+        ControlFieldError => SdlEvent.ControlFieldError,
         InfoNotPermittedInFrame => SdlEvent.InfoNotPermittedInFrame,
-        UOrSFrameLengthError    => SdlEvent.UOrSFrameLengthError,
+        UOrSFrameLengthError => SdlEvent.UOrSFrameLengthError,
 
         // ─── Link-multiplexer + timer expiries ──────────────────────────
-        LmSeizeConfirm          => SdlEvent.LMSEIZEConfirm,
-        Tm201Expiry             => SdlEvent.TM201Expiry,
-        T1Expiry                => SdlEvent.T1Expiry,
-        T2Expiry                => SdlEvent.T2Expiry,
-        T3Expiry                => SdlEvent.T3Expiry,
+        LmSeizeConfirm => SdlEvent.LMSEIZEConfirm,
+        Tm201Expiry => SdlEvent.TM201Expiry,
+        T1Expiry => SdlEvent.T1Expiry,
+        T2Expiry => SdlEvent.T2Expiry,
+        T3Expiry => SdlEvent.T3Expiry,
 
         _ => throw new InvalidOperationException(
             $"no SDL-event mapping for runtime event '{evt.GetType().Name}' ('{evt.Name}') — " +

@@ -173,7 +173,11 @@ public class Ax25ListenerCompatTests
         var firstAccept = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         listener.SessionAccepted += (_, e) =>
         {
-            lock (acceptedPeers) acceptedPeers.Add(e.Session.Context.Remote);
+            lock (acceptedPeers)
+            {
+                acceptedPeers.Add(e.Session.Context.Remote);
+            }
+
             firstAccept.TrySetResult(true);
         };
 

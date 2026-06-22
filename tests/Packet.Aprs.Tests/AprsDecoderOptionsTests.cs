@@ -30,11 +30,11 @@ public class AprsDecoderOptionsTests
     {
         // §16: status body may NOT contain | or ~. Lenient tolerates;
         // Strict must reject.
-        var withPipe   = System.Text.Encoding.ASCII.GetBytes(">Status with | pipe");
-        var withTilde  = System.Text.Encoding.ASCII.GetBytes(">Status with ~ tilde");
-        AprsStatusDecoder.TryDecode(withPipe,  AprsParseOptions.Lenient, out _).Should().BeTrue();
-        AprsStatusDecoder.TryDecode(withPipe,  AprsParseOptions.Strict,  out _).Should().BeFalse();
-        AprsStatusDecoder.TryDecode(withTilde, AprsParseOptions.Strict,  out _).Should().BeFalse();
+        var withPipe = System.Text.Encoding.ASCII.GetBytes(">Status with | pipe");
+        var withTilde = System.Text.Encoding.ASCII.GetBytes(">Status with ~ tilde");
+        AprsStatusDecoder.TryDecode(withPipe, AprsParseOptions.Lenient, out _).Should().BeTrue();
+        AprsStatusDecoder.TryDecode(withPipe, AprsParseOptions.Strict, out _).Should().BeFalse();
+        AprsStatusDecoder.TryDecode(withTilde, AprsParseOptions.Strict, out _).Should().BeFalse();
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class AprsDecoderOptionsTests
     {
         var info = System.Text.Encoding.ASCII.GetBytes(raw);
         AprsTelemetryDecoder.TryDecode(info, AprsParseOptions.Lenient, out _).Should().BeTrue();
-        AprsTelemetryDecoder.TryDecode(info, AprsParseOptions.Strict,  out _).Should().BeFalse();
+        AprsTelemetryDecoder.TryDecode(info, AprsParseOptions.Strict, out _).Should().BeFalse();
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class AprsDecoderOptionsTests
             (byte)'>', (byte)'/'
         };
         AprsMicEDecoder.TryDecode("S32U6T", info, AprsParseOptions.Lenient, out _).Should().BeTrue();
-        AprsMicEDecoder.TryDecode("S32U6T", info, AprsParseOptions.Strict,  out _).Should().BeFalse();
+        AprsMicEDecoder.TryDecode("S32U6T", info, AprsParseOptions.Strict, out _).Should().BeFalse();
     }
 
     [Fact]

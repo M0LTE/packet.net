@@ -63,20 +63,20 @@ public sealed record XidResponseReceived(Ax25Frame Frame) : Ax25Event("XID_respo
 /// MDL <c>Negotiating</c> state's XID-command retransmit / give-up logic.</summary>
 public sealed record Tm201Expiry() : Ax25Event("TM201_expiry");
 
-public sealed record IFrameReceived(Ax25Frame Frame)     : Ax25Event("I_received");
-public sealed record RrReceived(Ax25Frame Frame)         : Ax25Event("RR_received");
-public sealed record RnrReceived(Ax25Frame Frame)        : Ax25Event("RNR_received");
-public sealed record RejReceived(Ax25Frame Frame)        : Ax25Event("REJ_received");
-public sealed record SrejReceived(Ax25Frame Frame)       : Ax25Event("SREJ_received");
-public sealed record UiReceived(Ax25Frame Frame)         : Ax25Event("UI_received");
-public sealed record SabmReceived(Ax25Frame Frame)       : Ax25Event("SABM_received");
-public sealed record SabmeReceived(Ax25Frame Frame)      : Ax25Event("SABME_received");
-public sealed record DiscReceived(Ax25Frame Frame)       : Ax25Event("DISC_received");
-public sealed record UaReceived(Ax25Frame Frame)         : Ax25Event("UA_received");
-public sealed record DmReceived(Ax25Frame Frame)         : Ax25Event("DM_received");
-public sealed record FrmrReceived(Ax25Frame Frame)       : Ax25Event("FRMR_received");
-public sealed record XidReceived(Ax25Frame Frame)        : Ax25Event("XID_received");
-public sealed record TestReceived(Ax25Frame Frame)       : Ax25Event("TEST_received");
+public sealed record IFrameReceived(Ax25Frame Frame) : Ax25Event("I_received");
+public sealed record RrReceived(Ax25Frame Frame) : Ax25Event("RR_received");
+public sealed record RnrReceived(Ax25Frame Frame) : Ax25Event("RNR_received");
+public sealed record RejReceived(Ax25Frame Frame) : Ax25Event("REJ_received");
+public sealed record SrejReceived(Ax25Frame Frame) : Ax25Event("SREJ_received");
+public sealed record UiReceived(Ax25Frame Frame) : Ax25Event("UI_received");
+public sealed record SabmReceived(Ax25Frame Frame) : Ax25Event("SABM_received");
+public sealed record SabmeReceived(Ax25Frame Frame) : Ax25Event("SABME_received");
+public sealed record DiscReceived(Ax25Frame Frame) : Ax25Event("DISC_received");
+public sealed record UaReceived(Ax25Frame Frame) : Ax25Event("UA_received");
+public sealed record DmReceived(Ax25Frame Frame) : Ax25Event("DM_received");
+public sealed record FrmrReceived(Ax25Frame Frame) : Ax25Event("FRMR_received");
+public sealed record XidReceived(Ax25Frame Frame) : Ax25Event("XID_received");
+public sealed record TestReceived(Ax25Frame Frame) : Ax25Event("TEST_received");
 
 // ─── Internal events ────────────────────────────────────────────────────
 
@@ -116,9 +116,9 @@ public sealed record AllOtherPrimitivesFromUpperLayer() : Ax25Event("all_other_p
 /// </summary>
 public sealed record AllOtherCommands(Ax25Frame Frame) : Ax25Event("all_other_commands");
 
-public sealed record ControlFieldError()        : Ax25Event("control_field_error");
-public sealed record InfoNotPermittedInFrame()  : Ax25Event("info_not_permitted_in_frame");
-public sealed record UOrSFrameLengthError()     : Ax25Event("u_or_s_frame_length_error");
+public sealed record ControlFieldError() : Ax25Event("control_field_error");
+public sealed record InfoNotPermittedInFrame() : Ax25Event("info_not_permitted_in_frame");
+public sealed record UOrSFrameLengthError() : Ax25Event("u_or_s_frame_length_error");
 
 // ─── Link-multiplexer events ────────────────────────────────────────────
 

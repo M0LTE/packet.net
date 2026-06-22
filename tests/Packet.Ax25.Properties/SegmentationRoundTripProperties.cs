@@ -47,7 +47,10 @@ public class SegmentationRoundTripProperties
         var reassembler = new Reassembler();            // expectInnerPid: false
 
         byte[]? completed = null;
-        foreach (var seg in segments) completed = reassembler.Push(seg);
+        foreach (var seg in segments)
+        {
+            completed = reassembler.Push(seg);
+        }
 
         completed.Should().NotBeNull("the last segment must complete the series");
         completed!.Should().Equal(capped, "figure-literal segment → reassemble is the identity");
@@ -71,7 +74,10 @@ public class SegmentationRoundTripProperties
         var reassembler = new Reassembler(expectInnerPid: true);
 
         byte[]? completed = null;
-        foreach (var seg in segments) completed = reassembler.Push(seg);
+        foreach (var seg in segments)
+        {
+            completed = reassembler.Push(seg);
+        }
 
         completed.Should().NotBeNull();
         completed!.Should().Equal(capped, "inner-PID segment → reassemble is the identity");

@@ -115,7 +115,10 @@ public sealed partial class MdnsAdvertiserHostedService : BackgroundService
                     failures = 0;
                     enoentLogged = false;
                     nextAttempt = now;
-                    if (plan is null) LogDormant(skip);
+                    if (plan is null)
+                    {
+                        LogDormant(skip);
+                    }
                 }
                 else if (plan is not null && child is { HasExited: true })
                 {
@@ -187,7 +190,10 @@ public sealed partial class MdnsAdvertiserHostedService : BackgroundService
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var a in plan.ToAvahiArgs()) psi.ArgumentList.Add(a);
+        foreach (var a in plan.ToAvahiArgs())
+        {
+            psi.ArgumentList.Add(a);
+        }
 
         try
         {
@@ -240,12 +246,19 @@ public sealed partial class MdnsAdvertiserHostedService : BackgroundService
 
     private static void StopChild(ref Process? child)
     {
-        if (child is null) return;
+        if (child is null)
+        {
+            return;
+        }
+
         var p = child;
         child = null;
         try
         {
-            if (!p.HasExited) p.Kill();
+            if (!p.HasExited)
+            {
+                p.Kill();
+            }
         }
         catch
         {

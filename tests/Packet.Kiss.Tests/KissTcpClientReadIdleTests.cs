@@ -78,7 +78,10 @@ public sealed class KissTcpClientReadIdleTests
             await foreach (var f in client.ReadFramesAsync(cts.Token))
             {
                 got.Add(f);
-                if (got.Count == 2) break;
+                if (got.Count == 2)
+                {
+                    break;
+                }
             }
         });
 
@@ -141,7 +144,11 @@ public sealed class KissTcpClientReadIdleTests
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (count() < target)
         {
-            if (DateTime.UtcNow > deadline) throw new TimeoutException($"expected {target} frames; saw {count()}");
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"expected {target} frames; saw {count()}");
+            }
+
             await Task.Delay(10);
         }
     }

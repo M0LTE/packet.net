@@ -81,10 +81,20 @@ public sealed class OarcLiveIngestTests
 
         var link = new OarcLinkStatusEvent
         {
-            Time = now, Node = Callsign, Id = 1, Direction = "outgoing", Port = "1",
-            Remote = "GB7RDG", Local = $"{Callsign}-1",
-            FramesSent = 10, FramesReceived = 12, FramesResent = 1, FramesQueued = 0,
-            BytesSent = 800, BytesReceived = 950, L2RttMs = 340,
+            Time = now,
+            Node = Callsign,
+            Id = 1,
+            Direction = "outgoing",
+            Port = "1",
+            Remote = "GB7RDG",
+            Local = $"{Callsign}-1",
+            FramesSent = 10,
+            FramesReceived = 12,
+            FramesResent = 1,
+            FramesQueued = 0,
+            BytesSent = 800,
+            BytesReceived = 950,
+            L2RttMs = 340,
         };
 
         (await client.ReportAsync(link, BaseUrl)).Accepted.Should().BeTrue();

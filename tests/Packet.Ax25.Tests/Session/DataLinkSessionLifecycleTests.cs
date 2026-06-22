@@ -44,7 +44,7 @@ public class DataLinkSessionLifecycleTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             IsExtended = isExtended,
             Quirks = quirks ?? Ax25SessionQuirks.Default,
@@ -63,14 +63,14 @@ public class DataLinkSessionLifecycleTests
         var registry = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    sFrames.Add,
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendIFrame:    iFrames.Add,
-            sendUpward:    upward.Add,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   registry);
+            sendSFrame: sFrames.Add,
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendIFrame: iFrames.Add,
+            sendUpward: upward.Add,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: registry);
 
         // Frame-aware bindings — pass the session's CurrentTrigger so
         // P_eq_1 / F_eq_1 / command / N_s_eq_V_r etc. resolve against
@@ -85,20 +85,26 @@ public class DataLinkSessionLifecycleTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]         = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["Connected"]            = DataLink_Connected.Transitions,
-                ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-                ["TimerRecovery"]        = DataLink_TimerRecovery.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
             },
             initialState: initialState);
         sessionRef = session;
 
         return new Rig
         {
-            Session = session, Ctx = ctx, Scheduler = scheduler, Time = time,
-            SFrames = sFrames, UFrames = uFrames, UiFrames = uiFrames, IFrames = iFrames,
+            Session = session,
+            Ctx = ctx,
+            Scheduler = scheduler,
+            Time = time,
+            SFrames = sFrames,
+            UFrames = uFrames,
+            UiFrames = uiFrames,
+            IFrames = iFrames,
             Upward = upward,
         };
     }
@@ -115,8 +121,8 @@ public class DataLinkSessionLifecycleTests
         // Frame addressed to us (M0LTE-0) from G7XYZ-7. CrhBit indicates
         // response (peer's reply to a command we sent).
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = control;
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         return frame!;
@@ -134,8 +140,8 @@ public class DataLinkSessionLifecycleTests
         byte control = (byte)((nr << 5) | (pf ? 0x10 : 0) | (ns << 1));
         var bytes = new byte[15 + 1 + info.Length];
         // Command frame (peer → us): dst.CRH = 1, src.CRH = 0 (AX.25 v2.2 §6.1.2).
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = control;
         bytes[15] = pid;
         info.CopyTo(bytes, 16);
@@ -146,8 +152,8 @@ public class DataLinkSessionLifecycleTests
     private const byte UaFFinal1 = 0x73;     // UA  (control 0x63) | F=1 (0x10)
     private const byte UaFFinal0 = 0x63;     // UA  | F=0
     private const byte DmFFinal1 = 0x1F;     // DM  (control 0x0F) | F=1 (0x10)
-    private const byte RrNr1F0   = 0x21;     // RR  (control 0x01) | N(R)=1<<5
-    private const byte RrNr0F0   = 0x01;     // RR  | N(R)=0
+    private const byte RrNr1F0 = 0x21;     // RR  (control 0x01) | N(R)=1<<5
+    private const byte RrNr0F0 = 0x01;     // RR  | N(R)=0
     private const byte DiscPoll1 = 0x53;     // DISC (control 0x43) | P=1 (0x10)
 
     // ─── Lifecycle tests ────────────────────────────────────────────────

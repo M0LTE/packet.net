@@ -34,7 +34,7 @@ public sealed class RemoteStation : IAsyncDisposable
     }
 
     /// <summary>Everything the node has sent us so far, decoded as text.</summary>
-    public string ReceivedText { get { lock (gate) return received.ToString(); } }
+    public string ReceivedText { get { lock (gate) { return received.ToString(); } } }
 
     public async Task StartAsync()
     {
@@ -56,7 +56,11 @@ public sealed class RemoteStation : IAsyncDisposable
     /// <summary>Send a console line (CR-terminated) to the node.</summary>
     public void SendLine(string line)
     {
-        if (session is null) throw new InvalidOperationException("not connected");
+        if (session is null)
+        {
+            throw new InvalidOperationException("not connected");
+        }
+
         listener.SendData(session, Encoding.UTF8.GetBytes(line + "\r"));
     }
 
@@ -69,7 +73,10 @@ public sealed class RemoteStation : IAsyncDisposable
     {
         if (sig is DataLinkDataIndication di)
         {
-            lock (gate) received.Append(Encoding.UTF8.GetString(di.Info.Span));
+            lock (gate)
+            {
+                received.Append(Encoding.UTF8.GetString(di.Info.Span));
+            }
         }
     }
 

@@ -39,7 +39,10 @@ public sealed class ReconnectingKissModemTests
         await foreach (var f in modem.ReceiveAsync(cts.Token).ConfigureAwait(false))
         {
             got.Add(Encoding.ASCII.GetString(f.Ax25.Span));
-            if (got.Count == 2) break;   // A from the first modem, B from the reconnected one
+            if (got.Count == 2)
+            {
+                break;   // A from the first modem, B from the reconnected one
+            }
         }
 
         got.Should().Equal("A", "B");

@@ -216,7 +216,11 @@ public sealed partial class BeaconService : IAsyncDisposable
 
         public bool IsArmed
         {
-            get { lock (gate) return timer is not null; }
+            get { lock (gate)
+                {
+                    return timer is not null;
+                }
+            }
         }
 
         // (Re)arm: swap in the new text + period. We dispose the old timer and create a

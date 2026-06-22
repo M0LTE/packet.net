@@ -11,7 +11,7 @@ namespace Packet.Kiss.Tests;
 
 public class KissAx25BridgeTests
 {
-    private static readonly Callsign Local  = new("M0LTE", 0);
+    private static readonly Callsign Local = new("M0LTE", 0);
     private static readonly Callsign Remote = new("G7XYZ", 7);
 
     /// <summary>Captures outbound sends; leaves the inbound stream empty (the default).</summary>
@@ -30,16 +30,16 @@ public class KissAx25BridgeTests
 
     private static IReadOnlyDictionary<string, IReadOnlyList<TransitionSpec>> Transitions => new Dictionary<string, IReadOnlyList<TransitionSpec>>
     {
-        ["Disconnected"]         = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]   = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["AwaitingRelease"]      = DataLink_AwaitingRelease.Transitions,
-        ["Connected"]            = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
     };
 
     private static Ax25SessionContext NewContext() => new()
     {
-        Local  = Local,
+        Local = Local,
         Remote = Remote,
     };
 
@@ -173,8 +173,8 @@ public class KissAx25BridgeTests
         // — the previous assertion here. That was the artifact, not the
         // contract.)
         var time = new FakeTimeProvider();
-        var ctxA = new Ax25SessionContext { Local = Local,  Remote = Remote };
-        var ctxB = new Ax25SessionContext { Local = Remote, Remote = Local  };
+        var ctxA = new Ax25SessionContext { Local = Local, Remote = Remote };
+        var ctxB = new Ax25SessionContext { Local = Remote, Remote = Local };
         var schedA = new SystemTimerScheduler(time);
         var schedB = new SystemTimerScheduler(time);
 

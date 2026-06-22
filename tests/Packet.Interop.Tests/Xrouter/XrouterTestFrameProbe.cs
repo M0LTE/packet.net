@@ -28,9 +28,9 @@ namespace Packet.Interop.Tests.Xrouter;
 [Collection(NetsimCollection.Name)]
 public class XrouterTestFrameProbe(ITestOutputHelper output)
 {
-    private const string Host        = "127.0.0.1";
-    private const int    OurKissPort = 8100;
-    private static readonly Callsign OurCall     = new("PNTEST", 0);
+    private const string Host = "127.0.0.1";
+    private const int OurKissPort = 8100;
+    private static readonly Callsign OurCall = new("PNTEST", 0);
     private static readonly Callsign XrouterCall = new("PN0XRT", 0);
 
     [Fact]

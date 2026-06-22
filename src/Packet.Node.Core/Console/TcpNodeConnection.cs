@@ -233,7 +233,10 @@ public sealed class TcpNodeConnection : INodeConnection
                 if (inIac)
                 {
                     inIac = false;
-                    if (b == Se) inSubneg = false;   // IAC SE ends subnegotiation
+                    if (b == Se)
+                    {
+                        inSubneg = false;   // IAC SE ends subnegotiation
+                    }
                 }
                 else if (b == Iac)
                 {

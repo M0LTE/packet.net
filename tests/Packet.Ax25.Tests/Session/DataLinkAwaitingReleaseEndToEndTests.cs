@@ -28,7 +28,7 @@ public class DataLinkAwaitingReleaseEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
 
@@ -46,17 +46,17 @@ public class DataLinkAwaitingReleaseEndToEndTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendUpward:    upward.Add,
-            subroutines:   registry);
+            sendSFrame: _ => { },
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendUpward: upward.Add,
+            subroutines: registry);
 
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.FEq1]   = () => fEq1,
-            [Ax25Guard.PEq1]   = () => pEq1,
+            [Ax25Guard.FEq1] = () => fEq1,
+            [Ax25Guard.PEq1] = () => pEq1,
             [Ax25Guard.RCEqN2] = () => rcEqN2,
         };
         var guards = new GuardEvaluator(bindings);
@@ -65,8 +65,8 @@ public class DataLinkAwaitingReleaseEndToEndTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]     = DataLink_Disconnected.Transitions,
-                ["AwaitingRelease"]  = DataLink_AwaitingRelease.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
             },
             initialState: "AwaitingRelease");
 
@@ -76,8 +76,8 @@ public class DataLinkAwaitingReleaseEndToEndTests
     private static Ax25Frame UaFrame(bool fBit)
     {
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (byte)(0x63 | (fBit ? 0x10 : 0));
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         return frame!;

@@ -68,20 +68,20 @@ namespace Packet.Interop.Tests.Linbpq;
 [Collection(NetsimCollection.Name)]
 public sealed class LinbpqViaAxudpConnectedMode
 {
-    private const string Host          = "127.0.0.1";
-    private const int    BpqAxudpPort  = 8093;   // BPQAXIP UDP listener (published)
-    private const int    BpqHttpPort   = 8008;   // liveness probe
-    private const int    BpqTelnetPort = 8010;   // node prompt (for BPQ→pdn dial-out)
+    private const string Host = "127.0.0.1";
+    private const int BpqAxudpPort = 8093;   // BPQAXIP UDP listener (published)
+    private const int BpqHttpPort = 8008;   // liveness probe
+    private const int BpqTelnetPort = 8010;   // node prompt (for BPQ→pdn dial-out)
 
     // The static MAP target in bpq32.cfg: BPQ originates connects to THIS exact
     // callsign + port (Direction B has no inbound for AUTOADDQUIET to learn from).
-    private const int    PdnMappedPort = 8190;
+    private const int PdnMappedPort = 8190;
     private static readonly Callsign PdnMappedCall = new("PNAX25", 1);
 
     // BPQ's AXIP port is the 2nd PORT block in bpq32.cfg (Telnet=1, AXIP=2,
     // netsim=3) — the order is fixed in the fixture, so the AXIP port number is
     // stable. BPQ's `C <port> <call>` dials out on that port.
-    private const int    BpqAxipPortNum = 2;
+    private const int BpqAxipPortNum = 2;
 
     private static readonly Callsign BpqCall = new("PN0TST", 0);   // BPQ NODECALL
 
@@ -94,10 +94,10 @@ public sealed class LinbpqViaAxudpConnectedMode
     // updates it for AUTOADD entries, so a CHANGING ephemeral port would make BPQ
     // reply to a dead port on the second run — source-verified, learned the hard
     // way). The three ports are distinct so the serialised tests never contend.
-    private const int    PdnDialOutPort = 8191;
-    private const int    PdnFcsPort     = 8192;
+    private const int PdnDialOutPort = 8191;
+    private const int PdnFcsPort = 8192;
     private static readonly Callsign PdnDialOutCall = new("PNAXDA", 1);   // Direction A
-    private static readonly Callsign PdnFcsCall     = new("PNAXFC", 1);   // FCS guard
+    private static readonly Callsign PdnFcsCall = new("PNAXFC", 1);   // FCS guard
 
     /// <summary>
     /// Direction A — pdn → LinBPQ. A pdn node host with an AXUDP port dials BPQ's
@@ -337,7 +337,10 @@ public sealed class LinbpqViaAxudpConnectedMode
         while (!outer.IsCancellationRequested)
         {
             var got = await ReceiveOneAsync(sock, quietFor, outer);
-            if (got is null) return;
+            if (got is null)
+            {
+                return;
+            }
         }
     }
 
@@ -363,7 +366,10 @@ public sealed class LinbpqViaAxudpConnectedMode
             try
             {
                 var chunk = await conn.ReadAsync(quietCts.Token);
-                if (chunk.Length == 0) return;   // EOF
+                if (chunk.Length == 0)
+                {
+                    return;   // EOF
+                }
             }
             catch (OperationCanceledException) when (quietCts.IsCancellationRequested && !outerCts.IsCancellationRequested)
             {
@@ -383,9 +389,16 @@ public sealed class LinbpqViaAxudpConnectedMode
             while (!cts.IsCancellationRequested)
             {
                 var chunk = await conn.ReadAsync(cts.Token);
-                if (chunk.Length == 0) break;   // EOF
+                if (chunk.Length == 0)
+                {
+                    break;   // EOF
+                }
+
                 sb.Append(Encoding.ASCII.GetString(chunk.Span));
-                if (sb.ToString().Contains(needle, StringComparison.Ordinal)) break;
+                if (sb.ToString().Contains(needle, StringComparison.Ordinal))
+                {
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -398,7 +411,11 @@ public sealed class LinbpqViaAxudpConnectedMode
         cts.CancelAfter(TimeSpan.FromSeconds(15));
         while (!cts.IsCancellationRequested)
         {
-            if (predicate()) return;
+            if (predicate())
+            {
+                return;
+            }
+
             await Task.Delay(100, cts.Token);
         }
         throw new TimeoutException($"timed out waiting: {because}");
@@ -478,9 +495,16 @@ public sealed class LinbpqViaAxudpConnectedMode
                     int n;
                     try { n = await stream.ReadAsync(buf, cts.Token); }
                     catch (OperationCanceledException) { break; }
-                    if (n == 0) break;   // peer closed
+                    if (n == 0)
+                    {
+                        break;   // peer closed
+                    }
+
                     Append(sb, buf, n);
-                    if (sb.ToString().Contains(stopWhenContains, StringComparison.Ordinal)) break;
+                    if (sb.ToString().Contains(stopWhenContains, StringComparison.Ordinal))
+                    {
+                        break;
+                    }
                 }
             }
             catch (IOException) { /* connection torn down — return what we have */ }
@@ -497,7 +521,11 @@ public sealed class LinbpqViaAxudpConnectedMode
                     sb.Append((char)buf[i]);
                     continue;
                 }
-                if (i + 2 >= n) break;   // partial IAC at the tail — drop
+                if (i + 2 >= n)
+                {
+                    break;   // partial IAC at the tail — drop
+                }
+
                 byte verb = buf[i + 1];
                 byte opt = buf[i + 2];
                 i += 2;

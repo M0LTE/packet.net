@@ -192,7 +192,7 @@ public class DefaultSubroutineRegistryWalkerTests
 
     private static TransitionContext MakeContext()
     {
-        var local  = new Callsign("M0LTE", 1);
+        var local = new Callsign("M0LTE", 1);
         var remote = new Callsign("WB2OSZ", 0);
         var sessionContext = new Ax25SessionContext { Local = local, Remote = remote };
         // Use any concrete event as the trigger — we don't care about its
@@ -206,7 +206,10 @@ public class DefaultSubroutineRegistryWalkerTests
         public RecordingDispatcher(List<Ax25ActionVerb> recorder) => this.recorder = recorder;
         public void Execute(IEnumerable<ActionStep> actions, TransitionContext tx)
         {
-            foreach (var a in actions) recorder.Add(a.Verb);
+            foreach (var a in actions)
+            {
+                recorder.Add(a.Verb);
+            }
         }
     }
 

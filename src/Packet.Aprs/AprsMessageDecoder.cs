@@ -30,16 +30,28 @@ public static class AprsMessageDecoder
     public static bool TryDecode(ReadOnlySpan<byte> info, out AprsMessage message)
     {
         message = default;
-        if (info.IsEmpty) return false;
+        if (info.IsEmpty)
+        {
+            return false;
+        }
 
         // Strip DTI byte if present.
-        if (info[0] == (byte)':') info = info[1..];
+        if (info[0] == (byte)':')
+        {
+            info = info[1..];
+        }
 
         // Need at least: 9-char addressee + ':' separator = 10 bytes.
-        if (info.Length < AddresseeLen + 1) return false;
+        if (info.Length < AddresseeLen + 1)
+        {
+            return false;
+        }
 
         // Addressee separator byte.
-        if (info[AddresseeLen] != (byte)':') return false;
+        if (info[AddresseeLen] != (byte)':')
+        {
+            return false;
+        }
 
         string addressee = Encoding.ASCII.GetString(info[..AddresseeLen]).TrimEnd();
         var body = info[(AddresseeLen + 1)..];

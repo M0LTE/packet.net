@@ -30,7 +30,7 @@ public class DataLinkAwaitingV22ConnectionEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             Layer3Initiated = layer3Initiated,
         };
@@ -50,20 +50,20 @@ public class DataLinkAwaitingV22ConnectionEndToEndTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendUpward:    upward.Add,
-            sendInternal:  internalSignals.Add,
-            subroutines:   registry);
+            sendSFrame: _ => { },
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendUpward: upward.Add,
+            sendInternal: internalSignals.Add,
+            subroutines: registry);
 
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.PEq1]     = () => pEq1,
-            [Ax25Guard.FEq1]     = () => fEq1,
+            [Ax25Guard.PEq1] = () => pEq1,
+            [Ax25Guard.FEq1] = () => fEq1,
             [Ax25Guard.VsEqVa] = () => vsEqVa,
-            [Ax25Guard.RCEqN2]   = () => rcEqN2,
+            [Ax25Guard.RCEqN2] = () => rcEqN2,
         };
         var guards = new GuardEvaluator(bindings);
 
@@ -71,10 +71,10 @@ public class DataLinkAwaitingV22ConnectionEndToEndTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]          = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
-                ["AwaitingV22Connection"]  = DataLink_AwaitingV22Connection.Transitions,
-                ["Connected"]             = DataLink_Connected.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
+                ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
             },
             initialState: "AwaitingV22Connection");
 

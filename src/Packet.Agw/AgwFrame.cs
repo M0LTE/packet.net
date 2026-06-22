@@ -58,7 +58,9 @@ public sealed record AgwFrame(
     public void WriteHeader(Span<byte> destination)
     {
         if (destination.Length < HeaderSize)
+        {
             throw new ArgumentException($"AGW header needs {HeaderSize} bytes, got {destination.Length}.", nameof(destination));
+        }
 
         destination.Clear();
         destination[0] = Port;
@@ -84,22 +86,28 @@ public sealed record AgwFrame(
     public static AgwFrame Parse(ReadOnlySpan<byte> buffer, out int bytesConsumed)
     {
         if (buffer.Length < HeaderSize)
+        {
             throw new InvalidDataException($"AGW frame needs at least a {HeaderSize}-byte header; got {buffer.Length}.");
+        }
 
         byte port = buffer[0];
         byte kind = buffer[4];
-        byte pid  = buffer[6];
+        byte pid = buffer[6];
         string from = ReadCallsign(buffer.Slice(8, CallsignFieldSize));
-        string to   = ReadCallsign(buffer.Slice(18, CallsignFieldSize));
+        string to = ReadCallsign(buffer.Slice(18, CallsignFieldSize));
         uint dataLen = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(28, 4));
-        uint user    = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(32, 4));
+        uint user = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(32, 4));
 
         if (dataLen > int.MaxValue - HeaderSize)
+        {
             throw new InvalidDataException($"AGW frame advertises data length {dataLen} which would overflow Int32.");
+        }
 
         int total = HeaderSize + (int)dataLen;
         if (buffer.Length < total)
+        {
             throw new InvalidDataException($"AGW frame body short: header advertises {dataLen} bytes, only {buffer.Length - HeaderSize} available.");
+        }
 
         var data = buffer.Slice(HeaderSize, (int)dataLen).ToArray();
         bytesConsumed = total;
@@ -139,7 +147,9 @@ public sealed record AgwFrame(
         // tolerates longer strings via truncation; we error so callers
         // catch typos early.
         if (callsign.Length > CallsignFieldSize)
+        {
             throw new ArgumentException($"AGW callsign field is {CallsignFieldSize} bytes; got '{callsign}' ({callsign.Length} chars).", nameof(callsign));
+        }
 
         destination.Clear();
         Encoding.ASCII.GetBytes(callsign, destination);
@@ -151,7 +161,11 @@ public sealed record AgwFrame(
         // convention. Some servers pad with spaces instead; trim those
         // too to be tolerant.
         int end = field.IndexOf((byte)0);
-        if (end < 0) end = field.Length;
+        if (end < 0)
+        {
+            end = field.Length;
+        }
+
         return Encoding.ASCII.GetString(field.Slice(0, end)).TrimEnd();
     }
 }

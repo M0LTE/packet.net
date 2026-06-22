@@ -79,7 +79,9 @@ public class TransitionCoverageTests
             output.WriteLine($"{state,-22} {covered.Count,3}/{ids.Count,-3} behavioural");
             var misses = ids.Where(id => !fired.Contains((state, id))).ToList();
             if (misses.Count > 0)
+            {
                 output.WriteLine($"    miss: {string.Join(", ", misses)}");
+            }
         }
         output.WriteLine($"\nTOTAL {hit}/{total} transitions behaviourally exercised by the battery");
 
@@ -182,7 +184,7 @@ public class TransitionCoverageTests
     private static HashSet<(string, string)> RunBatteryAndCollectFired()
     {
         var fired = new HashSet<(string, string)>();
-        void Collect(TwoStationHarness h) { foreach (var t in h.FiredTransitions) fired.Add(t); }
+        void Collect(TwoStationHarness h) { foreach (var t in h.FiredTransitions) { fired.Add(t); } }
 
         // Coverage measurement only — correctness is asserted by the dedicated
         // conformance suites, so suspend the per-step oracle (injection scenarios
@@ -211,7 +213,11 @@ public class TransitionCoverageTests
         // 4. Window-full transfer that wraps the modulus.
         {
             var h = New(k: 4); h.Connect();
-            for (byte i = 0; i < 12; i++) h.Submit(h.A, i);
+            for (byte i = 0; i < 12; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
             h.FlushAcks(); Collect(h);
         }
 
@@ -220,8 +226,16 @@ public class TransitionCoverageTests
             var h = New(k: 4); h.Connect();
             var dropped = false;
             h.Link.Drop = f => { if (!dropped && f.Source.Callsign.Equals(h.A.Context.Local) && (f.Control & 0x01) == 0) { dropped = true; return true; } return false; };
-            for (byte i = 0; i < 4; i++) h.Submit(h.A, i);
-            for (int r = 0; r < 30 && !Converged(h); r++) h.AdvanceT1();
+            for (byte i = 0; i < 4; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
+            for (int r = 0; r < 30 && !Converged(h); r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -230,8 +244,16 @@ public class TransitionCoverageTests
             var h = New(srej: true, k: 4); h.Connect();
             var budget = 2;
             h.Link.Drop = f => { if (budget > 0 && f.Source.Callsign.Equals(h.A.Context.Local) && (f.Control & 0x01) == 0) { budget--; return true; } return false; };
-            for (byte i = 0; i < 6; i++) h.Submit(h.A, i);
-            for (int r = 0; r < 40 && !Converged(h); r++) h.AdvanceT1();
+            for (byte i = 0; i < 6; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
+            for (int r = 0; r < 40 && !Converged(h); r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -248,7 +270,11 @@ public class TransitionCoverageTests
             var h = New(k: 4); h.Connect();
             h.Link.Drop = f => f.Source.Callsign.Equals(h.A.Context.Local) && (f.Control & 0x01) == 0;
             h.Submit(h.A, 0x01);
-            for (int r = 0; r < 20 && h.A.State != "Disconnected"; r++) h.AdvanceT1();
+            for (int r = 0; r < 20 && h.A.State != "Disconnected"; r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -311,7 +337,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingV22Connection")
+            {
                 h.Inject(h.A, new FrmrReceived(Ax25Frame.Frmr(h.A.Context.Local, h.A.Context.Remote, info: ReadOnlySpan<byte>.Empty)));
+            }
+
             Collect(h);
         }
 
@@ -357,7 +386,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingV22Connection")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: true).ToBytes());
+            }
+
             Collect(h);
         }
 
@@ -370,7 +402,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingV22Connection")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: true).ToBytes());
+            }
+
             Collect(h);
         }
 
@@ -386,7 +421,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingV22Connection")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: false).ToBytes());
+            }
+
             Collect(h);
         }
 
@@ -398,7 +436,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingV22Connection")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Sabm(h.A.Context.Local, h.A.Context.Remote).ToBytes());
+            }
+
             Collect(h);
         }
 
@@ -410,7 +451,11 @@ public class TransitionCoverageTests
             h.Link.Drop = f => (f.Control & 0xEF) == 0x6F && f.Source.Callsign.Equals(h.A.Context.Local);
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
-            for (int r = 0; r < 6 && h.A.State == "AwaitingV22Connection"; r++) h.AdvanceT1();
+            for (int r = 0; r < 6 && h.A.State == "AwaitingV22Connection"; r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -455,7 +500,11 @@ public class TransitionCoverageTests
             h.Link.Drop = f => f.Source.Callsign.Equals(h.B.Context.Local) && (f.Control & 0xEF) == 0x63;
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
-            for (int r = 0; r < 6 && h.A.State == "AwaitingConnection"; r++) h.AdvanceT1();
+            for (int r = 0; r < 6 && h.A.State == "AwaitingConnection"; r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -508,7 +557,11 @@ public class TransitionCoverageTests
             const byte seed = 124;
             h.A.Context.VS = h.A.Context.VA = seed; h.A.Context.VR = seed;
             h.B.Context.VS = h.B.Context.VA = seed; h.B.Context.VR = seed;
-            for (byte i = 0; i < 8; i++) h.Submit(h.A, (byte)(0x40 + i));   // N(S)=124..127,0..3
+            for (byte i = 0; i < 8; i++)
+            {
+                h.Submit(h.A, (byte)(0x40 + i));   // N(S)=124..127,0..3
+            }
+
             h.FlushAcks(); Collect(h);
         }
 
@@ -519,8 +572,16 @@ public class TransitionCoverageTests
             var h = New(extended: true, k: 8); h.Connect();
             var dropped = false;
             h.Link.Drop = f => { if (!dropped && f.Source.Callsign.Equals(h.A.Context.Local) && Ax25FrameClassifier.Classify(f) is IFrameReceived && f.Ns == 1) { dropped = true; return true; } return false; };
-            for (byte i = 0; i < 5; i++) h.Submit(h.A, i);
-            for (int r = 0; r < 40 && !Converged(h); r++) h.AdvanceT1();
+            for (byte i = 0; i < 5; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
+            for (int r = 0; r < 40 && !Converged(h); r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -532,8 +593,16 @@ public class TransitionCoverageTests
             var rng = new Random(7);
             var dropsLeft = 3;
             h.Link.Drop = f => { if (dropsLeft > 0 && f.Source.Callsign.Equals(h.A.Context.Local) && Ax25FrameClassifier.Classify(f) is IFrameReceived && rng.NextDouble() < 0.6) { dropsLeft--; return true; } return false; };
-            for (byte i = 0; i < 8; i++) h.Submit(h.A, i);
-            for (int r = 0; r < 60 && !Converged(h); r++) h.AdvanceT1();
+            for (byte i = 0; i < 8; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
+            for (int r = 0; r < 60 && !Converged(h); r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -546,13 +615,21 @@ public class TransitionCoverageTests
             var aDrops = 2; var bDrops = 2;
             h.Link.Drop = f =>
             {
-                if (Ax25FrameClassifier.Classify(f) is not IFrameReceived) return false;
+                if (Ax25FrameClassifier.Classify(f) is not IFrameReceived)
+                {
+                    return false;
+                }
+
                 if (aDrops > 0 && f.Source.Callsign.Equals(h.A.Context.Local) && f.Ns == 1) { aDrops--; return true; }
                 if (bDrops > 0 && f.Source.Callsign.Equals(h.B.Context.Local) && f.Ns == 1) { bDrops--; return true; }
                 return false;
             };
             for (byte i = 0; i < 4; i++) { h.Submit(h.A, (byte)(0xA0 + i)); h.Submit(h.B, (byte)(0xB0 + i)); }
-            for (int r = 0; r < 60 && !Converged(h); r++) h.AdvanceT1();
+            for (int r = 0; r < 60 && !Converged(h); r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -567,7 +644,11 @@ public class TransitionCoverageTests
         {
             var h = New(extended: true, srej: srej, k: 8, n2: 40); h.Connect();
             h.Link.Drop = f => f.Source.Callsign.Equals(h.A.Context.Local) && Ax25FrameClassifier.Classify(f) is IFrameReceived;
-            for (byte i = 0; i < outstanding; i++) h.Submit(h.A, i);
+            for (byte i = 0; i < outstanding; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
             h.AdvanceT1();                 // unacked I-frame's T1 → poll → TimerRecovery
             h.Link.Drop = null;
             return h;
@@ -623,7 +704,11 @@ public class TransitionCoverageTests
             h.InjectFrameBytes(h.A, RnrExt(h.A, nr: 0, isCmd: true, pf: true));   // peer busy
             h.Link.Drop = f => f.Source.Callsign.Equals(h.A.Context.Local);       // starve everything from A
             h.Submit(h.A, 0x01);
-            for (int r = 0; r < 8 && h.A.State != "Disconnected"; r++) h.AdvanceT1();
+            for (int r = 0; r < 8 && h.A.State != "Disconnected"; r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -632,7 +717,7 @@ public class TransitionCoverageTests
         { var h = InTimerRecovery128(1); h.InjectFrameBytes(h.A, Ax25Frame.Dm(h.A.Context.Local, h.A.Context.Remote, finalBit: true).ToBytes()); Collect(h); }
         // LM-SEIZE-confirm in TimerRecovery, both ACK-pending branches (inject the
         // signal directly — models the link multiplexer granting the medium).
-        { var h = InTimerRecovery128(1); h.A.Context.AcknowledgePending = true;  h.Inject(h.A, new LmSeizeConfirm()); Collect(h); }
+        { var h = InTimerRecovery128(1); h.A.Context.AcknowledgePending = true; h.Inject(h.A, new LmSeizeConfirm()); Collect(h); }
         { var h = InTimerRecovery128(1); h.A.Context.AcknowledgePending = false; h.Inject(h.A, new LmSeizeConfirm()); Collect(h); }
         // REJ command (P=1) variants: in-window-not-complete and a fresh out-of-
         // window N(R) (the re-establish branch) — the t23 command columns.
@@ -678,13 +763,19 @@ public class TransitionCoverageTests
         {
             var h = IdleInTimerRecovery128();
             if (h.A.State == "TimerRecovery")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Sabm(h.A.Context.Local, h.A.Context.Remote).ToBytes());   // t13_sabm_received_yes (vs_eq_va)
+            }
+
             Collect(h);
         }
         {
             var h = IdleInTimerRecovery128();
             if (h.A.State == "TimerRecovery")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Sabme(h.A.Context.Local, h.A.Context.Remote).ToBytes());  // t14_sabme_received_yes (vs_eq_va)
+            }
+
             Collect(h);
         }
 
@@ -844,7 +935,11 @@ public class TransitionCoverageTests
             var h = New(extended: true, srej: true, k: 8, n2: 2);
             h.Link.Drop = f => (f.Control & 0xEF) == 0xAF && f.Source.Callsign.Equals(h.A.Context.Local);
             h.StartNegotiation(h.A);
-            for (int r = 0; r < 5 && h.A.MdlState == "Negotiating"; r++) h.AdvanceTm201();
+            for (int r = 0; r < 5 && h.A.MdlState == "Negotiating"; r++)
+            {
+                h.AdvanceTm201();
+            }
+
             Collect(h);
         }
 
@@ -862,7 +957,11 @@ public class TransitionCoverageTests
             var dropped = false;
             h.Link.Drop = f => { if (!dropped && f.Source.Callsign.Equals(h.A.Context.Local) && Ax25FrameClassifier.Classify(f) is IFrameReceived && f.Ns == 2) { dropped = true; return true; } return false; };
             h.SubmitLarge(h.A, payload);
-            for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++) h.AdvanceT1();
+            for (int r = 0; r < 40 && h.B.Delivered.Count == 0; r++)
+            {
+                h.AdvanceT1();
+            }
+
             Collect(h);
         }
 
@@ -940,7 +1039,11 @@ public class TransitionCoverageTests
             h.Link.Drop = f => f.Source.Callsign.Equals(h.B.Context.Local) && (f.Control & 0xEF) == 0x63;
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
-            if (h.A.State == "AwaitingConnection") h.A.Session.PostEvent(new DlDisconnectRequest());   // t01
+            if (h.A.State == "AwaitingConnection")
+            {
+                h.A.Session.PostEvent(new DlDisconnectRequest());   // t01
+            }
+
             Collect(h);
         }
         // 30c. SABME arriving while in AwaitingConnection → AwaitingV22Connection
@@ -951,7 +1054,10 @@ public class TransitionCoverageTests
             h.A.Session.PostEvent(new DlConnectRequest());
             h.Settle();
             if (h.A.State == "AwaitingConnection")
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.Sabme(h.A.Context.Local, h.A.Context.Remote).ToBytes()); // t17
+            }
+
             Collect(h);
         }
 
@@ -992,7 +1098,11 @@ public class TransitionCoverageTests
             h.Link.Drop = f => f.Source.Callsign.Equals(h.B.Context.Local);
             h.A.Session.PostEvent(new DlDisconnectRequest());
             h.Settle();
-            for (int r = 0; r < 8 && h.A.State == "AwaitingRelease"; r++) h.AdvanceT1();   // t02_t1_expiry_no … then _yes
+            for (int r = 0; r < 8 && h.A.State == "AwaitingRelease"; r++)
+            {
+                h.AdvanceT1();   // t02_t1_expiry_no … then _yes
+            }
+
             Collect(h);
         }
 
@@ -1138,7 +1248,11 @@ public class TransitionCoverageTests
         {
             var h = New(srej: srej, k: k, extended: extended, n2: 40); h.Connect();
             h.Link.Drop = f => f.Source.Callsign.Equals(h.A.Context.Local) && Ax25FrameClassifier.Classify(f) is IFrameReceived;
-            for (byte i = 0; i < outstanding; i++) h.Submit(h.A, i);
+            for (byte i = 0; i < outstanding; i++)
+            {
+                h.Submit(h.A, i);
+            }
+
             h.AdvanceT1();                 // unacked I-frame's T1 → poll → TimerRecovery
             h.Link.Drop = null;
             return h;
@@ -1219,8 +1333,8 @@ public class TransitionCoverageTests
         // SREJ command / response, N(R) in window, P/F=0, V(s)==V(a): need IDLE
         // TimerRecovery (empty window) so vs_eq_va holds → t24_srej_received_no_yes_no_yes
         // (command) and t24_srej_received_yes_yes_no_yes (response).
-        { var h = IdleInTimerRecovery(srej: true); if (h.A.State == "TimerRecovery") h.InjectFrameBytes(h.A, Srej(h.A, nr: 0, isCmd: true, pf: false, ext: false)); Collect(h); }
-        { var h = IdleInTimerRecovery(srej: true); if (h.A.State == "TimerRecovery") h.InjectFrameBytes(h.A, Srej(h.A, nr: 0, isCmd: false, pf: false, ext: false)); Collect(h); }
+        { var h = IdleInTimerRecovery(srej: true); if (h.A.State == "TimerRecovery") { h.InjectFrameBytes(h.A, Srej(h.A, nr: 0, isCmd: true, pf: false, ext: false)); } Collect(h); }
+        { var h = IdleInTimerRecovery(srej: true); if (h.A.State == "TimerRecovery") { h.InjectFrameBytes(h.A, Srej(h.A, nr: 0, isCmd: false, pf: false, ext: false)); } Collect(h); }
 
         // 39. TimerRecovery I-received column (figc4.5 t22) — the branches the
         // mod-128 block doesn't reach (all driven mod-8 here; ids are mode-independent).
@@ -1240,7 +1354,10 @@ public class TransitionCoverageTests
             var h = InTimerRecovery(2);
             h.A.Session.PostEvent(new DlDataRequest(new byte[] { 0x55 }));    // piggyback flushes any pending ack
             if (h.A.State == "TimerRecovery" && !h.A.Context.AcknowledgePending)
+            {
                 h.InjectFrameBytes(h.A, Ax25Frame.I(h.A.Context.Local, h.A.Context.Remote, nr: 0, ns: 0, info: new byte[] { 0x56 }, pollBit: false).ToBytes());
+            }
+
             Collect(h);
         }
         // Out-of-sequence I with a reject_exception already set, P=1 / P=0 (go-back-N,
@@ -1281,7 +1398,11 @@ public class TransitionCoverageTests
             var h = New(n2: 2); h.Connect();
             h.Link.Drop = f => f.Source.Callsign.Equals(h.B.Context.Local);
             h.Inject(h.A, new T3Expiry());          // idle poll → TimerRecovery, V(s)=V(a)
-            for (int r = 0; r < 8 && h.A.State == "TimerRecovery"; r++) h.AdvanceT1();   // RC→N2 → DL-ERROR + disconnect
+            for (int r = 0; r < 8 && h.A.State == "TimerRecovery"; r++)
+            {
+                h.AdvanceT1();   // RC→N2 → DL-ERROR + disconnect
+            }
+
             Collect(h);
         }
 
@@ -1382,7 +1503,7 @@ public class TransitionCoverageTests
         // AX.25 §2.4.1.2 C/R encoding: command = destination C-bit 1 / source C-bit 0;
         // response = destination C-bit 0 / source C-bit 1. The SSID octets are at
         // byte 6 (destination) and byte 13 (source); the C-bit is 0x80.
-        bytes[6]  &= 0x7F;   // destination C-bit → 0
+        bytes[6] &= 0x7F;   // destination C-bit → 0
         bytes[13] |= 0x80;   // source C-bit      → 1   ⇒ response
         return bytes;
     }

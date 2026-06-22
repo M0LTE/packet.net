@@ -130,8 +130,15 @@ public sealed record HdlcOptionalFunctions
         field |= Reject == RejectMode.ImplicitReject ? (1 << BitRej) : (1 << BitSrej);
         field |= Modulo128 ? (1 << BitModulo128) : (1 << BitModulo8);
 
-        if (SrejMultiframe) field |= 1 << BitSrejMultiframe;
-        if (SegmenterReassembler) field |= 1 << BitSegmenter;
+        if (SrejMultiframe)
+        {
+            field |= 1 << BitSrejMultiframe;
+        }
+
+        if (SegmenterReassembler)
+        {
+            field |= 1 << BitSegmenter;
+        }
 
         return lsbOctetFirst
             ? new[]   // legacy (incorrect) least-significant octet first

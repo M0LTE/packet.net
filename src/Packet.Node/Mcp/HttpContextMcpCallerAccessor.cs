@@ -41,9 +41,20 @@ public sealed class HttpContextMcpCallerAccessor(IHttpContextAccessor http, ICon
             {
                 var granted = user?.FindFirstValue(AuthScopes.ScopeClaim);
                 // Expand the single granted scope into the set it satisfies.
-                if (AuthScopes.Satisfies(granted, AuthScopes.Read)) scopes.Add(McpScopes.Read);
-                if (AuthScopes.Satisfies(granted, AuthScopes.Operate)) scopes.Add(McpScopes.Operate);
-                if (AuthScopes.Satisfies(granted, AuthScopes.Admin)) scopes.Add(McpScopes.Admin);
+                if (AuthScopes.Satisfies(granted, AuthScopes.Read))
+                {
+                    scopes.Add(McpScopes.Read);
+                }
+
+                if (AuthScopes.Satisfies(granted, AuthScopes.Operate))
+                {
+                    scopes.Add(McpScopes.Operate);
+                }
+
+                if (AuthScopes.Satisfies(granted, AuthScopes.Admin))
+                {
+                    scopes.Add(McpScopes.Admin);
+                }
             }
 
             string? ip = http.HttpContext?.Connection.RemoteIpAddress?.ToString();

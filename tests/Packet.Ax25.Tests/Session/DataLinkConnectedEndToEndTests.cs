@@ -41,13 +41,16 @@ public class DataLinkConnectedEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
-            OwnReceiverBusy    = ownReceiverBusy,
-            PeerReceiverBusy   = peerReceiverBusy,
+            OwnReceiverBusy = ownReceiverBusy,
+            PeerReceiverBusy = peerReceiverBusy,
             AcknowledgePending = ackPending,
         };
-        if (t1Running) scheduler.Arm("T1", TimeSpan.FromSeconds(1), () => { });
+        if (t1Running)
+        {
+            scheduler.Arm("T1", TimeSpan.FromSeconds(1), () => { });
+        }
 
         var sFrames = new List<SupervisoryFrameSpec>();
         var uFrames = new List<UFrameSpec>();
@@ -66,32 +69,32 @@ public class DataLinkConnectedEndToEndTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    sFrames.Add,
-            sendUFrame:    uFrames.Add,
-            sendUiFrame:   uiFrames.Add,
-            sendUpward:    upward.Add,
-            sendLinkMux:   linkMux.Add,
-            sendInternal:  internalSignals.Add,
-            subroutines:   registry);
+            sendSFrame: sFrames.Add,
+            sendUFrame: uFrames.Add,
+            sendUiFrame: uiFrames.Add,
+            sendUpward: upward.Add,
+            sendLinkMux: linkMux.Add,
+            sendInternal: internalSignals.Add,
+            subroutines: registry);
 
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler))
         {
-            [Ax25Guard.PEq1]            = () => pEq1,
-            [Ax25Guard.FEq1]             = () => fEq1,
-            [Ax25Guard.POrFEq1]        = () => pOrFEq1,
-            [Ax25Guard.Command]            = () => command,
+            [Ax25Guard.PEq1] = () => pEq1,
+            [Ax25Guard.FEq1] = () => fEq1,
+            [Ax25Guard.POrFEq1] = () => pOrFEq1,
+            [Ax25Guard.Command] = () => command,
             // nr_in_window and V_a_le_N_r_le_V_s were distinct legacy spellings of
             // the same predicate; they collapse to the single Ax25Guard.VaLeNrLeVs
             // atom. Both params still gate it (they're equal in practice).
-            [Ax25Guard.VaLeNrLeVs]     = () => nrInWindow && vaLeNrLeVs,
-            [Ax25Guard.NsEqVr]         = () => nsEqVr,
-            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned]   = () => infoFieldValid,
-            [Ax25Guard.Version22]        = () => false,
+            [Ax25Guard.VaLeNrLeVs] = () => nrInWindow && vaLeNrLeVs,
+            [Ax25Guard.NsEqVr] = () => nsEqVr,
+            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned] = () => infoFieldValid,
+            [Ax25Guard.Version22] = () => false,
             [Ax25Guard.SrejectExceptionGt0] = () => false,
-            [Ax25Guard.NsGtVrPlus1]  = () => false,
-            [Ax25Guard.VsEqVaPlusK]  = () => false,
-            [Ax25Guard.VsEqVa]         = () => false,
+            [Ax25Guard.NsGtVrPlus1] = () => false,
+            [Ax25Guard.VsEqVaPlusK] = () => false,
+            [Ax25Guard.VsEqVa] = () => false,
         };
         var guards = new GuardEvaluator(bindings);
 
@@ -99,11 +102,11 @@ public class DataLinkConnectedEndToEndTests
             ctx, scheduler, dispatcher, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]          = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
-                ["AwaitingV22Connection"]  = DataLink_AwaitingV22Connection.Transitions,
-                ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-                ["Connected"]             = DataLink_Connected.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
+                ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
             },
             initialState: "Connected");
 
@@ -226,7 +229,7 @@ public class DataLinkConnectedEndToEndTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx2 = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             VR = 3,
         };
@@ -237,18 +240,18 @@ public class DataLinkConnectedEndToEndTests
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx2, scheduler))
         {
-            [Ax25Guard.PEq1]            = () => false,
-            [Ax25Guard.FEq1]             = () => false,
-            [Ax25Guard.POrFEq1]        = () => false,
-            [Ax25Guard.Command]            = () => false,
-            [Ax25Guard.VaLeNrLeVs]     = () => true,   // was nr_in_window + V_a_le_N_r_le_V_s (same atom)
-            [Ax25Guard.NsEqVr]         = () => false,
-            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned]   = () => true,
-            [Ax25Guard.Version22]        = () => false,
+            [Ax25Guard.PEq1] = () => false,
+            [Ax25Guard.FEq1] = () => false,
+            [Ax25Guard.POrFEq1] = () => false,
+            [Ax25Guard.Command] = () => false,
+            [Ax25Guard.VaLeNrLeVs] = () => true,   // was nr_in_window + V_a_le_N_r_le_V_s (same atom)
+            [Ax25Guard.NsEqVr] = () => false,
+            [Ax25Guard.InfoFieldLengthLeN1AndContentIsOctetAligned] = () => true,
+            [Ax25Guard.Version22] = () => false,
             [Ax25Guard.SrejectExceptionGt0] = () => false,
-            [Ax25Guard.NsGtVrPlus1]  = () => false,
-            [Ax25Guard.VsEqVaPlusK]  = () => false,
-            [Ax25Guard.VsEqVa]         = () => false,
+            [Ax25Guard.NsGtVrPlus1] = () => false,
+            [Ax25Guard.VsEqVaPlusK] = () => false,
+            [Ax25Guard.VsEqVa] = () => false,
         };
         var guards = new GuardEvaluator(bindings);
         var session = new Ax25Session(

@@ -38,11 +38,19 @@ public sealed class AprsIsClient : IAsyncDisposable
 
     public async IAsyncEnumerable<string> ReadLinesAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
-        if (_reader is null) throw new InvalidOperationException("not connected");
+        if (_reader is null)
+        {
+            throw new InvalidOperationException("not connected");
+        }
+
         while (!ct.IsCancellationRequested)
         {
             string? line = await _reader.ReadLineAsync(ct);
-            if (line is null) yield break;
+            if (line is null)
+            {
+                yield break;
+            }
+
             yield return line;
         }
     }

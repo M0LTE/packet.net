@@ -43,7 +43,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Enable_starts_the_service_running_with_pdn_environment_and_state_dir_cwd()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("envy");
         pkg.WriteScript("run.sh", """
             env > "$PDN_APP_STATE/env.txt"
@@ -86,7 +90,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Rhp_disabled_means_no_rhp_environment()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("norhp");
         pkg.WriteScript("run.sh", """
             env > "$PDN_APP_STATE/env.txt"
@@ -108,7 +116,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Disable_stops_the_running_service_on_reconcile()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("toggly");
         pkg.WriteScript("run.sh", "while :; do sleep 0.2; done\n");
         var catalog = new FakeAppPackageCatalog();
@@ -129,7 +141,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Package_removed_from_discovery_is_surplus_stopped_on_reconcile()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("vanish");
         pkg.WriteScript("run.sh", "while :; do sleep 0.2; done\n");
         var catalog = new FakeAppPackageCatalog();
@@ -150,7 +166,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Fingerprint_change_restarts_a_running_service()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("shifty");
         pkg.WriteScript("run.sh", """
             echo "$1" >> "$PDN_APP_STATE/runs.txt"
@@ -177,7 +197,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Concurrent_reconciles_are_serialized_and_start_the_service_once()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("once");
         pkg.WriteScript("run.sh", """
             echo run >> "$PDN_APP_STATE/runs.txt"
@@ -202,7 +226,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Crash_goes_through_backoff_then_running_again_under_on_failure()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("phoenix");
         pkg.WriteScript("run.sh", """
             if [ ! -f "$PDN_APP_STATE/crashed-once" ]; then
@@ -225,7 +253,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Clean_exit_under_on_failure_stays_stopped_and_a_plain_reconcile_does_not_respawn()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("oneshot");
         pkg.WriteScript("run.sh", """
             echo run >> "$PDN_APP_STATE/runs.txt"
@@ -250,7 +282,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Clean_exit_under_always_restarts()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("again");
         pkg.WriteScript("run.sh", """
             echo run >> "$PDN_APP_STATE/runs.txt"
@@ -267,7 +303,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Never_policy_never_restarts()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("fatal");
         pkg.WriteScript("run.sh", """
             echo run >> "$PDN_APP_STATE/runs.txt"
@@ -290,7 +330,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Crash_loop_faults_plain_reconcile_does_not_resurrect_restart_does()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("loopy");
         pkg.WriteScript("run.sh", """
             echo run >> "$PDN_APP_STATE/runs.txt"
@@ -320,7 +364,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Changed_fingerprint_resurrects_a_faulted_service_on_reconcile()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("healed");
         pkg.WriteScript("run.sh", """
             if [ "$1" = "good" ]; then
@@ -345,7 +393,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task External_services_are_never_spawned_report_external_and_reject_restart()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("ext");
         pkg.WriteScript("run.sh", """
             mkdir -p "$PDN_APP_STATE"
@@ -375,7 +427,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Statuses_cover_running_external_and_disabled_services()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var running = new TempAppPackage("alive");
         running.WriteScript("run.sh", "while :; do sleep 0.2; done\n");
         using var external = new TempAppPackage("theirs");
@@ -409,7 +465,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Graceful_stop_delivers_sigterm_the_child_can_act_on()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("polite");
         pkg.WriteScript("run.sh", """
             trap 'echo bye > "$PDN_APP_STATE/term.marker"; exit 0' TERM
@@ -433,7 +493,11 @@ public sealed class AppServiceSupervisorTests
     [Fact]
     public async Task Dispose_stops_the_whole_process_tree_leaving_no_orphans()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         using var pkg = new TempAppPackage("brood");
         pkg.WriteScript("run.sh", """
             echo $$ > "$PDN_APP_STATE/sh.pid"

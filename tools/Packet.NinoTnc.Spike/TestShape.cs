@@ -40,8 +40,16 @@ internal static class TestShape
                 {
                     seen.Add(frame);
                     Console.WriteLine($"  [{label}] saw cmd={frame.Command} len={frame.Payload.Length}");
-                    if (frame.Command != KissCommand.Data) continue;
-                    if (!Ax25Frame.TryParse(frame.Payload, out var parsed)) continue;
+                    if (frame.Command != KissCommand.Data)
+                    {
+                        continue;
+                    }
+
+                    if (!Ax25Frame.TryParse(frame.Payload, out var parsed))
+                    {
+                        continue;
+                    }
+
                     if (parsed.Source.Callsign == ax25.Source.Callsign &&
                         parsed.Destination.Callsign == ax25.Destination.Callsign &&
                         parsed.Info.Span.SequenceEqual(ax25.Info.Span))

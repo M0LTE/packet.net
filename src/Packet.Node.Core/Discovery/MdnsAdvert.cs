@@ -93,9 +93,17 @@ public static class MdnsAdvert
     /// reads as dormant too.</summary>
     public static bool IsLoopback(string? bind)
     {
-        if (string.IsNullOrWhiteSpace(bind)) return false;
+        if (string.IsNullOrWhiteSpace(bind))
+        {
+            return false;
+        }
+
         var b = bind.Trim();
-        if (string.Equals(b, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(b, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return IPAddress.TryParse(b, out var ip) ? IPAddress.IsLoopback(ip) : true;
     }
 

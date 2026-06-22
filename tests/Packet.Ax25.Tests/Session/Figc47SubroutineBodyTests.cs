@@ -23,22 +23,22 @@ public class Figc47SubroutineBodyTests
 {
     private static (Ax25SessionContext ctx, ActionDispatcher d, FakeTimeProvider time, SystemTimerScheduler scheduler) Rig()
     {
-        var local  = new Callsign("M0LTE", 1);
+        var local = new Callsign("M0LTE", 1);
         var remote = new Callsign("WB2OSZ", 0);
         var ctx = new Ax25SessionContext { Local = local, Remote = remote };
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler);
-        var guards   = new GuardEvaluator(bindings);
+        var guards = new GuardEvaluator(bindings);
         if (d.Subroutines is DefaultSubroutineRegistry reg)
         {
             reg.Wire(d, guards);
@@ -93,8 +93,8 @@ public class Figc47SubroutineBodyTests
     {
         var (ctx, d, _, _) = Rig();
         ctx.PeerReceiverBusy = true;
-        ctx.OwnReceiverBusy  = true;
-        ctx.RejectException  = true;
+        ctx.OwnReceiverBusy = true;
+        ctx.RejectException = true;
         ctx.SelectiveRejectException = true;
         ctx.SrejExceptionCount = 3;
         ctx.AcknowledgePending = true;
@@ -118,23 +118,26 @@ public class Figc47SubroutineBodyTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 1),
+            Local = new Callsign("M0LTE", 1),
             Remote = new Callsign("WB2OSZ", 0),
             IsExtended = false,   // mod-8 → SABM
         };
         UFrameSpec? lastUFrame = null;
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    spec => lastUFrame = spec,
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: spec => lastUFrame = spec,
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler);
-        var guards   = new GuardEvaluator(bindings);
-        if (d.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(d, guards);
+        var guards = new GuardEvaluator(bindings);
+        if (d.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(d, guards);
+        }
 
         // Pre-state: pretend we're in a flagged exception state so the
         // Clear_Exception_Conditions chained inside Establish_Data_Link
@@ -159,23 +162,26 @@ public class Figc47SubroutineBodyTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 1),
+            Local = new Callsign("M0LTE", 1),
             Remote = new Callsign("WB2OSZ", 0),
             IsExtended = true,    // mod-128 → SABME
         };
         UFrameSpec? lastUFrame = null;
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    spec => lastUFrame = spec,
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: spec => lastUFrame = spec,
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler);
-        var guards   = new GuardEvaluator(bindings);
-        if (d.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(d, guards);
+        var guards = new GuardEvaluator(bindings);
+        if (d.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(d, guards);
+        }
 
         d.Subroutines.Invoke("Establish_Data_Link", new TransitionContext(ctx, scheduler, new DlConnectRequest()));
 
@@ -195,7 +201,7 @@ public class Figc47SubroutineBodyTests
         // that via ContextBindingAliases: invoking the F_1 alias sets
         // tx.Pending.PfBit=true before walking the canonical body, so the
         // body's "RR Response" verb emits the frame with F=1.
-        var local  = new Callsign("M0LTE", 1);
+        var local = new Callsign("M0LTE", 1);
         var remote = new Callsign("WB2OSZ", 0);
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
@@ -204,13 +210,13 @@ public class Figc47SubroutineBodyTests
         SupervisoryFrameSpec? lastS = null;
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    s => lastS = s,
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: s => lastS = s,
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
 
         // The trigger is what figc4.7's `F=1 & Frame=RR/RNR/I?` predicate
         // reads — an RR Command with the P bit set (PollFinal=true). The
@@ -221,7 +227,10 @@ public class Figc47SubroutineBodyTests
             nr: 0, isCommand: true, pollFinal: true);
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => new RrReceived(triggerFrame));
         var guards = new GuardEvaluator(bindings);
-        if (d.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(d, guards);
+        if (d.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(d, guards);
+        }
 
         var tx = new TransitionContext(ctx, scheduler, new RrReceived(triggerFrame));
         d.Subroutines.Invoke("Enquiry_Response_F_1", tx);
@@ -240,7 +249,7 @@ public class Figc47SubroutineBodyTests
         // outbound response. Less common at call sites but it's the
         // natural-pair version of _F_1; both aliases share the canonical
         // body and only differ in the bound F-bit value.
-        var local  = new Callsign("M0LTE", 1);
+        var local = new Callsign("M0LTE", 1);
         var remote = new Callsign("WB2OSZ", 0);
         var time = new FakeTimeProvider();
         var scheduler = new SystemTimerScheduler(time);
@@ -249,20 +258,23 @@ public class Figc47SubroutineBodyTests
         SupervisoryFrameSpec? lastS = null;
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    s => lastS = s,
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: s => lastS = s,
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
 
         var triggerFrame = Ax25Frame.Rr(
             destination: local, source: remote,
             nr: 0, isCommand: true, pollFinal: true);
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => new RrReceived(triggerFrame));
         var guards = new GuardEvaluator(bindings);
-        if (d.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(d, guards);
+        if (d.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(d, guards);
+        }
 
         var tx = new TransitionContext(ctx, scheduler, new RrReceived(triggerFrame));
         d.Subroutines.Invoke("Enquiry_Response_F_0", tx);
@@ -279,23 +291,26 @@ public class Figc47SubroutineBodyTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 1),
+            Local = new Callsign("M0LTE", 1),
             Remote = new Callsign("WB2OSZ", 0),
             Layer3Initiated = true,
         };
         var upward = new List<DataLinkSignal>();
         var d = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendUpward:    upward.Add,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            sendIFrame:    _ => { });
+            sendSFrame: _ => { },
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendUpward: upward.Add,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            sendIFrame: _ => { });
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler);
-        var guards   = new GuardEvaluator(bindings);
-        if (d.Subroutines is DefaultSubroutineRegistry reg) reg.Wire(d, guards);
+        var guards = new GuardEvaluator(bindings);
+        if (d.Subroutines is DefaultSubroutineRegistry reg)
+        {
+            reg.Wire(d, guards);
+        }
 
         d.Subroutines.Invoke("N_r_Error_Recovery", new TransitionContext(ctx, scheduler, new DlConnectRequest()));
 

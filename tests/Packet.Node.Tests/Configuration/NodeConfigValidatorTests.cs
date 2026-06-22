@@ -461,9 +461,14 @@ public class NodeConfigValidatorTests
         {
             NetRom = new NetRomConfig
             {
-                Enabled = true, Broadcast = true, Connect = true,
-                ObsoleteMinimum = 4, Window = 7, TransportTimeoutSeconds = 8,
-                TransportRetries = 5, TimeToLive = 30,
+                Enabled = true,
+                Broadcast = true,
+                Connect = true,
+                ObsoleteMinimum = 4,
+                Window = 7,
+                TransportTimeoutSeconds = 8,
+                TransportRetries = 5,
+                TimeToLive = 30,
             },
         };
         Validator.Validate(ok).IsValid.Should().BeTrue();

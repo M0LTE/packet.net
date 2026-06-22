@@ -88,11 +88,11 @@ public sealed class Ax25Adapter
         // an actual nullability concern.
         Dispatcher = new ActionDispatcher(
             onTimerExpiry: name => Session!.PostEvent(TimerExpiryEvent(name)),
-            sendSFrame:    SendS,
-            sendUFrame:    SendU,
-            sendUiFrame:   SendUi,
-            sendIFrame:    SendI,
-            sendUpward:    _ => { /* DL-layer signals stay in-memory for the caller to subscribe to via Context */ },
+            sendSFrame: SendS,
+            sendUFrame: SendU,
+            sendUiFrame: SendUi,
+            sendIFrame: SendI,
+            sendUpward: _ => { /* DL-layer signals stay in-memory for the caller to subscribe to via Context */ },
             // Grant LM-SEIZE after the §6.7.1.2 acknowledge delay (T2). The
             // media this adapter fronts (AXUDP / KISS-TCP / KISS-serial) are
             // contention-free from the session's point of view — any real
@@ -114,14 +114,18 @@ public sealed class Ax25Adapter
             // deferred by PostEvent's run-to-completion queue; bounded: the
             // confirm path only emits LM-RELEASE, never a re-seize. Mirrors
             // the Ax25Listener construction site.
-            sendLinkMux:   signal =>
+            sendLinkMux: signal =>
             {
-                if (signal is not LinkMultiplexerSeizeRequest) return;
+                if (signal is not LinkMultiplexerSeizeRequest)
+                {
+                    return;
+                }
+
                 if (context.T2 > TimeSpan.Zero)
                 {
-                    if (!scheduler.IsRunning("T2"))
+                    if (!scheduler.IsRunning(Ax25TimerNames.T2))
                     {
-                        scheduler.Arm("T2", context.T2, () => Session!.PostEvent(new LmSeizeConfirm()));
+                        scheduler.Arm(Ax25TimerNames.T2, context.T2, () => Session!.PostEvent(new LmSeizeConfirm()));
                     }
                 }
                 else
@@ -129,8 +133,8 @@ public sealed class Ax25Adapter
                     Session!.PostEvent(new LmSeizeConfirm());
                 }
             },
-            sendInternal:  _ => { /* internal signals: queue-management already mutates Context directly */ },
-            subroutines:   subroutines);
+            sendInternal: _ => { /* internal signals: queue-management already mutates Context directly */ },
+            subroutines: subroutines);
 
         // If no custom bindings were supplied, build the default ones —
         // but with frame-awareness wired to the session we're about to
@@ -182,16 +186,16 @@ public sealed class Ax25Adapter
         Session.PostEvent(Ax25FrameClassifier.Classify(frame));
     }
 
-    private void SendS (SupervisoryFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
-    private void SendU (UFrameSpec           spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
-    private void SendUi(UiFrameSpec          spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
-    private void SendI (IFrameSpec           spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
+    private void SendS(SupervisoryFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
+    private void SendU(UFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
+    private void SendUi(UiFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
+    private void SendI(IFrameSpec spec) => sendBytes(spec.ToAx25Frame(Context).ToBytes());
 
     private static Ax25Event TimerExpiryEvent(string name) => name switch
     {
-        "T1" => new T1Expiry(),
-        "T2" => new T2Expiry(),
-        "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
+        Ax25TimerNames.T1 => new T1Expiry(),
+        Ax25TimerNames.T2 => new T2Expiry(),
+        Ax25TimerNames.T3 => new T3Expiry(),
+        _ => throw new InvalidOperationException($"unexpected timer expiry name '{name}'"),
     };
 }

@@ -48,19 +48,19 @@ public sealed class TransportFactory : ITransportFactory
                 return KissSerialModem.Open(s.Device, s.Baud, timeProvider);
 
             case NinoTncTransport n:
-            {
-                var tnc = NinoTncSerialPort.Open(n.Device, n.Baud, timeProvider);
-                try
                 {
-                    await tnc.SetModeAsync((byte)n.Mode, persistToFlash: false, cancellationToken).ConfigureAwait(false);
+                    var tnc = NinoTncSerialPort.Open(n.Device, n.Baud, timeProvider);
+                    try
+                    {
+                        await tnc.SetModeAsync((byte)n.Mode, persistToFlash: false, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        await tnc.DisposeAsync().ConfigureAwait(false);
+                        throw;
+                    }
+                    return tnc;
                 }
-                catch
-                {
-                    await tnc.DisposeAsync().ConfigureAwait(false);
-                    throw;
-                }
-                return tnc;
-            }
 
             case KissTcpTransport k:
                 // Native IAx25Transport. The read-idle liveness timeout converts a
@@ -73,12 +73,12 @@ public sealed class TransportFactory : ITransportFactory
                     cancellationToken: cancellationToken).ConfigureAwait(false);
 
             case AxudpTransport a:
-            {
-                // AXUDP is a native IAx25Transport — no KISS, no synthesis, no CSMA/ACKMODE
-                // capabilities (a UDP link has none). Returned directly.
-                var remote = await ResolveAsync(a.Host, a.Port, cancellationToken).ConfigureAwait(false);
-                return new AxudpFrameTransport(remote, a.LocalPort, timeProvider);
-            }
+                {
+                    // AXUDP is a native IAx25Transport — no KISS, no synthesis, no CSMA/ACKMODE
+                    // capabilities (a UDP link has none). Returned directly.
+                    var remote = await ResolveAsync(a.Host, a.Port, cancellationToken).ConfigureAwait(false);
+                    return new AxudpFrameTransport(remote, a.LocalPort, timeProvider);
+                }
 
             default:
                 throw new NotSupportedException(

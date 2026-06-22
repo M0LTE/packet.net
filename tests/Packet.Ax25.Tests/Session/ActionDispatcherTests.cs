@@ -39,7 +39,7 @@ public class ActionDispatcherTests
             sendInternal: internalSignals.Add);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         return (dispatcher, ctx, scheduler, time, timerExpiries, sFrames, uFrames, uiFrames, upward, linkMux, internalSignals);
@@ -66,12 +66,12 @@ public class ActionDispatcherTests
     }
 
     [Theory]
-    [InlineData(Ax25ActionVerb.SetAcknowledgePending,   nameof(Ax25SessionContext.AcknowledgePending), true)]
+    [InlineData(Ax25ActionVerb.SetAcknowledgePending, nameof(Ax25SessionContext.AcknowledgePending), true)]
     [InlineData(Ax25ActionVerb.ClearAcknowledgePending, nameof(Ax25SessionContext.AcknowledgePending), false)]
-    [InlineData(Ax25ActionVerb.SetLayer3Initiated,     nameof(Ax25SessionContext.Layer3Initiated),    true)]
-    [InlineData(Ax25ActionVerb.ClearLayer3Initiated,   nameof(Ax25SessionContext.Layer3Initiated),    false)]
-    [InlineData(Ax25ActionVerb.SetPeerReceiverBusy,    nameof(Ax25SessionContext.PeerReceiverBusy),   true)]
-    [InlineData(Ax25ActionVerb.ClearPeerReceiverBusy,  nameof(Ax25SessionContext.PeerReceiverBusy),   false)]
+    [InlineData(Ax25ActionVerb.SetLayer3Initiated, nameof(Ax25SessionContext.Layer3Initiated), true)]
+    [InlineData(Ax25ActionVerb.ClearLayer3Initiated, nameof(Ax25SessionContext.Layer3Initiated), false)]
+    [InlineData(Ax25ActionVerb.SetPeerReceiverBusy, nameof(Ax25SessionContext.PeerReceiverBusy), true)]
+    [InlineData(Ax25ActionVerb.ClearPeerReceiverBusy, nameof(Ax25SessionContext.PeerReceiverBusy), false)]
     public void Flag_Verbs_Mutate_The_Right_Field(Ax25ActionVerb action, string fieldName, bool expectedValue)
     {
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
@@ -171,11 +171,11 @@ public class ActionDispatcherTests
     // ─── Supervisory-frame transmissions ───────────────────────────────
 
     [Theory]
-    [InlineData(Ax25ActionVerb.RRCommand,   SupervisoryFrameType.Rr,   true)]
-    [InlineData(Ax25ActionVerb.RR,           SupervisoryFrameType.Rr,   false)]
-    [InlineData(Ax25ActionVerb.RNRResponse, SupervisoryFrameType.Rnr,  false)]
-    [InlineData(Ax25ActionVerb.REJ,          SupervisoryFrameType.Rej,  false)]
-    [InlineData(Ax25ActionVerb.SREJ,         SupervisoryFrameType.Srej, false)]
+    [InlineData(Ax25ActionVerb.RRCommand, SupervisoryFrameType.Rr, true)]
+    [InlineData(Ax25ActionVerb.RR, SupervisoryFrameType.Rr, false)]
+    [InlineData(Ax25ActionVerb.RNRResponse, SupervisoryFrameType.Rnr, false)]
+    [InlineData(Ax25ActionVerb.REJ, SupervisoryFrameType.Rej, false)]
+    [InlineData(Ax25ActionVerb.SREJ, SupervisoryFrameType.Srej, false)]
     public void Supervisory_Verbs_Signal_Outgoing_Frame_With_Right_Type_And_Role(
         Ax25ActionVerb action, SupervisoryFrameType expectedType, bool expectedIsCommand)
     {
@@ -221,14 +221,14 @@ public class ActionDispatcherTests
     // ─── Unnumbered-frame transmissions ────────────────────────────────
 
     [Theory]
-    [InlineData(Ax25ActionVerb.UA,              UFrameType.Ua,    false, false, false)]
-    [InlineData(Ax25ActionVerb.DM,              UFrameType.Dm,    false, false, false)]
-    [InlineData(Ax25ActionVerb.ExpeditedUA,    UFrameType.Ua,    false, false, true)]
-    [InlineData(Ax25ActionVerb.ExpeditedDM,    UFrameType.Dm,    false, false, true)]
-    [InlineData(Ax25ActionVerb.DMFEq1,      UFrameType.Dm,    false, true,  false)]
-    [InlineData(Ax25ActionVerb.SABMPEqEq1,   UFrameType.Sabm,  true,  true,  false)]
-    [InlineData(Ax25ActionVerb.SABMEPEq1,   UFrameType.Sabme, true,  true,  false)]
-    [InlineData(Ax25ActionVerb.DISCPEq1,    UFrameType.Disc,  true,  true,  false)]
+    [InlineData(Ax25ActionVerb.UA, UFrameType.Ua, false, false, false)]
+    [InlineData(Ax25ActionVerb.DM, UFrameType.Dm, false, false, false)]
+    [InlineData(Ax25ActionVerb.ExpeditedUA, UFrameType.Ua, false, false, true)]
+    [InlineData(Ax25ActionVerb.ExpeditedDM, UFrameType.Dm, false, false, true)]
+    [InlineData(Ax25ActionVerb.DMFEq1, UFrameType.Dm, false, true, false)]
+    [InlineData(Ax25ActionVerb.SABMPEqEq1, UFrameType.Sabm, true, true, false)]
+    [InlineData(Ax25ActionVerb.SABMEPEq1, UFrameType.Sabme, true, true, false)]
+    [InlineData(Ax25ActionVerb.DISCPEq1, UFrameType.Disc, true, true, false)]
     public void Unnumbered_Verbs_Signal_Outgoing_Frame_With_Right_Type_Role_PfBit_And_Expedite(
         Ax25ActionVerb action, UFrameType expectedType, bool expectedIsCommand, bool expectedPfBit, bool expectedExpedited)
     {
@@ -250,8 +250,8 @@ public class ActionDispatcherTests
         var tx = new TransitionContext(ctx, s, new SabmReceived(
             Ax25Frame.Ui(
                 destination: new Callsign("M0LTE", 0),
-                source:      new Callsign("G7XYZ", 7),
-                info:        "x"u8)));
+                source: new Callsign("G7XYZ", 7),
+                info: "x"u8)));
 
         // figc4.1 t14: SABM received, "able to establish" Yes branch:
         //   F := P; <other actions>; UA
@@ -346,7 +346,7 @@ public class ActionDispatcherTests
             sendIFrame: iFrames.Add);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             VS = 4,
             VR = 7,
@@ -386,10 +386,10 @@ public class ActionDispatcherTests
     // ─── DL upper-layer signals ────────────────────────────────────────
 
     [Theory]
-    [InlineData(Ax25ActionVerb.DLCONNECTIndication,    typeof(DataLinkConnectIndication))]
-    [InlineData(Ax25ActionVerb.DLCONNECTConfirm,       typeof(DataLinkConnectConfirm))]
+    [InlineData(Ax25ActionVerb.DLCONNECTIndication, typeof(DataLinkConnectIndication))]
+    [InlineData(Ax25ActionVerb.DLCONNECTConfirm, typeof(DataLinkConnectConfirm))]
     [InlineData(Ax25ActionVerb.DLDISCONNECTIndication, typeof(DataLinkDisconnectIndication))]
-    [InlineData(Ax25ActionVerb.DLDISCONNECTConfirm,    typeof(DataLinkDisconnectConfirm))]
+    [InlineData(Ax25ActionVerb.DLDISCONNECTConfirm, typeof(DataLinkDisconnectConfirm))]
     public void Simple_DL_Signals_Are_Raised_With_No_Payload(Ax25ActionVerb action, Type expectedRecordType)
     {
         var (d, ctx, s, _, _, _, _, _, upward, _, _) = NewRig();
@@ -401,15 +401,15 @@ public class ActionDispatcherTests
 
     [Theory]
     [InlineData(Ax25ActionVerb.DLERRORIndicationCD, "C_D")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationD,   "D")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationE,   "E")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationF,   "F")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationG,   "G")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationK,   "K")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationL,   "L")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationM,   "M")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationN,   "N")]
-    [InlineData(Ax25ActionVerb.DLERRORIndicationO,   "O")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationD, "D")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationE, "E")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationF, "F")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationG, "G")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationK, "K")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationL, "L")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationM, "M")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationN, "N")]
+    [InlineData(Ax25ActionVerb.DLERRORIndicationO, "O")]
     public void DL_Error_Indication_Letters_Are_Raised_With_The_Code(Ax25ActionVerb action, string expectedCode)
     {
         var (d, ctx, s, _, _, _, _, _, upward, _, _) = NewRig();
@@ -426,8 +426,8 @@ public class ActionDispatcherTests
         // Build a mod-8 I-frame with N(R)=0, N(S)=0, P=0, info="payload", PID=0xF0
         var info = "payload"u8.ToArray();
         var bytes = new byte[7 + 7 + 1 + 1 + info.Length];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = 0x00;  // I-frame: low bit 0, no N(R)/N(S)/P set
         bytes[15] = Ax25Frame.PidNoLayer3;
         info.CopyTo(bytes.AsSpan(16));
@@ -575,8 +575,8 @@ public class ActionDispatcherTests
     private static Ax25Frame BuildRrCommand(byte nr, bool pollBit = false)
     {
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         // RR control (mod-8): bits 7..5 = N(R), bit 4 = P, bits 3..0 = 0001
         bytes[14] = (byte)(((nr & 0x07) << 5) | (pollBit ? 0x10 : 0) | 0x01);
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
@@ -637,8 +637,8 @@ public class ActionDispatcherTests
     {
         // body: dest(7) + src(7) + control(1) + pid(1) + info
         var bytes = new byte[7 + 7 + 1 + 1 + info.Length];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         // I-frame control (mod-8): bit 0 = 0, bits 7..5 = N(R), bit 4 = P, bits 3..1 = N(S)
         bytes[14] = (byte)(((nr & 0x07) << 5) | (pollBit ? 0x10 : 0) | ((ns & 0x07) << 1));
         bytes[15] = Ax25Frame.PidNoLayer3;
@@ -776,9 +776,9 @@ public class ActionDispatcherTests
     // ─── Link-multiplexer signals ──────────────────────────────────────
 
     [Theory]
-    [InlineData(Ax25ActionVerb.LMSeizeRequest,   typeof(LinkMultiplexerSeizeRequest))]
+    [InlineData(Ax25ActionVerb.LMSeizeRequest, typeof(LinkMultiplexerSeizeRequest))]
     [InlineData(Ax25ActionVerb.LMReleaseRequest, typeof(LinkMultiplexerReleaseRequest))]
-    [InlineData(Ax25ActionVerb.LMDataRequest,    typeof(LinkMultiplexerDataRequest))]
+    [InlineData(Ax25ActionVerb.LMDataRequest, typeof(LinkMultiplexerDataRequest))]
     public void Link_Multiplexer_Verbs_Raise_The_Right_Signal(Ax25ActionVerb action, Type expectedType)
     {
         var (d, ctx, s, _, _, _, _, _, _, linkMux, _) = NewRig();
@@ -832,7 +832,7 @@ public class ActionDispatcherTests
             sendLinkMux: _ => { }, sendInternal: _ => { });
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
             // Frame 3 must be genuinely OUTSTANDING for a selective replay to fire:
             // V(a)=3, V(s)=4 ⇒ the single unacked frame is N(S)=3. A peer only ever
@@ -847,8 +847,8 @@ public class ActionDispatcherTests
 
         // Now an RR comes in with N(R) = 3 — meaning "I want frame 3 again".
         var bytes = new byte[15];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         bytes[14] = (3 << 5) | 0x01;
         Ax25Frame.TryParse(bytes, out var frame).Should().BeTrue();
         var tx = new TransitionContext(ctx, s, new RrReceived(frame!));
@@ -1180,8 +1180,8 @@ public class ActionDispatcherTests
         var (d, ctx, s, _, _, _, _, _, _, _, _) = NewRig();
         var info = "out-of-order"u8.ToArray();
         var bytes = new byte[7 + 7 + 1 + 1 + info.Length];
-        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true,  ExtensionBit: false).Write(bytes.AsSpan(0, 7));
-        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true ).Write(bytes.AsSpan(7, 7));
+        new Ax25Address(new Callsign("M0LTE", 0), CrhBit: true, ExtensionBit: false).Write(bytes.AsSpan(0, 7));
+        new Ax25Address(new Callsign("G7XYZ", 7), CrhBit: false, ExtensionBit: true).Write(bytes.AsSpan(7, 7));
         // I-frame mod-8: N(R)=0, P=0, N(S)=4, low bit 0
         bytes[14] = (byte)((4 & 0x07) << 1);
         bytes[15] = Ax25Frame.PidNoLayer3;

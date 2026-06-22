@@ -56,7 +56,9 @@ internal static class DataLinkSmokeHarness
             .ToHashSet()
             .ToDictionary(a => a, _ => false);
         foreach (var (atom, value) in GuardsThatSatisfy(transition.Guard))
+        {
             assignment[atom] = value;
+        }
 
         var (session, recorder, guards) = NewSession(assignment, initialState);
 
@@ -80,8 +82,13 @@ internal static class DataLinkSmokeHarness
         // iteration is covered behaviourally elsewhere, not in this smoke test.
         var headLoopBody = new HashSet<int>();
         foreach (var loop in transition.Loops.Where(l => !l.TestAtEnd))
+        {
             for (int i = loop.Start; i < loop.Start + loop.Length; i++)
+            {
                 headLoopBody.Add(i);
+            }
+        }
+
         var expectedRecorded = transition.Actions
             .Where((_, i) => !headLoopBody.Contains(i))
             .Select(a => (a.Verb, a.Kind))
@@ -106,9 +113,16 @@ internal static class DataLinkSmokeHarness
     private static Dictionary<Ax25Guard, bool> GuardsThatSatisfy(IReadOnlyList<GuardTerm>? guard)
     {
         var result = new Dictionary<Ax25Guard, bool>();
-        if (guard is null) return result;
+        if (guard is null)
+        {
+            return result;
+        }
+
         foreach (var term in guard)
+        {
             result[term.Atom] = !term.Negate;
+        }
+
         return result;
     }
 
@@ -124,35 +138,35 @@ internal static class DataLinkSmokeHarness
     /// </summary>
     private static Ax25Event EventFor(SdlEvent on) => on switch
     {
-        SdlEvent.DLDISCONNECTRequest                  => new DlDisconnectRequest(),
-        SdlEvent.DLCONNECTRequest                     => new DlConnectRequest(),
-        SdlEvent.DLDATARequest                        => new DlDataRequest("x"u8.ToArray()),
-        SdlEvent.DLUNITDATARequest                    => new DlUnitDataRequest("x"u8.ToArray()),
-        SdlEvent.DLFLOWOFFRequest                     => new DlFlowOffRequest(),
-        SdlEvent.DLFLOWONRequest                      => new DlFlowOnRequest(),
-        SdlEvent.IFramePopsOffQueue                   => new IFramePopsOffQueue("x"u8.ToArray()),
-        SdlEvent.IReceived                            => new IFrameReceived(Frame()),
-        SdlEvent.RRReceived                           => new RrReceived(Frame()),
-        SdlEvent.RNRReceived                          => new RnrReceived(Frame()),
-        SdlEvent.REJReceived                          => new RejReceived(Frame()),
-        SdlEvent.SREJReceived                         => new SrejReceived(Frame()),
-        SdlEvent.SABMReceived                         => new SabmReceived(Frame()),
-        SdlEvent.SABMEReceived                        => new SabmeReceived(Frame()),
-        SdlEvent.DISCReceived                         => new DiscReceived(Frame()),
-        SdlEvent.UAReceived                           => new UaReceived(Frame()),
-        SdlEvent.DMReceived                           => new DmReceived(Frame()),
-        SdlEvent.FRMRReceived                         => new FrmrReceived(Frame()),
-        SdlEvent.UIReceived                           => new UiReceived(Frame()),
-        SdlEvent.IOrSCommandReceived                  => new IOrSCommandReceived(Frame()),
-        SdlEvent.AllOtherCommands                     => new AllOtherCommands(Frame()),
-        SdlEvent.LMSEIZEConfirm                       => new LmSeizeConfirm(),
-        SdlEvent.T1Expiry                             => new T1Expiry(),
-        SdlEvent.T3Expiry                             => new T3Expiry(),
-        SdlEvent.ControlFieldError                    => new ControlFieldError(),
-        SdlEvent.InfoNotPermittedInFrame              => new InfoNotPermittedInFrame(),
-        SdlEvent.UOrSFrameLengthError                 => new UOrSFrameLengthError(),
-        SdlEvent.AllOtherPrimitivesFromLowerLayer     => new AllOtherPrimitivesFromLowerLayer(),
-        SdlEvent.AllOtherPrimitivesFromUpperLayer     => new AllOtherPrimitivesFromUpperLayer(),
+        SdlEvent.DLDISCONNECTRequest => new DlDisconnectRequest(),
+        SdlEvent.DLCONNECTRequest => new DlConnectRequest(),
+        SdlEvent.DLDATARequest => new DlDataRequest("x"u8.ToArray()),
+        SdlEvent.DLUNITDATARequest => new DlUnitDataRequest("x"u8.ToArray()),
+        SdlEvent.DLFLOWOFFRequest => new DlFlowOffRequest(),
+        SdlEvent.DLFLOWONRequest => new DlFlowOnRequest(),
+        SdlEvent.IFramePopsOffQueue => new IFramePopsOffQueue("x"u8.ToArray()),
+        SdlEvent.IReceived => new IFrameReceived(Frame()),
+        SdlEvent.RRReceived => new RrReceived(Frame()),
+        SdlEvent.RNRReceived => new RnrReceived(Frame()),
+        SdlEvent.REJReceived => new RejReceived(Frame()),
+        SdlEvent.SREJReceived => new SrejReceived(Frame()),
+        SdlEvent.SABMReceived => new SabmReceived(Frame()),
+        SdlEvent.SABMEReceived => new SabmeReceived(Frame()),
+        SdlEvent.DISCReceived => new DiscReceived(Frame()),
+        SdlEvent.UAReceived => new UaReceived(Frame()),
+        SdlEvent.DMReceived => new DmReceived(Frame()),
+        SdlEvent.FRMRReceived => new FrmrReceived(Frame()),
+        SdlEvent.UIReceived => new UiReceived(Frame()),
+        SdlEvent.IOrSCommandReceived => new IOrSCommandReceived(Frame()),
+        SdlEvent.AllOtherCommands => new AllOtherCommands(Frame()),
+        SdlEvent.LMSEIZEConfirm => new LmSeizeConfirm(),
+        SdlEvent.T1Expiry => new T1Expiry(),
+        SdlEvent.T3Expiry => new T3Expiry(),
+        SdlEvent.ControlFieldError => new ControlFieldError(),
+        SdlEvent.InfoNotPermittedInFrame => new InfoNotPermittedInFrame(),
+        SdlEvent.UOrSFrameLengthError => new UOrSFrameLengthError(),
+        SdlEvent.AllOtherPrimitivesFromLowerLayer => new AllOtherPrimitivesFromLowerLayer(),
+        SdlEvent.AllOtherPrimitivesFromUpperLayer => new AllOtherPrimitivesFromUpperLayer(),
         _ => throw new InvalidOperationException($"no event factory for on='{on}' (add a case)"),
     };
 
@@ -160,8 +174,8 @@ internal static class DataLinkSmokeHarness
     /// by event type and the harness stubs every guard, so contents don't matter.</summary>
     private static Ax25Frame Frame() => Ax25Frame.Ui(
         destination: new Callsign("M0LTE", 0),
-        source:      new Callsign("G7XYZ", 7),
-        info:        "x"u8);
+        source: new Callsign("G7XYZ", 7),
+        info: "x"u8);
 
     // ─── Session + recorder ────────────────────────────────────────────
 
@@ -172,7 +186,9 @@ internal static class DataLinkSmokeHarness
         public void Execute(IEnumerable<ActionStep> actions, TransitionContext tx)
         {
             foreach (var step in actions)
+            {
                 Recorded.Add((step.Verb, step.Kind));
+            }
         }
     }
 
@@ -183,7 +199,7 @@ internal static class DataLinkSmokeHarness
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTE", 0),
+            Local = new Callsign("M0LTE", 0),
             Remote = new Callsign("G7XYZ", 7),
         };
         // Start from the runtime defaults (so timer-state / counter atoms have
@@ -191,7 +207,9 @@ internal static class DataLinkSmokeHarness
         var bindings = new Dictionary<Ax25Guard, Func<bool>>(
             Ax25SessionBindings.CreateDefault(ctx, scheduler));
         foreach (var (atom, value) in guardValues)
+        {
             bindings[atom] = () => value;
+        }
 
         var guards = new GuardEvaluator(bindings);
         var recorder = new RecordingActionDispatcher();
@@ -199,12 +217,12 @@ internal static class DataLinkSmokeHarness
             ctx, scheduler, recorder, guards,
             transitionsByState: new Dictionary<string, IReadOnlyList<TransitionSpec>>
             {
-                ["Disconnected"]          = DataLink_Disconnected.Transitions,
-                ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+                ["Disconnected"] = DataLink_Disconnected.Transitions,
+                ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
                 ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-                ["Connected"]             = DataLink_Connected.Transitions,
-                ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-                ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+                ["Connected"] = DataLink_Connected.Transitions,
+                ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+                ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
             },
             initialState: initialState);
         return (session, recorder, guards);

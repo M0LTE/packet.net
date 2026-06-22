@@ -126,21 +126,21 @@ public class DataLinkConnectedRetransmitTests
         var scheduler = new SystemTimerScheduler(time);
         var ctx = new Ax25SessionContext
         {
-            Local  = new Callsign("M0LTEA", 1),
+            Local = new Callsign("M0LTEA", 1),
             Remote = new Callsign("M0LTEB", 2),
         };
         var sent = new List<Ax25Frame>();
         var subroutines = new DefaultSubroutineRegistry();
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: _ => { },
-            sendSFrame:    _ => { },
-            sendUFrame:    _ => { },
-            sendUiFrame:   _ => { },
-            sendIFrame:    spec => sent.Add(spec.ToAx25Frame(ctx)),
-            sendUpward:    _ => { },
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines);
+            sendSFrame: _ => { },
+            sendUFrame: _ => { },
+            sendUiFrame: _ => { },
+            sendIFrame: spec => sent.Add(spec.ToAx25Frame(ctx)),
+            sendUpward: _ => { },
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines);
         var guards = new GuardEvaluator(Ax25SessionBindings.CreateDefault(ctx, scheduler));
         subroutines.Wire(dispatcher, guards);
 
@@ -150,7 +150,9 @@ public class DataLinkConnectedRetransmitTests
         ctx.VS = 4;
         ctx.VA = 0;
         for (byte ns = 0; ns < 4; ns++)
+        {
             ctx.SentIFrames[ns] = (new byte[] { ns }, Ax25Frame.PidNoLayer3);
+        }
 
         var rej = Ax25Frame.Rej(
             destination: ctx.Local, source: ctx.Remote,
@@ -192,7 +194,10 @@ public class DataLinkConnectedRetransmitTests
             var progress = false;
             while (rig.A.Inbound.TryDequeue(out var evt)) { rig.A.Session.PostEvent(evt); progress = true; }
             while (rig.B.Inbound.TryDequeue(out var evt)) { rig.B.Session.PostEvent(evt); progress = true; }
-            if (!progress) return;
+            if (!progress)
+            {
+                return;
+            }
         }
         throw new InvalidOperationException("link did not settle within 64 round-trips");
     }
@@ -201,15 +206,15 @@ public class DataLinkConnectedRetransmitTests
     {
         var nodeA = new Callsign("M0LTEA", 1);
         var nodeB = new Callsign("M0LTEB", 2);
-        var time  = new FakeTimeProvider();
-        var link  = new Link();
+        var time = new FakeTimeProvider();
+        var link = new Link();
 
         var a = BuildEndpoint(nodeA, nodeB, time, link, out var aPeer);
         var b = BuildEndpoint(nodeB, nodeA, time, link, out var bPeer);
-        aPeer.Target = b.Inbound;     bPeer.Target = a.Inbound;
+        aPeer.Target = b.Inbound; bPeer.Target = a.Inbound;
         // A's outbound (its peer's send-target) is what B receives, so
         // record it in B's ReceivedFromPeer log; and vice versa.
-        aPeer.RxLog  = b.ReceivedFromPeer;   bPeer.RxLog = a.ReceivedFromPeer;
+        aPeer.RxLog = b.ReceivedFromPeer; bPeer.RxLog = a.ReceivedFromPeer;
 
         return new Pair(a, b, link, time);
     }
@@ -238,10 +243,21 @@ public class DataLinkConnectedRetransmitTests
 
         void SendBytes(ReadOnlyMemory<byte> bytes)
         {
-            if (!Ax25Frame.TryParse(bytes.Span, out var parsed)) return;
-            if (link.Drop?.Invoke(parsed) == true) return;
+            if (!Ax25Frame.TryParse(bytes.Span, out var parsed))
+            {
+                return;
+            }
+
+            if (link.Drop?.Invoke(parsed) == true)
+            {
+                return;
+            }
+
             if (peerLocal.TargetLocal is { } expected
-                && !parsed.Destination.Callsign.Equals(expected)) return;
+                && !parsed.Destination.Callsign.Equals(expected))
+            {
+                return;
+            }
             // Log on the *receiving* side's RxLog. peerLocal.RxLog is the
             // peer's log (set up via aPeer.RxLog = b.ReceivedFromPeer
             // when wiring), so a frame from A landing on B is recorded
@@ -253,14 +269,14 @@ public class DataLinkConnectedRetransmitTests
 
         var dispatcher = new ActionDispatcher(
             onTimerExpiry: name => sessionRef!.PostEvent(TimerExpiry(name)),
-            sendSFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUiFrame:   spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendIFrame:    spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
-            sendUpward:    signals.Enqueue,
-            sendLinkMux:   _ => { },
-            sendInternal:  _ => { },
-            subroutines:   subroutines);
+            sendSFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUiFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendIFrame: spec => SendBytes(spec.ToAx25Frame(ctx).ToBytes()),
+            sendUpward: signals.Enqueue,
+            sendLinkMux: _ => { },
+            sendInternal: _ => { },
+            subroutines: subroutines);
 
         var bindings = Ax25SessionBindings.CreateDefault(ctx, scheduler, () => sessionRef?.CurrentTrigger);
         var guards = new GuardEvaluator(bindings);
@@ -289,12 +305,12 @@ public class DataLinkConnectedRetransmitTests
 
     private static Dictionary<string, IReadOnlyList<TransitionSpec>> TransitionMap() => new()
     {
-        ["Disconnected"]          = DataLink_Disconnected.Transitions,
-        ["AwaitingConnection"]    = DataLink_AwaitingConnection.Transitions,
+        ["Disconnected"] = DataLink_Disconnected.Transitions,
+        ["AwaitingConnection"] = DataLink_AwaitingConnection.Transitions,
         ["AwaitingV22Connection"] = DataLink_AwaitingV22Connection.Transitions,
-        ["Connected"]             = DataLink_Connected.Transitions,
-        ["AwaitingRelease"]       = DataLink_AwaitingRelease.Transitions,
-        ["TimerRecovery"]         = DataLink_TimerRecovery.Transitions,
+        ["Connected"] = DataLink_Connected.Transitions,
+        ["AwaitingRelease"] = DataLink_AwaitingRelease.Transitions,
+        ["TimerRecovery"] = DataLink_TimerRecovery.Transitions,
     };
 
     private static Ax25Event TimerExpiry(string name) => name switch
@@ -302,7 +318,7 @@ public class DataLinkConnectedRetransmitTests
         "T1" => new T1Expiry(),
         "T2" => new T2Expiry(),
         "T3" => new T3Expiry(),
-        _    => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
+        _ => throw new InvalidOperationException($"unexpected timer expiry '{name}'"),
     };
 }
 
@@ -314,9 +330,15 @@ internal static class IFrameNsExtensions
     {
         var ctrl = frame.Control;
         // I-frame: low bit is 0.
-        if ((ctrl & 0x01) != 0) return null;
+        if ((ctrl & 0x01) != 0)
+        {
+            return null;
+        }
         // mod-8: bits 1-3 are N(s). mod-128: second control byte.
-        if (modulus == 8) return (byte)((ctrl >> 1) & 0x07);
+        if (modulus == 8)
+        {
+            return (byte)((ctrl >> 1) & 0x07);
+        }
         // mod-128: control is 16 bits; assume frame.ControlExtended.
         return (byte)((ctrl >> 1) & 0x7F);
     }

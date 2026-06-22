@@ -312,7 +312,11 @@ public sealed class KissTcpClient : IAx25Transport, ITxCompletionTransport, ICsm
     {
         await foreach (var kiss in ReadFramesAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (kiss.Command != KissCommand.Data) continue;
+            if (kiss.Command != KissCommand.Data)
+            {
+                continue;
+            }
+
             yield return new Ax25InboundFrame(kiss.Payload, kiss.Port, time.GetUtcNow());
         }
     }
@@ -341,7 +345,10 @@ public sealed class KissTcpClient : IAx25Transport, ITxCompletionTransport, ICsm
             try { frames = await ReceiveAsync(cancellationToken).ConfigureAwait(false); }
             catch (OperationCanceledException) { yield break; }
             catch (IOException) { yield break; /* peer closed */ }
-            foreach (var f in frames) yield return f;
+            foreach (var f in frames)
+            {
+                yield return f;
+            }
         }
     }
 
@@ -419,13 +426,13 @@ public sealed class KissTcpClient : IAx25Transport, ITxCompletionTransport, ICsm
     }
 
     /// <inheritdoc/>
-    public Task SetTxDelayAsync(byte tenMsUnits, CancellationToken cancellationToken = default)    => SendAsync(0, KissCommand.TxDelay,     new[] { tenMsUnits }, cancellationToken);
+    public Task SetTxDelayAsync(byte tenMsUnits, CancellationToken cancellationToken = default) => SendAsync(0, KissCommand.TxDelay, new[] { tenMsUnits }, cancellationToken);
     /// <inheritdoc/>
-    public Task SetPersistenceAsync(byte value, CancellationToken cancellationToken = default)     => SendAsync(0, KissCommand.Persistence, new[] { value },      cancellationToken);
+    public Task SetPersistenceAsync(byte value, CancellationToken cancellationToken = default) => SendAsync(0, KissCommand.Persistence, new[] { value }, cancellationToken);
     /// <inheritdoc/>
-    public Task SetSlotTimeAsync(byte tenMsUnits, CancellationToken cancellationToken = default)   => SendAsync(0, KissCommand.SlotTime,    new[] { tenMsUnits }, cancellationToken);
+    public Task SetSlotTimeAsync(byte tenMsUnits, CancellationToken cancellationToken = default) => SendAsync(0, KissCommand.SlotTime, new[] { tenMsUnits }, cancellationToken);
     /// <inheritdoc/>
-    public Task SetTxTailAsync(byte tenMsUnits, CancellationToken cancellationToken = default)     => SendAsync(0, KissCommand.TxTail,      new[] { tenMsUnits }, cancellationToken);
+    public Task SetTxTailAsync(byte tenMsUnits, CancellationToken cancellationToken = default) => SendAsync(0, KissCommand.TxTail, new[] { tenMsUnits }, cancellationToken);
 
     /// <inheritdoc/>
     public void Dispose()

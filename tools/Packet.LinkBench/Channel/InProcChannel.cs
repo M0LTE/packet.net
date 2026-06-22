@@ -96,14 +96,22 @@ internal sealed class InProcChannel : IBenchChannel
     /// modelling is off.</summary>
     internal TimeSpan Airtime(int frameLength)
     {
-        if (opts.Baud <= 0) return TimeSpan.Zero;
+        if (opts.Baud <= 0)
+        {
+            return TimeSpan.Zero;
+        }
+
         var bits = (frameLength + FrameOverheadBytes) * 8;
         return Scale(opts.TxDelay + TimeSpan.FromSeconds(bits / (double)opts.Baud) + opts.TxTail);
     }
 
     private bool RollLoss()
     {
-        if (opts.LossRate <= 0) return false;
+        if (opts.LossRate <= 0)
+        {
+            return false;
+        }
+
         lock (randomGate)
         {
             return random.NextDouble() < opts.LossRate;
@@ -276,7 +284,11 @@ internal sealed class InProcChannel : IBenchChannel
 
         public async ValueTask DisposeAsync()
         {
-            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
             txQueue.Writer.TryComplete();
             await lifecycle.CancelAsync().ConfigureAwait(false);
             try { await pump.ConfigureAwait(false); }

@@ -23,16 +23,16 @@ public sealed class ReconfigDeltaIntegrationTests
 
     private static PortConfig Port(string id, int memPort, bool enabled = true,
         KissParams? kiss = null, Ax25PortParams? ax25 = null) => new()
-    {
-        Id = id,
-        Enabled = enabled,
-        Transport = new KissTcpTransport { Host = "mem", Port = memPort },
-        Kiss = kiss,
-        // Default to a bounded connect budget (small N2; the in-memory channel is
-        // instant) so a starved handshake can't burn the 66 s spec default under CI
-        // load (#47); a test that cares about the AX.25 params passes them explicitly.
-        Ax25 = ax25 ?? new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
-    };
+        {
+            Id = id,
+            Enabled = enabled,
+            Transport = new KissTcpTransport { Host = "mem", Port = memPort },
+            Kiss = kiss,
+            // Default to a bounded connect budget (small N2; the in-memory channel is
+            // instant) so a starved handshake can't burn the 66 s spec default under CI
+            // load (#47); a test that cares about the AX.25 params passes them explicitly.
+            Ax25 = ax25 ?? new Ax25PortParams { N2 = TestAx25Timing.NodeN2 },
+        };
 
     private static string Endpoint(int memPort) => $"kiss-tcp:mem:{memPort}";
 
@@ -276,7 +276,10 @@ public sealed class ReconfigDeltaIntegrationTests
         Ax25Session? secondNodeSession = null;
         listenerBefore.SessionAccepted += (_, e) =>
         {
-            if (!ReferenceEquals(e.Session, firstSessionBefore)) secondNodeSession = e.Session;
+            if (!ReferenceEquals(e.Session, firstSessionBefore))
+            {
+                secondNodeSession = e.Session;
+            }
         };
 
         await using var second = new RemoteStation(nodeBus.Attach(), SecondCall);

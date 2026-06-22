@@ -167,9 +167,20 @@ public static class XidInfoField
         parameters = null;
         ArgumentNullException.ThrowIfNull(options);
 
-        if (info.Length < HeaderLength) return false;
-        if (info[0] != FormatIdentifier) return false;
-        if (info[1] != GroupIdentifier) return false;
+        if (info.Length < HeaderLength)
+        {
+            return false;
+        }
+
+        if (info[0] != FormatIdentifier)
+        {
+            return false;
+        }
+
+        if (info[1] != GroupIdentifier)
+        {
+            return false;
+        }
 
         int groupLength = BinaryPrimitives.ReadUInt16BigEndian(info.Slice(2, 2));
         int available = info.Length - HeaderLength;
@@ -177,7 +188,11 @@ public static class XidInfoField
         if (groupLength > available)
         {
             // GL claims more parameter bytes than the buffer holds.
-            if (!options.AllowGroupLengthOverrun) return false;
+            if (!options.AllowGroupLengthOverrun)
+            {
+                return false;
+            }
+
             groupLength = available; // lenient: clamp to what we actually have
         }
 
@@ -196,7 +211,11 @@ public static class XidInfoField
             if (pos >= pf.Length)
             {
                 // A trailing PI with no room for a PL octet.
-                if (!options.AllowTruncatedParameter) return false;
+                if (!options.AllowTruncatedParameter)
+                {
+                    return false;
+                }
+
                 break;
             }
 
@@ -204,7 +223,11 @@ public static class XidInfoField
             if (pos + pl > pf.Length)
             {
                 // PV runs past the end of the parameter field.
-                if (!options.AllowTruncatedParameter) return false;
+                if (!options.AllowTruncatedParameter)
+                {
+                    return false;
+                }
+
                 pl = pf.Length - pos; // lenient: take what remains
             }
 
@@ -215,29 +238,61 @@ public static class XidInfoField
             {
                 case PiClassesOfProcedures:
                     // PL=0 ⇒ absent ⇒ leave as null (default applies elsewhere).
-                    if (pl >= 1) classesRaw0 = pv[0];
-                    if (pl >= 2) classesRaw1 = pv[1];
-                    if (pl >= 1) classes = ClassesOfProcedures.FromOctets(classesRaw0!.Value, classesRaw1 ?? 0);
+                    if (pl >= 1)
+                    {
+                        classesRaw0 = pv[0];
+                    }
+
+                    if (pl >= 2)
+                    {
+                        classesRaw1 = pv[1];
+                    }
+
+                    if (pl >= 1)
+                    {
+                        classes = ClassesOfProcedures.FromOctets(classesRaw0!.Value, classesRaw1 ?? 0);
+                    }
+
                     break;
 
                 case PiHdlcOptionalFunctions:
-                    if (pl >= 1) hdlc = HdlcOptionalFunctions.FromOctets(pv);
+                    if (pl >= 1)
+                    {
+                        hdlc = HdlcOptionalFunctions.FromOctets(pv);
+                    }
+
                     break;
 
                 case PiIFieldLengthRx:
-                    if (pl >= 1) n1Bits = DecodeUnsigned(pv);
+                    if (pl >= 1)
+                    {
+                        n1Bits = DecodeUnsigned(pv);
+                    }
+
                     break;
 
                 case PiWindowSizeRx:
-                    if (pl >= 1) window = pv[0] & 0x7F;
+                    if (pl >= 1)
+                    {
+                        window = pv[0] & 0x7F;
+                    }
+
                     break;
 
                 case PiAckTimer:
-                    if (pl >= 1) ackTimer = DecodeUnsigned(pv);
+                    if (pl >= 1)
+                    {
+                        ackTimer = DecodeUnsigned(pv);
+                    }
+
                     break;
 
                 case PiRetries:
-                    if (pl >= 1) retries = DecodeUnsigned(pv);
+                    if (pl >= 1)
+                    {
+                        retries = DecodeUnsigned(pv);
+                    }
+
                     break;
 
                 // PI=5 / PI=7 (Tx variants) and any unrecognised PI are
@@ -263,7 +318,10 @@ public static class XidInfoField
     {
         sink.Add(pi);
         sink.Add(checked((byte)pv.Length));
-        foreach (byte b in pv) sink.Add(b);
+        foreach (byte b in pv)
+        {
+            sink.Add(b);
+        }
     }
 
     /// <summary>
@@ -275,13 +333,24 @@ public static class XidInfoField
     /// </summary>
     internal static byte[] EncodeUnsigned(int value)
     {
-        if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), value, "XID numeric parameters are non-negative");
-        if (value == 0) return new byte[] { 0 };
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "XID numeric parameters are non-negative");
+        }
+
+        if (value == 0)
+        {
+            return new byte[] { 0 };
+        }
 
         Span<byte> tmp = stackalloc byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(tmp, (uint)value);
         int firstNonZero = 0;
-        while (firstNonZero < 3 && tmp[firstNonZero] == 0) firstNonZero++;
+        while (firstNonZero < 3 && tmp[firstNonZero] == 0)
+        {
+            firstNonZero++;
+        }
+
         return tmp[firstNonZero..].ToArray();
     }
 
@@ -292,7 +361,10 @@ public static class XidInfoField
         foreach (byte b in pv)
         {
             acc = (acc << 8) | b;
-            if (acc > int.MaxValue) acc = int.MaxValue; // saturate; pathological widths
+            if (acc > int.MaxValue)
+            {
+                acc = int.MaxValue; // saturate; pathological widths
+            }
         }
         return (int)acc;
     }

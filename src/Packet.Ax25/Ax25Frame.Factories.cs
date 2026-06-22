@@ -13,21 +13,21 @@ namespace Packet.Ax25;
 public sealed partial class Ax25Frame
 {
     // ─── U-frame control-byte bases (§4.3.3, P/F bit at 0x10) ──────────
-    private const byte ControlSabm  = 0x2F;
+    private const byte ControlSabm = 0x2F;
     private const byte ControlSabme = 0x6F;
-    private const byte ControlDisc  = 0x43;
-    private const byte ControlUa    = 0x63;
-    private const byte ControlDm    = 0x0F;
-    private const byte ControlFrmr  = 0x87;
-    private const byte ControlXid   = 0xAF;
-    private const byte ControlTest  = 0xE3;
+    private const byte ControlDisc = 0x43;
+    private const byte ControlUa = 0x63;
+    private const byte ControlDm = 0x0F;
+    private const byte ControlFrmr = 0x87;
+    private const byte ControlXid = 0xAF;
+    private const byte ControlTest = 0xE3;
     private const byte ControlPfBit = 0x10;
 
     // ─── S-frame control-byte bases (§4.3.2, P/F bit at 0x10) ──────────
     // S-frame control = (N(R) << 5) | (P/F << 4) | base.
-    private const byte ControlRr   = 0x01;
-    private const byte ControlRnr  = 0x05;
-    private const byte ControlRej  = 0x09;
+    private const byte ControlRr = 0x01;
+    private const byte ControlRnr = 0x05;
+    private const byte ControlRej = 0x09;
     private const byte ControlSrej = 0x0D;
 
     /// <summary>
@@ -155,7 +155,7 @@ public sealed partial class Ax25Frame
             // I-frame control (mod-128, Fig 4.1b): octet0 = (N(S) << 1) | 0
             // (7-bit N(S), bit 0 = 0); octet1 = (N(R) << 1) | P (7-bit N(R),
             // bit 0 = P).
-            byte first  = (byte)((ns & 0x7F) << 1);
+            byte first = (byte)((ns & 0x7F) << 1);
             byte second = (byte)(((nr & 0x7F) << 1) | (pollBit ? 0x01 : 0));
             return UFrameAt(first, isCommand: true, destination, source, info, pid, digipeaters, controlExtension: second);
         }
@@ -213,8 +213,8 @@ public sealed partial class Ax25Frame
         bool noDigipeaters = digiList.Count == 0;
 
         // §6.1.2: command sets dest C=1, source C=0; response sets dest C=0, source C=1.
-        var dest = new Ax25Address(destination, CrhBit: isCommand,  ExtensionBit: false);
-        var src  = new Ax25Address(source,      CrhBit: !isCommand, ExtensionBit: noDigipeaters);
+        var dest = new Ax25Address(destination, CrhBit: isCommand, ExtensionBit: false);
+        var src = new Ax25Address(source, CrhBit: !isCommand, ExtensionBit: noDigipeaters);
 
         if (!noDigipeaters)
         {

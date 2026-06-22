@@ -107,7 +107,7 @@ public class GuardEvaluatorTests
         var bindings = new Dictionary<Ax25Guard, Func<bool>>
         {
             [Ax25Guard.OwnReceiverBusy] = () => true,
-            [Ax25Guard.T1Running]       = () => false,
+            [Ax25Guard.T1Running] = () => false,
         };
         var evaluator = new GuardEvaluator(bindings);
 

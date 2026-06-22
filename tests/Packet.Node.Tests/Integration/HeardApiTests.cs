@@ -71,7 +71,10 @@ public sealed class HeardApiTests : IDisposable
         try
         {
             var dir = Path.GetDirectoryName(configPath);
-            if (dir is not null) Directory.Delete(dir, recursive: true);
+            if (dir is not null)
+            {
+                Directory.Delete(dir, recursive: true);
+            }
         }
         catch { /* best effort */ }
     }

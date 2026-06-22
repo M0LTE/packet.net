@@ -102,7 +102,11 @@ public sealed class NinoTncSerialPort : IAx25Transport, ITxCompletionTransport, 
     {
         await foreach (var kiss in ReadFramesAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (kiss.Command != KissCommand.Data) continue;
+            if (kiss.Command != KissCommand.Data)
+            {
+                continue;
+            }
+
             yield return new Ax25InboundFrame(kiss.Payload, kiss.Port, clock.GetUtcNow());
         }
     }

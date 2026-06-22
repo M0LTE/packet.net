@@ -28,10 +28,10 @@ public class AprsTelemetryDecoderTests
 
     [Theory]
     // Real corpus samples.
-    [InlineData("T#026,0,0,0,42,1,00000000",                              "026", 0.0, 42.0, 1.0)]
-    [InlineData("T#398,000,000,000,000,000,00000000",                     "398", 0.0,  0.0, 0.0)]
-    [InlineData("T#127,184,250,150,099,015,00001111",                     "127", 184.0, 99.0, 15.0)]
-    [InlineData("T#949,3.2,0.0,16.0,0.0,0.0,00000000",                    "949", 3.2,   0.0, 0.0)]
+    [InlineData("T#026,0,0,0,42,1,00000000", "026", 0.0, 42.0, 1.0)]
+    [InlineData("T#398,000,000,000,000,000,00000000", "398", 0.0, 0.0, 0.0)]
+    [InlineData("T#127,184,250,150,099,015,00001111", "127", 184.0, 99.0, 15.0)]
+    [InlineData("T#949,3.2,0.0,16.0,0.0,0.0,00000000", "949", 3.2, 0.0, 0.0)]
     public void Decodes_Real_Corpus_Telemetry(
         string infoText, string expectedSequence,
         double expectedFirstAnalog, double expectedFourthAnalog, double expectedFifthAnalog)
@@ -78,9 +78,9 @@ public class AprsTelemetryDecoderTests
     [Fact]
     public void Strips_DTI_If_Present()
     {
-        var with    = System.Text.Encoding.ASCII.GetBytes("T#005,1,2,3,4,5,00000000");
+        var with = System.Text.Encoding.ASCII.GetBytes("T#005,1,2,3,4,5,00000000");
         var without = System.Text.Encoding.ASCII.GetBytes("#005,1,2,3,4,5,00000000");
-        AprsTelemetryDecoder.TryDecode(with,    out var a).Should().BeTrue();
+        AprsTelemetryDecoder.TryDecode(with, out var a).Should().BeTrue();
         AprsTelemetryDecoder.TryDecode(without, out var b).Should().BeTrue();
         a.Sequence.Should().Be(b.Sequence);
         a.AnalogValues.Should().Equal(b.AnalogValues);
