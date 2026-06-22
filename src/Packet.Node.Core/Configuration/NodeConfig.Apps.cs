@@ -38,6 +38,31 @@ public sealed record AppOverrideConfig
     /// <c>environment</c> map (owner wins).</summary>
     public IReadOnlyDictionary<string, string> Environment { get; init; } =
         new Dictionary<string, string>();
+
+    // The Environment dictionary is a collection member, which a record compares by
+    // REFERENCE — so a YAML round-trip (which yields a fresh dictionary) would read as
+    // changed. Hand-roll value equality over it, matching every other config record
+    // with a collection member (see ConfigEquality).
+    public bool Equals(AppOverrideConfig? other) =>
+        other is not null
+        && Id == other.Id
+        && Enabled == other.Enabled
+        && Command == other.Command
+        && Callsign == other.Callsign
+        && Netrom == other.Netrom
+        && ConfigEquality.DictEqual(Environment, other.Environment);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Id);
+        hash.Add(Enabled);
+        hash.Add(Command);
+        hash.Add(Callsign);
+        hash.Add(Netrom);
+        hash.Add(ConfigEquality.DictHash(Environment));
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>
@@ -148,6 +173,43 @@ public sealed record ApplicationConfig
     /// <summary>Optional opt-in NET/ROM advertisement (alias → resolved callsign, with quality).
     /// Absent ⇒ nothing extra advertised. See <see cref="AppNetromConfig"/>.</summary>
     public AppNetromConfig? Netrom { get; init; }
+
+    // Args and Capabilities are collection members, which a record compares by REFERENCE
+    // — so a YAML round-trip (which yields fresh lists) would read as changed. Hand-roll
+    // value equality over them, matching every other config record with a collection
+    // member (see ConfigEquality).
+    public bool Equals(ApplicationConfig? other) =>
+        other is not null
+        && Id == other.Id
+        && Command == other.Command
+        && Enabled == other.Enabled
+        && Kind == other.Kind
+        && Executable == other.Executable
+        && SocketPath == other.SocketPath
+        && WorkingDirectory == other.WorkingDirectory
+        && Callsign == other.Callsign
+        && Ui == other.Ui
+        && Netrom == other.Netrom
+        && ConfigEquality.ListEqual(Args, other.Args)
+        && ConfigEquality.ListEqual(Capabilities, other.Capabilities);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Id);
+        hash.Add(Command);
+        hash.Add(Enabled);
+        hash.Add(Kind);
+        hash.Add(Executable);
+        hash.Add(SocketPath);
+        hash.Add(WorkingDirectory);
+        hash.Add(Callsign);
+        hash.Add(Ui);
+        hash.Add(Netrom);
+        hash.Add(ConfigEquality.ListHash(Args));
+        hash.Add(ConfigEquality.ListHash(Capabilities));
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>

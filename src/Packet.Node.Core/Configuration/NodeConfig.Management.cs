@@ -136,25 +136,16 @@ public sealed record WebAuthnConfig
 
     // Records compare a collection member by REFERENCE, so two configs with equal-but-
     // distinct AllowedOrigins lists would be unequal — breaking the YAML round-trip
-    // identity (serialise→parse yields a fresh list). Compare the list by sequence so
-    // equality is value-based, matching every other config record.
+    // identity (serialise→parse yields a fresh list). Compare the list by value so
+    // equality is content-based, matching every other config record (see ConfigEquality).
     public bool Equals(WebAuthnConfig? other) =>
         other is not null
         && RelyingPartyId == other.RelyingPartyId
         && RelyingPartyName == other.RelyingPartyName
-        && AllowedOrigins.SequenceEqual(other.AllowedOrigins);
+        && ConfigEquality.ListEqual(AllowedOrigins, other.AllowedOrigins);
 
-    public override int GetHashCode()
-    {
-        var hash = new HashCode();
-        hash.Add(RelyingPartyId);
-        hash.Add(RelyingPartyName);
-        foreach (var origin in AllowedOrigins)
-        {
-            hash.Add(origin);
-        }
-        return hash.ToHashCode();
-    }
+    public override int GetHashCode() =>
+        HashCode.Combine(RelyingPartyId, RelyingPartyName, ConfigEquality.ListHash(AllowedOrigins));
 }
 
 /// <summary>

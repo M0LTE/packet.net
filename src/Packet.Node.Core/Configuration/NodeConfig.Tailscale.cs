@@ -67,8 +67,8 @@ public sealed record TailscaleConfig
 
     // Records compare a collection member by REFERENCE, so two configs with equal-but-
     // distinct Tags lists would be unequal — breaking the YAML round-trip identity
-    // (serialise→parse yields a fresh list). Compare the list by sequence so equality is
-    // value-based, matching WebAuthnConfig.AllowedOrigins and every other config record.
+    // (serialise→parse yields a fresh list). Compare the list by value so equality is
+    // content-based, matching every other config record (see ConfigEquality).
     public bool Equals(TailscaleConfig? other) =>
         other is not null
         && Enabled == other.Enabled
@@ -78,7 +78,7 @@ public sealed record TailscaleConfig
         && StateDir == other.StateDir
         && Target == other.Target
         && Funnel == other.Funnel
-        && Tags.SequenceEqual(other.Tags);
+        && ConfigEquality.ListEqual(Tags, other.Tags);
 
     public override int GetHashCode()
     {
@@ -90,10 +90,7 @@ public sealed record TailscaleConfig
         hash.Add(StateDir);
         hash.Add(Target);
         hash.Add(Funnel);
-        foreach (var tag in Tags)
-        {
-            hash.Add(tag);
-        }
+        hash.Add(ConfigEquality.ListHash(Tags));
         return hash.ToHashCode();
     }
 }
