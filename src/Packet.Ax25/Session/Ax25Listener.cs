@@ -623,10 +623,20 @@ public sealed class Ax25Listener : IAsyncDisposable
     {
         EnsureNotDisposed();
         var frame = Ax25Frame.Ui(destination, MyCall, info.Span, pid, isCommand: true);
-        var bytes = frame.ToBytes();
-        await modem.SendAsync(bytes, ct).ConfigureAwait(false);
-        // Trace AFTER the send so the monitor's TX order matches the wire (mirrors
-        // the per-session SendBytes ordering).
+        await SendAndTraceAsync(frame, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Send a strict outbound frame on the modem, then trace it as
+    /// <see cref="FrameDirection.Transmitted"/>. The trace MUST come after the send
+    /// so the monitor's TX order matches the wire — centralised here so that ordering
+    /// (and the comment explaining it) lives in one place rather than being repeated
+    /// at every connectionless send site. The per-session <c>SendBytes</c> path keeps
+    /// its own copy because it interleaves T1 re-arming with the send.
+    /// </summary>
+    private async Task SendAndTraceAsync(Ax25Frame frame, CancellationToken ct = default)
+    {
+        await modem.SendAsync(frame.ToBytes(), ct).ConfigureAwait(false);
         TraceFrame(frame, FrameDirection.Transmitted);
     }
 
@@ -649,9 +659,7 @@ public sealed class Ax25Listener : IAsyncDisposable
     {
         EnsureNotDisposed();
         var frame = Ax25Frame.Test(destination, MyCall, info.Span, isCommand: true, pollFinal: pollFinal);
-        var bytes = frame.ToBytes();
-        await modem.SendAsync(bytes, ct).ConfigureAwait(false);
-        TraceFrame(frame, FrameDirection.Transmitted);
+        await SendAndTraceAsync(frame, ct).ConfigureAwait(false);
     }
 
     /// <summary>Stop the inbound pump without disposing.</summary>
@@ -1029,10 +1037,7 @@ public sealed class Ax25Listener : IAsyncDisposable
                 var frame = Ax25Frame.Test(
                     destination: responder, source: respondAs, info: echo,
                     isCommand: false, pollFinal: pollFinal);
-                await modem.SendAsync(frame.ToBytes()).ConfigureAwait(false);
-                // Trace AFTER the send so the monitor's TX order matches the wire
-                // (mirrors SendUiAsync / the per-session SendBytes ordering).
-                TraceFrame(frame, FrameDirection.Transmitted);
+                await SendAndTraceAsync(frame).ConfigureAwait(false);
             }
             catch (Exception)
             {

@@ -188,7 +188,13 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
     }
 
     /// <summary>Look up a running port by id (for tests).</summary>
-    public RunningPort? GetPort(string id)
+    public RunningPort? GetPort(string id) => TryGetRunning(id);
+
+    // Centralises the `lock (ports) { TryGetValue }` read so the running-port
+    // synchronisation invariant lives in one place rather than being open-coded at
+    // every lookup site. Returns null when no running port has that id (e.g. it is
+    // disabled, faulted, or mid-restart).
+    private RunningPort? TryGetRunning(string id)
     {
         lock (ports)
         {
@@ -212,11 +218,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
     /// </summary>
     public IOutboundConnector? ResolveConnector(string portId, Callsign? localOverride = null)
     {
-        RunningPort? port;
-        lock (ports)
-        {
-            ports.TryGetValue(portId, out port);
-        }
+        var port = TryGetRunning(portId);
 
         return port is null ? null : new Ax25OutboundConnector(port.Id, port.Listener, r => ClaimOutbound(r), localOverride, capabilityCache);
     }
@@ -796,11 +798,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private async Task ApplyKissParamsAsync(PortConfig port, CancellationToken ct)
     {
-        RunningPort? running;
-        lock (ports)
-        {
-            ports.TryGetValue(port.Id, out running);
-        }
+        var running = TryGetRunning(port.Id);
         if (running is null)
         {
             return;   // not up (e.g. faulted) — nothing live to tune
@@ -816,11 +814,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private void ApplyAx25Params(PortConfig port)
     {
-        RunningPort? running;
-        lock (ports)
-        {
-            ports.TryGetValue(port.Id, out running);
-        }
+        var running = TryGetRunning(port.Id);
         if (running is null)
         {
             return;   // not up (e.g. faulted) — the next bring-up reads the new config
@@ -839,11 +833,7 @@ public sealed partial class PortSupervisor : IAsyncDisposable, Applications.ILoc
 
     private void ApplyCompat(PortConfig port)
     {
-        RunningPort? running;
-        lock (ports)
-        {
-            ports.TryGetValue(port.Id, out running);
-        }
+        var running = TryGetRunning(port.Id);
         if (running is null)
         {
             return;   // not up (e.g. faulted) — the next bring-up reads the new config

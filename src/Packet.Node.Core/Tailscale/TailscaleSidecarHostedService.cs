@@ -310,8 +310,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         runStopping = stopping;
         runNodeFingerprint = nodeFingerprint;
         runForwardsFingerprint = forwardsFingerprint;
-        status.Update(new TailscaleStatusSnapshot(
-            Enabled: true, State: "starting", Fqdn: null, AuthUrl: null, Error: null, Funnel: ts.Funnel));
+        status.Update(TailscaleStatusSnapshot.Starting(ts.Funnel));
         runLoop = Task.Run(() => RunChildAsync(ts, forwards, stopping.Token), CancellationToken.None);
     }
 
@@ -420,8 +419,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
             while (!ct.IsCancellationRequested)
             {
                 // Each attempt sets "starting" (a backoff retry resets the visible state too).
-                status.Update(new TailscaleStatusSnapshot(
-                    Enabled: true, State: "starting", Fqdn: null, AuthUrl: null, Error: null, Funnel: ts.Funnel));
+                status.Update(TailscaleStatusSnapshot.Starting(ts.Funnel));
 
                 string? tempKeyFile = null;
                 Process? process = null;
@@ -442,10 +440,8 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                 {
                     DeleteTempKey(tempKeyFile);
                     LogSpawnFailed(binaryPath, spawnError ?? "unknown error");
-                    status.Update(new TailscaleStatusSnapshot(
-                        Enabled: true, State: "error", Fqdn: null, AuthUrl: null,
-                        Error: $"could not launch the Tailscale sidecar ({binaryPath}): {spawnError}",
-                        Funnel: ts.Funnel));
+                    status.Update(TailscaleStatusSnapshot.Faulted(
+                        $"could not launch the Tailscale sidecar ({binaryPath}): {spawnError}", ts.Funnel));
                 }
                 else
                 {
@@ -474,24 +470,18 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
                         // Stop requested (disable / reconfigure / shutdown): graceful teardown.
                         ClearChildPid(process.Id);
                         await GracefulStopAsync(process, groupLeader).ConfigureAwait(false);
-                        await SwallowAsync(pumps).ConfigureAwait(false);
-                        process.Dispose();
-                        DeleteTempKey(tempKeyFile);
+                        await CleanupChildAsync(process, pumps, tempKeyFile).ConfigureAwait(false);
                         return;
                     }
 
                     ClearChildPid(process.Id);
                     var exitCode = process.ExitCode;
-                    await SwallowAsync(pumps).ConfigureAwait(false);
-                    process.Dispose();
-                    DeleteTempKey(tempKeyFile);
+                    await CleanupChildAsync(process, pumps, tempKeyFile).ConfigureAwait(false);
                     LogExited(exitCode);
                     // The child exited on its own (it should only exit on SIGTERM). Surface the
                     // unexpected exit as an error and back off into a respawn.
-                    status.Update(new TailscaleStatusSnapshot(
-                        Enabled: true, State: "error", Fqdn: null, AuthUrl: null,
-                        Error: $"the Tailscale sidecar exited unexpectedly (code {exitCode}); retrying",
-                        Funnel: ts.Funnel));
+                    status.Update(TailscaleStatusSnapshot.Faulted(
+                        $"the Tailscale sidecar exited unexpectedly (code {exitCode}); retrying", ts.Funnel));
                 }
 
                 // Backoff before the next attempt (spawn failure or unexpected exit both retry).
@@ -510,9 +500,7 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
         {
             // Total: a supervisor defect faults the status, never unwinds the node.
             LogRunLoopFault(ex);
-            status.Update(new TailscaleStatusSnapshot(
-                Enabled: true, State: "error", Fqdn: null, AuthUrl: null,
-                Error: $"Tailscale supervisor fault: {ex.Message}", Funnel: ts.Funnel));
+            status.Update(TailscaleStatusSnapshot.Faulted($"Tailscale supervisor fault: {ex.Message}", ts.Funnel));
         }
         finally
         {
@@ -521,6 +509,16 @@ public sealed partial class TailscaleSidecarHostedService : BackgroundService, I
             // reconcile never SIGHUPs a stale/recycled pid.
             ClearPublishedChildPid();
         }
+    }
+
+    /// <summary>The shared post-exit cleanup: drain the stdout/stderr pumps, dispose the process
+    /// handle, and delete the temp auth-key file. Used by both the graceful-stop (cancellation)
+    /// and unexpected-exit paths of <see cref="RunChildAsync"/>.</summary>
+    private static async Task CleanupChildAsync(Process process, Task pumps, string? tempKeyFile)
+    {
+        await SwallowAsync(pumps).ConfigureAwait(false);
+        process.Dispose();
+        DeleteTempKey(tempKeyFile);
     }
 
     // ---- the spawn ------------------------------------------------------------------------
