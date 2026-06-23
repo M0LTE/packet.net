@@ -2,7 +2,7 @@ namespace Packet.NetRom.Wire;
 
 /// <summary>
 /// Per-call configuration for the NET/ROM wire-parse paths
-/// (<see cref="NodesBroadcast.TryParse"/>). Each pragmatic accommodation for a
+/// (<see cref="NodesBroadcast.TryParse(System.ReadOnlySpan{byte}, NetRomParseOptions, out NodesBroadcast?)"/>). Each pragmatic accommodation for a
 /// real-world node's divergence from the canonical NET/ROM wire format is a
 /// named, individually-toggleable flag — exactly the
 /// <see cref="Packet.Core.Ax25ParseOptions"/> pattern this project uses for
@@ -75,7 +75,8 @@ public sealed record NetRomParseOptions
 
     /// <summary>
     /// Accept-everything mode (the kitchen sink). All currently-known
-    /// accommodations enabled. The parameterless <see cref="NodesBroadcast.TryParse"/>
+    /// accommodations enabled. The options-less
+    /// <see cref="NodesBroadcast.TryParse(System.ReadOnlySpan{byte}, out NodesBroadcast?)"/>
     /// overload uses this — read-only promiscuous ingest wants to be forgiving.
     /// </summary>
     public static NetRomParseOptions Lenient { get; } = new();

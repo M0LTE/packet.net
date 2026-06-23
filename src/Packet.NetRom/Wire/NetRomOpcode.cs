@@ -4,7 +4,7 @@ namespace Packet.NetRom.Wire;
 /// The six NET/ROM L4 (transport) message types — the low nibble of the
 /// transport header's opcode-and-flags byte. The high bits of that byte are the
 /// independent flags <see cref="NetRomTransportFlags"/> (choke / NAK /
-/// more-follows), so always mask with <see cref="OpcodeMask"/> before comparing.
+/// more-follows), so always mask with <see cref="NetRomTransportHeader.OpcodeMask"/> before comparing.
 /// </summary>
 /// <remarks>
 /// <para>

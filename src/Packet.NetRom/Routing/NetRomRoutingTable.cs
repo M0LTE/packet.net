@@ -179,7 +179,7 @@ public sealed class NetRomRoutingTable
     /// Ingest an INP3 <see cref="Inp3Rif"/> heard on a connected interlink from
     /// <paramref name="receivedFromNeighbour"/>, learning a measured <em>target-time</em>
     /// route (the second metric space) per RIP. This is the time-space analogue of
-    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/> for the quality
+    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast, int?)"/> for the quality
     /// space: it mirrors <see cref="UpsertRoute"/>'s discipline (per-destination route
     /// cap, best-first ordering, the trivial-loop guard) and is pure table maintenance —
     /// it never transmits.
@@ -189,7 +189,7 @@ public sealed class NetRomRoutingTable
     /// <b>Host-free.</b> The table never reaches for the INP3 engine; the caller (the
     /// node host) supplies the smoothed neighbour transport time
     /// (<paramref name="neighbourSnttMs"/>) it read from <c>Inp3Engine</c>, exactly as
-    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/> takes
+    /// <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast, int?)"/> takes
     /// <c>myCall</c>/<c>portId</c> rather than reaching for them.
     /// </para>
     /// <para>
@@ -215,7 +215,7 @@ public sealed class NetRomRoutingTable
     /// un-probed link must never <em>remove</em> a time-route it never learned), when
     /// <c>localHopCount</c> exceeds <paramref name="hopLimit"/> (the hop horizon), or when
     /// the destination is <paramref name="myCall"/> (the receive-side trivial-loop guard,
-    /// mirroring <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast)"/>).
+    /// mirroring <see cref="Ingest(Callsign, Callsign, string, NodesBroadcast, int?)"/>).
     /// </para>
     /// <para>
     /// <b>Coexistence (does not disturb quality ingestion).</b> An INP3 upsert only sets
@@ -592,9 +592,11 @@ public sealed class NetRomRoutingTable
     /// <see cref="BuildAdvertisement(int)"/> (the quality/NODES view). A pure read under the
     /// table lock; the host calls <see cref="Inp3Rif.ToBytes"/> on the result and wraps it in
     /// a PID-0xCF I-frame on the neighbour's interlink session. Host-free: it takes
-    /// <paramref name="myCall"/> and the <paramref name="preferInp3Routes"/> knob as parameters
-    /// (the table never reaches for identity/options — the same discipline as
-    /// <see cref="IngestRif"/>). Locked design: <c>docs/netrom-inp3-i4-design.md</c> §1/§2.
+    /// <paramref name="myCall"/> as a parameter (the table never reaches for identity — the
+    /// same discipline as <see cref="IngestRif"/>). Advertisement is independent of the local
+    /// <c>preferInp3Routes</c> forwarding knob: a destination is advertised iff we hold an INP3
+    /// time-route for it, regardless of whether this node forwards by time or by quality. Locked
+    /// design: <c>docs/netrom-inp3-i4-design.md</c> §1/§2.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -608,9 +610,10 @@ public sealed class NetRomRoutingTable
     ///   — it is the source identity, not a learned route (design §1.1 rule 1, §2.2 exemption,
     ///   invariant (Source)).</description></item>
     ///   <item><description><b>Every destination D (≠ <paramref name="myCall"/>) holding a
-    ///   <em>selected</em> INP3 time-route</b> — D's active route per
-    ///   <see cref="Inp3RouteSelector.SelectActiveRoute"/> under
-    ///   <paramref name="preferInp3Routes"/> whose <see cref="NetRomRoute.Inp3"/> is non-null —
+    ///   <em>selected</em> INP3 time-route</b> — D's best (lowest-target-time) held route whose
+    ///   <see cref="NetRomRoute.Inp3"/> is non-null, chosen independently of the local
+    ///   <c>preferInp3Routes</c> forwarding knob (advertisement is not gated by the forwarding
+    ///   preference) —
     ///   ordered by ascending local target time then destination callsign (ordinal). One RIP
     ///   each: hop = the selected route's <see cref="Inp3RouteMetric.HopCount"/>; target time =
     ///   <b>POISON-REVERSE</b>: if the selected route's next-hop neighbour <em>is</em>

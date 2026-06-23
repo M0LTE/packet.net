@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <PackageId>Packet.Aprs</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Aprs — APRS payload codec</Title>
     <Description>Automatic Packet Reporting System (APRS) payload parsing per APRS12c.pdf — position (the four DTI variants !, =, /, @), mic-E (`, '), message, object, item, status, and telemetry, with Strict/Lenient/Direwolf/AprsIs parse-option presets. Decode-focused. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>aprs;amateur-radio;packet-radio;codec</PackageTags>

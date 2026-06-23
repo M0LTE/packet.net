@@ -6,13 +6,13 @@ namespace Packet.Ax25.Session;
 /// Executes an SDL action chain, expanding any loops
 /// (<see cref="LoopRange"/>, from Packet.Ax25.Sdl 0.7.0+). Shared by the
 /// state-machine transition path (<see cref="Ax25Session"/>) and the
-/// subroutine path (<see cref="SubroutineRegistry"/>) so loop semantics are
+/// subroutine path (<see cref="ISubroutineRegistry"/>) so loop semantics are
 /// identical wherever a loop appears — including
 /// <c>Invoke_Retransmission</c>, which is a subroutine.
 /// </summary>
 /// <remarks>
 /// Each <see cref="LoopRange"/> marks a body slice over the flat
-/// <paramref name="actions"/> list to re-run while its continue predicate
+/// <c>actions</c> list to re-run while its continue predicate
 /// holds. Loops are non-overlapping and non-nested (the codegen guarantees
 /// it), so we walk the actions once, running each loop's body slice in
 /// place. Test-at-head loops (<c>while</c>) check the predicate before each

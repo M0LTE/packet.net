@@ -42,6 +42,14 @@ public sealed class AgwFrameStream : IAsyncDisposable
     /// object should also dispose the underlying stream (typical for
     /// a stream we opened ourselves, e.g. a TcpClient.GetStream).
     /// </summary>
+    /// <param name="stream">
+    /// The duplex byte stream AGW packets are framed over (e.g. a connected
+    /// <see cref="System.Net.Sockets.TcpClient"/>'s network stream).
+    /// </param>
+    /// <param name="ownsStream">
+    /// Whether disposing this object also disposes <paramref name="stream"/>
+    /// (typical for a stream we opened ourselves).
+    /// </param>
     /// <param name="inboundQueueCapacity">
     /// Bounded inbound-queue size. Defaults to 64 — enough to absorb a
     /// burst of frames while the consumer is mid-handler. A backed-up

@@ -63,7 +63,7 @@ public sealed record Ax25ParseOptions
     /// encoding, so its connect/disconnect frames don't set the v2.2 "command" bits;
     /// rejecting them by default would break v1.x interop. Strict drops such a frame at
     /// decode (so a bogus-direction SABM can never open a session); the lenient default
-    /// accepts it. <see cref="Ax25Frame.IsCommand"/> is the v2.2 test
+    /// accepts it. <c>Ax25Frame.IsCommand</c> is the v2.2 test
     /// (<c>Destination.CrhBit &amp;&amp; !Source.CrhBit</c>).
     /// </remarks>
     public bool AllowCommandFrameAsResponse { get; init; } = true;

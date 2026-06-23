@@ -178,7 +178,7 @@ public sealed class Ax25Adapter
     /// Feed an already-parsed inbound <see cref="Ax25Frame"/> to the
     /// session. Use this when the bytes have already been parsed
     /// upstream (e.g. by a KISS driver's <c>Ax25FrameReceivedEvent</c>)
-    /// to avoid the redundant <see cref="Ax25Frame.TryParse"/> call.
+    /// to avoid the redundant <see cref="Ax25Frame.TryParse(System.ReadOnlySpan{byte}, out Ax25Frame?)"/> call.
     /// </summary>
     public void OnReceivedAx25Frame(Ax25Frame frame)
     {

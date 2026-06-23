@@ -1,310 +1,119 @@
 # Packet.Kiss.NinoTnc
 
-NinoTNC (N9600A) driver for Packet.NET. A thin overlay over
-[`Packet.Kiss`](../Packet.Kiss/) that adds firmware-specific bits
-(mode catalog, SETHW byte semantics, TX-Test parsing, USB VID/PID
-discovery). All the *generic* KISS surface — the `IAx25Transport`
-transports, `AdaptiveKissTransport`, the typed-event hierarchy, the
-adaptive estimators — lives in `Packet.Kiss` and works with any
-KISS-speaking modem (QtSoundModem, Dire Wolf, etc.).
+> NinoTNC (N9600A) driver — the firmware-specific overlay on top of Packet.Kiss.
 
-This package adds:
+A thin driver over [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) / [`Packet.Kiss.Serial`](https://www.nuget.org/packages/Packet.Kiss.Serial) that adds the bits specific to the NinoTNC firmware: the `SETHW` mode-selection byte semantics, the synthetic TX-Test diagnostic frame, USB VID/PID port discovery, and a firmware catalogue. All the *generic* KISS surface (the `IAx25Transport` seam, the typed inbound-event hierarchy, ACKMODE TX-completion correlation, the adaptive estimators) lives in `Packet.Kiss` and works with any KISS modem. Part of [Packet.NET](https://github.com/packet-net/packet.net), a .NET amateur-radio / AX.25 packet stack.
 
-- The NinoTNC `SETHW` mode-selection extension (mode 0–14 + `+16`
-  non-persist offset).
-- The synthetic TX-Test diagnostic frame the modem emits when its
-  front-panel button is pressed
-  (`NinoTncTxTestFrameReceivedEvent` — firmware version, serial
-  number, uptime, packet counters, running mode).
-- The over-air TX-Test UI frame heard via the modem when a *partner*
-  presses *their* button
-  (`NinoTncAirTestFrameReceivedEvent` — partner's learned callsign,
-  per-press sequence counter, deterministic ASCII pattern).
-- USB VID/PID-based port discovery (`04D8:00DD`).
-- A NinoTNC-specific frame classifier that overlays the generic one
-  in `Packet.Kiss` and upgrades the synthetic / over-air TX-Test
-  cases to the typed events above.
-
-From `Packet.Kiss` you also get (and which work with any KISS modem):
-
-- KISS framing (`KissEncoder`, `KissDecoder`, `KissFrame`,
-  `KissCommand`, `KissFraming`).
-- The G8BPQ `ACKMODE` KISS extension (KISS command `0x0C`) with
-  per-tag TX-completion correlation through `SendFrameWithAckAsync`
-  (or the neutral `ITxCompletionTransport.SendAwaitingCompletionAsync`).
-- The typed inbound event hierarchy (`KissInboundEvent`,
-  `Ax25FrameReceivedEvent`, `AckModeDataReceivedEvent`,
-  `UnknownInboundEvent`) and `KissFrameClassifier`.
-- Per-peer adaptive KISS parameters via `Packet.Kiss.Adaptive`:
-  `TxDelayHillClimbEstimator` (TXDELAY) + `CsmaContentionEstimator`
-  (PERSIST + SLOTTIME), composed with `CompositeAdaptiveEstimator`.
-- `AdaptiveKissTransport` that ties an estimator to any
-  `ITxCompletionTransport` (+ `ICsmaChannelParams`).
-
-The driver models one modem = one serial port = one radio. The KISS
-multi-drop port nibble is supported at the framing level but not
-exposed on the driver API; POLL mode and the XOR checksum extension
-are intentionally out of scope.
-
-This is part of [Packet.NET](https://github.com/packet-net/packet.net); see
-the parent project's [`docs/plan.md`](../../docs/plan.md) for the
-big picture.
+## Install
+```sh
+dotnet add package Packet.Kiss.NinoTnc
+```
 
 ## Quick start
+`NinoTncSerialPort` opens the USB-CDC port (57600 8N1), is an `IAx25Transport` / `ITxCompletionTransport` / `ICsmaChannelParams`, and raises a typed `InboundEvent` for every classified inbound frame.
 
 ```csharp
+using Packet.Core;
+using Packet.Ax25;
 using Packet.Kiss;
 using Packet.Kiss.NinoTnc;
-using Packet.Ax25;
-using Packet.Core;
 
-await using var tnc = NinoTncSerialPort.Open("COM6"); // or "/dev/ttyACM0"
-await tnc.SetModeAsync(mode: 6);                       // 1200 AFSK AX.25
-                                                       // (non-persist by default)
+await using var tnc = NinoTncSerialPort.Open("/dev/ttyACM0"); // or "COM6"
+await tnc.SetModeAsync(mode: 6);                               // 1200 AFSK AX.25
+                                                              // (non-persistent by default)
 
-// Typed inbound events
 tnc.InboundEvent += (_, evt) =>
 {
     switch (evt)
     {
         case Ax25FrameReceivedEvent rx:
-            Console.WriteLine($"{rx.Ax25.Source.Callsign} → {rx.Ax25.Destination.Callsign}");
+            Console.WriteLine($"{rx.Ax25.Source} -> {rx.Ax25.Destination}");
             break;
-        case TxTestFrameReceivedEvent diag:
-            Console.WriteLine($"TX-Test pressed: firmware {diag.Diagnostic.FirmwareVersion}, " +
-                              $"running mode {diag.Diagnostic.RunningMode?.Name}");
+        case NinoTncTxTestFrameReceivedEvent diag:
+            Console.WriteLine($"TX-Test button: firmware {diag.Diagnostic.FirmwareVersionRaw}, " +
+                              $"running {diag.Diagnostic.RunningMode?.Name}");
             break;
         case AckModeDataReceivedEvent ack:
-            Console.WriteLine($"ACKMODE inbound tag 0x{ack.SequenceTag:X4}, {ack.Ax25Payload.Length} B");
+            Console.WriteLine($"ACKMODE inbound, tag 0x{ack.SequenceTag:X4}");
             break;
     }
 };
 
-// Outbound
+// Outbound UI frame (placeholder callsigns only).
 var ui = Ax25Frame.Ui(
-    destination: new Callsign("CQ"),
-    source: new Callsign("M0LTE", 1),
+    destination: new Callsign("Q0PDN"),
+    source: new Callsign("N0CALL", 1),
     info: "hello"u8);
 await tnc.SendFrameAsync(ui.ToBytes());
 ```
 
 ## `SetModeAsync` and flash wear
+`SetModeAsync(mode)` defaults to **non-persistent**: it applies the `+16` offset so the TNC's flash is not touched and the mode reverts on reboot. Pass `persistToFlash: true` only when the operator wants the choice to survive a power cycle — flash has a finite write-cycle budget. The same logic is exposed standalone via `NinoTncSetHardware.BuildPayloadByte` / `BuildKissFrame`.
 
-`SetModeAsync(mode)` defaults to **non-persistent**: the TNC's flash is
-not touched, and the configured mode reverts on reboot. Pass
-`persistToFlash: true` only when the operator wants the choice to
-survive a power cycle. Flash has a finite write-cycle budget; tooling
-should not burn it on every dev iteration.
-
-## ACKMODE with TX-completion correlation
-
-ACKMODE (KISS command `0x0C`, G8BPQ multi-drop extension) is critical
-on slow modes — at 300 / 600 bps HF the difference between "frame
-accepted by TNC" and "frame on the air" is significant, and an AX.25
-session machine that doesn't know the latter sizes T1 wrongly.
-
-**Outbound** — the host appends a 2-byte sequence tag and the TNC
-echoes it back when it has finished keying the frame:
+## ACKMODE TX-completion
+On slow HF modes (300/600 bps) the gap between "frame accepted by the TNC" and "frame on the air" matters. `SendFrameWithAckAsync` sends a G8BPQ ACKMODE frame (KISS command `0x0C`), correlates the TNC's echo by a 16-bit sequence tag, and returns a `TxCompletion` timing the round trip:
 
 ```csharp
-var receipt = await tnc.SendFrameWithAckAsync(
-    ui.ToBytes(),
-    timeout: TimeSpan.FromSeconds(30));
+var receipt = await tnc.SendFrameWithAckAsync(ui.ToBytes(), timeout: TimeSpan.FromSeconds(30));
 Console.WriteLine($"tx-complete after {receipt.Elapsed.TotalMilliseconds:F0} ms");
 ```
 
-The driver auto-assigns sequence tags from an internal counter
-(skipping `0x0000`) and correlates echoes by tag through a thread-safe
-dictionary. Concurrent `SendFrameWithAckAsync` calls each get their
-own receipt; the TNC pipelines them through its TX queue.
-
-**Inbound** — if a peer (some other ACKMODE-aware master on a shared
-multi-drop bus) sends an ACKMODE-Data frame your way, it surfaces as
-`AckModeDataReceivedEvent` on `InboundEvent` with the tag pre-decoded
-and the AX.25 payload sliced out. The TX-completion echo for your
-*own* outbound frames is *not* exposed as a typed event — it returns
-through `SendFrameWithAckAsync`'s `TxCompletion`.
+The driver auto-assigns tags from an internal counter (skipping `0x0000`) and correlates concurrent sends through a thread-safe dictionary; you can pin the tag if you need to. `SendAwaitingCompletionAsync` is the neutral `ITxCompletionTransport` form. An ACKMODE-Data frame *received from* a peer surfaces as `AckModeDataReceivedEvent` on `InboundEvent`.
 
 ## Adaptive parameters
-
-`AdaptiveNinoTncTransport` calls into an `IAdaptiveParameterEstimator`
-to learn per-peer KISS parameters from observed outcomes:
+Drop the TNC into the generic `Packet.Kiss.AdaptiveKissTransport` — it works because `NinoTncSerialPort` implements both `ITxCompletionTransport` and `ICsmaChannelParams`:
 
 ```csharp
+using Packet.Kiss; // AdaptiveKissTransport
+using Packet.Kiss.Adaptive;
+
 var estimator = new CompositeAdaptiveEstimator(
     new TxDelayHillClimbEstimator(initialTxDelay: 50),
     new CsmaContentionEstimator(initialPersistence: 63, initialSlotTime: 10));
 
-await using var transport = new AdaptiveNinoTncTransport(tnc, estimator);
+await using var transport = new AdaptiveKissTransport(tnc, estimator);
+await transport.SendAsync("N0CALL-9", ui.ToBytes());
 
-// Before each TX the transport asks the estimator for that peer's
-// recommended parameters, applies any deltas, sends in ACKMODE, and
-// feeds the outcome back.
-await transport.SendAsync("M0LTE-9", ui.ToBytes());
-
-// AX.25-layer signals (when the session machine knows a frame was
-// retransmitted / lost):
-transport.RecordRetransmittedAck("M0LTE-9", payloadBytes: 100);
-transport.RecordLoss("M0LTE-9", payloadBytes: 100);
+// AX.25-layer signals, when the session machine knows a frame was lost / retransmitted:
+transport.RecordRetransmittedAck("N0CALL-9", payloadBytes: 100);
+transport.RecordLoss("N0CALL-9", payloadBytes: 100);
 ```
-
-Concrete estimators:
-
-- `TxDelayHillClimbEstimator` — walks TXDELAY down on consecutive
-  first-try ACKs, ratchets up on loss / ACK timeout. Clamped.
-- `CsmaContentionEstimator` — drops PERSIST + raises SLOTTIME on
-  `AckModeTimedOut` (channel-busy signal from the TNC). Slowly
-  raises PERSIST back when the channel stays clear.
-- `CompositeAdaptiveEstimator` — combines any set of children into a
-  single recommendation. Each child sees every `Observe` call; their
-  recommendations are merged field-wise.
-
-For unit-testing the transport without a real TNC, depend on
-`INinoTncModem` and inject a fake.
-
-## Port discovery
-
-```csharp
-foreach (var candidate in NinoTncPortDiscovery.EnumerateCandidates())
-{
-    Console.WriteLine($"{candidate.PortName}  ({candidate.ResolvedDevicePath})");
-}
-```
-
-- **Windows**: walks `HKLM\SYSTEM\CurrentControlSet\Enum\USB\` for
-  devices whose VID/PID matches a known NinoTNC pair (`04D8:00DD`
-  for current firmware — Microchip USB-CDC reference). For each
-  match the registry's `Device Parameters\PortName` value is the
-  COM port. Locked-down hosts that can't read this branch fall
-  through to the generic enumeration.
-- **Linux**: prefers `/dev/serial/by-id/...` symlinks (stable across
-  reboots and replug); falls back to `/dev/ttyACM*`.
-- **macOS / fallback**: `SerialPort.GetPortNames()`.
-
-The env-var override stays as a final escape hatch:
-
-```sh
-# Linux
-PACKETNET_NINOTNC_PORTS=/dev/ttyACM0,/dev/ttyACM1 ./packetnet ...
-
-# Windows PowerShell
-$env:PACKETNET_NINOTNC_PORTS = "COM6,COM8"
-```
-
-The NinoTNC's stock VID/PID is shared with several other Microchip-
-USB-CDC reference projects; "matched VID/PID" is "this might be a
-NinoTNC", not "this definitely is". The TX-Test diagnostic frame is
-the authoritative confirmation — open the candidate, invite the
-operator to press the TX-Test button, parse the resulting
-`TxTestFrameReceivedEvent`.
 
 ## TX-Test diagnostic frame
+The front-panel TX-Test button is the only readback path on this hardware — KISS has no read commands and the firmware does not answer a query SETHW. Pressing it transmits a test signal *and* sends a synthetic KISS data frame to the host carrying firmware version, identity, uptime, counters, and the running mode. `NinoTncFrameClassifier` recognises it (via the `=FirmwareVr:` marker) and raises `NinoTncTxTestFrameReceivedEvent`. The separate over-air UI frame heard when a *partner* presses *their* button is raised as `NinoTncAirTestFrameReceivedEvent` (partner's learned callsign, per-press sequence counter, deterministic ASCII pattern).
 
-The button on the modem's front panel is the only path to a "current
-running mode + firmware version" read on this hardware. KISS has no
-read commands, the NinoTNC firmware does not respond to a query SETHW,
-and there is no other channel for parameter readback short of pressing
-the button:
-
+## Port discovery
 ```csharp
-tnc.InboundEvent += (_, evt) =>
-{
-    if (evt is TxTestFrameReceivedEvent t)
-    {
-        Console.WriteLine($"firmware {t.Diagnostic.FirmwareVersion}, " +
-                          $"DIP {t.Diagnostic.DipSwitchPosition}, " +
-                          $"running mode {t.Diagnostic.RunningMode?.Name}, " +
-                          $"uptime {t.Diagnostic.Uptime}");
-    }
-};
+foreach (var c in NinoTncPortDiscovery.EnumerateCandidates())
+    Console.WriteLine($"{c.PortName}  ({c.ResolvedDevicePath})");
 ```
 
-Note that the *over-air* frame the modem transmits when the button is
-pressed is **not** this diagnostic — that's a separate test signal.
-`TxTestFrameReceivedEvent` is the synthetic KISS frame the firmware
-sends to the host alongside the on-air test transmission.
+- **Windows** — walks the registry USB enum for the known VID/PID (`04D8:00DD`, the Microchip USB-CDC reference) and reads each match's `Device Parameters\PortName`.
+- **Linux** — prefers stable `/dev/serial/by-id/...` symlinks, falls back to `/dev/ttyACM*`.
+- **macOS / fallback** — `SerialPort.GetPortNames()`.
 
-## Firmware management
+The VID/PID is shared with other Microchip-CDC reference projects, so a match is "might be a NinoTNC", not "definitely is" — the TX-Test frame is the authoritative confirmation. `NinoTncPortDiscovery.PortsEnvVar` (`PACKETNET_NINOTNC_PORTS`, a comma-separated list) is the final override.
 
-`Packet.Kiss.NinoTnc.Firmware` lays the groundwork for an
-update-aware operator workflow. The strong types tell you what's
-running and whether something newer is available; the seam for the
-actual flash operation is in place but **the flash itself is not
-implemented yet** (see "What's intentionally not here" below).
+## Firmware catalogue
+`Packet.Kiss.NinoTnc.Firmware` models what's running and whether a newer image exists. `GitHubNinoTncFirmwareCatalogue.CheckForUpdateAsync(version)` reads the upstream `flashtnc` repo and surfaces the current release per chip variant; the firmware major (`3.xx` / `4.xx`) selects the dsPIC variant, and flashing the wrong image bricks the modem until ICSP recovery. **The flash operation itself is not implemented** — `INinoTncFirmwareFlasher` is the seam and the only in-tree implementation throws.
 
-```csharp
-using Packet.Kiss.NinoTnc.Firmware;
+## Key types
+- `NinoTncSerialPort` — the driver: `IAx25Transport` + `ITxCompletionTransport` + `ICsmaChannelParams`, with `SetModeAsync` and `SendFrameWithAckAsync`.
+- `NinoTncSetHardware` — builds the `SETHW` payload byte / KISS frame (mode 0–15, `+16` non-persist offset).
+- `NinoTncFrameClassifier` — overlays the generic classifier and upgrades TX-Test / over-air-test frames to typed events.
+- `NinoTncTxTestFrame` / `NinoTncTxTestFrameReceivedEvent` — the decoded front-panel diagnostic.
+- `NinoTncAirTestFrame` / `NinoTncAirTestFrameReceivedEvent` — a partner's over-air test transmission.
+- `NinoTncCatalog` / `NinoTncMode` — the DIP-position and firmware-byte mode tables (firmware v3.44).
+- `NinoTncPortDiscovery` — VID/PID-based candidate enumeration.
 
-var http = new HttpClient();
-http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("yourapp", "1.0"));
-INinoTncFirmwareCatalogue catalogue = new GitHubNinoTncFirmwareCatalogue(http);
-
-tnc.InboundEvent += async (_, evt) =>
-{
-    if (evt is NinoTncTxTestFrameReceivedEvent t &&
-        t.Diagnostic.FirmwareVersion is { } version)
-    {
-        var availability = await catalogue.CheckForUpdateAsync(version);
-        Console.WriteLine($"Running {availability.CurrentVersion} on {availability.ChipVariant}.");
-        if (availability.UpdateAvailable)
-        {
-            Console.WriteLine($"Update available: {availability.LatestAvailable!.Version}");
-            Console.WriteLine($"Download: {availability.LatestAvailable.DownloadUrl}");
-        }
-    }
-};
-```
-
-**Chip variant detection.** The major component of the firmware
-version (`3.xx` or `4.xx`) identifies which dsPIC chip is fitted:
-
-| Firmware major | Chip | Image filename |
-|---:|---|---|
-| 3 | dsPIC33EP256GP | `N9600A-v3-{minor}.hex` |
-| 4 | dsPIC33EP512GP | `N9600A-v4-{minor}.hex` |
-
-Flashing the wrong image bricks the modem until ICSP recovery — the
-chip-variant check exists so a future UI / MCP layer can refuse to
-proceed when the operator picks a hex for the wrong variant.
-
-**Catalogue.** `GitHubNinoTncFirmwareCatalogue` reads
-`ninocarrillo/flashtnc@master` and pulls out whatever
-`N9600A-v{major}-{minor}.hex` files are sitting there at the moment.
-Nino's release process is "drop new hex, remove old hex", so the
-catalogue surfaces only the *current* release per chip variant. Old
-versions are reachable via git history but aren't in scope here.
-
-## What's intentionally not here
-
-- The PIC bootloader protocol itself. `INinoTncFirmwareFlasher` is the
-  seam; the only in-tree implementation is `UnsupportedFirmwareFlasher`
-  which throws. A native C# implementation (or a process shell-out to
-  `flashtnc.py`) will arrive in a separate PR with its own review.
-- **POLL mode** (KISS command `0x0E`). Multi-drop, not used by any
-  current hardware we care about.
-- **XOR checksum mode** (multi-drop variant). Same reason.
-- **Return-from-KISS** (`0xFF`). NinoTNC stays in KISS, and we don't
-  drive any TNC that needs to be flipped back to command mode.
-- **Multi-drop port nibble on the driver API**. The KISS framing
-  layer still respects it (port 0–15 in the command byte's high
-  nibble); the driver consistently uses port 0 and assumes one
-  modem = one radio.
-
-## Operating-mode catalog
-
-`NinoTncCatalog.ByMode` is the DIP-switch-position → mode table for
-firmware v3.44; `NinoTncCatalog.FirmwareByteToMode` is the reverse
-lookup keyed on the firmware byte the TNC reports in its
-`BrdSwchMod` diagnostic field. The catalog is firmware-version-
-specific; bump when needed.
+## Out of scope
+POLL mode (`0x0E`), the XOR-checksum multi-drop variant, return-from-KISS (`0xFF`), and the multi-drop port nibble on the driver API are intentionally not exposed — one modem = one serial port = one radio.
 
 ## See also
+- [Source & issues](https://github.com/packet-net/packet.net)
+- [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) — the generic KISS surface this builds on (framing, typed events, ACKMODE, adaptive estimators).
+- [`Packet.Kiss.Serial`](https://www.nuget.org/packages/Packet.Kiss.Serial) — the serial-port transport underneath.
+- [NinoTNC wiki](https://wiki.oarc.uk/packet:ninotnc) — operator-facing hardware documentation.
 
-- [`docs/nino-tnc-characterisation.md`](../../docs/nino-tnc-characterisation.md)
-  — empirical measurements from the back-to-back NinoTNC pair.
-- [`tools/Packet.NinoTnc.Spike`](../../tools/Packet.NinoTnc.Spike/) — the
-  spike-and-soak tool that produced those numbers.
-- [Multi-drop KISS spec](https://github.com/packethacking/ax25spec/blob/main/doc/multi-drop-kiss-operation.md)
-  — authoritative reference for ACKMODE, POLL, the port nibble.
-- [NinoTNC wiki](https://wiki.oarc.uk/packet:ninotnc) — operator-facing
-  hardware documentation.
+---
+*MIT-licensed. Part of the [Packet.NET](https://github.com/packet-net/packet.net) stack.*

@@ -8,6 +8,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- CS1591 (missing doc on a public member) stays suppressed — we ship the docs we have
+         without mandating 100% coverage. Every OTHER doc-comment diagnostic (malformed XML,
+         bad/ambiguous crefs, incomplete/wrong <param> tags) is LEFT AS AN ERROR under
+         warnings-as-errors, so the XML docs we DO ship (GenerateDocumentationFile, below) are
+         correct — no broken crefs, no mismatched params. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

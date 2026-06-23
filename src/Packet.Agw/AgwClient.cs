@@ -144,6 +144,7 @@ public sealed class AgwClient : IAsyncDisposable
     /// <param name="to">Remote callsign.</param>
     /// <param name="radioPort">AGW port number (radio interface). Defaults to 0.</param>
     /// <param name="connectTimeout">How long to wait for the connect-ack frame ('C' response). Default 30s.</param>
+    /// <param name="ct">Cancels the wait for the connect-ack.</param>
     public async Task<AgwSession> OpenSessionAsync(
         string from,
         string to,

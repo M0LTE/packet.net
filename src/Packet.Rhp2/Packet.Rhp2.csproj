@@ -19,6 +19,7 @@
        docs/rhp2-server.md § "Shared codec convergence". -->
   <PropertyGroup>
     <PackageId>Packet.Rhp2</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Rhp2 — RHPv2 (Radio Host Protocol v2) wire codec</Title>
     <Description>The RHPv2 (PWP-0222 / PWP-0245) JSON-over-TCP wire codec: 2-byte big-endian length-prefixed framing, the full message catalogue (auth/open/socket/bind/listen/connect/send/sendto/recv/accept/status/close + replies), Latin-1 payload encoding, and type-first dispatch — pinned to live XRouter's wire (capital errCode/errText, the connectReply typo tolerance, string-or-number port normalisation, Latin-1-not-base64 data). The single source of truth for the RHPv2 wire format, shareable by both pdn's RHPv2 server and rhp2lib clients. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>rhp;rhpv2;xrouter;amateur-radio;packet-radio;protocol;codec;ax25</PackageTags>

@@ -78,6 +78,7 @@ public sealed class AdaptiveKissTransport : IAsyncDisposable, IDisposable
     /// <param name="peer">Peer identifier (typically a callsign in canonical text form).</param>
     /// <param name="ax25Bytes">AX.25 frame body (no FCS, no KISS framing).</param>
     /// <param name="ackTimeout">Override the default TX-completion timeout.</param>
+    /// <param name="cancellationToken">Token that cancels waiting for the send lock and the in-flight transmission.</param>
     public async Task<TxCompletion> SendAsync(
         string peer,
         ReadOnlyMemory<byte> ax25Bytes,
