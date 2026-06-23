@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Packet.Ax25.Transport;
+using Packet.Core;
 using Packet.Kiss;
 using Packet.Kiss.NinoTnc;
 using Packet.Kiss.Serial;
@@ -78,6 +79,23 @@ public sealed class TransportFactory : ITransportFactory
                     // capabilities (a UDP link has none). Returned directly.
                     var remote = await ResolveAsync(a.Host, a.Port, cancellationToken).ConfigureAwait(false);
                     return new AxudpFrameTransport(remote, a.LocalPort, timeProvider);
+                }
+
+            case AxudpMultipointTransport m:
+                {
+                    // Multipoint AXUDP (the BPQAXIP analog): one socket, many callsign-mapped
+                    // peers. Resolve each peer's host (the factory owns DNS) into the already-
+                    // resolved endpoint form the transport routes against, then construct the
+                    // native IAx25Transport. Validation has already guaranteed unique, valid
+                    // callsigns + in-range ports, so the parse below cannot fail.
+                    var peers = new List<AxudpMultipointPeerEndpoint>(m.Peers.Count);
+                    foreach (var peer in m.Peers)
+                    {
+                        var endpoint = await ResolveAsync(peer.Host, peer.Port, cancellationToken).ConfigureAwait(false);
+                        var call = Callsign.Parse(peer.Call);
+                        peers.Add(new AxudpMultipointPeerEndpoint(call, endpoint, peer.Broadcast));
+                    }
+                    return new AxudpMultipointFrameTransport(peers, m.LocalPort, timeProvider, logger: null);
                 }
 
             default:

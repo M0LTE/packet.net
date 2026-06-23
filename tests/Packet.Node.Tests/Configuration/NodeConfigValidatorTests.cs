@@ -286,6 +286,87 @@ public class NodeConfigValidatorTests
         Validator.Validate(config).IsValid.Should().BeFalse();
     }
 
+    // ── Multipoint AXUDP (the BPQ BPQAXIP analog) ──
+
+    private static PortConfig MultipointPort(int localPort, params AxudpPeerConfig[] peers) => new()
+    {
+        Id = "ipgw",
+        Transport = new AxudpMultipointTransport { LocalPort = localPort, Peers = peers },
+    };
+
+    [Fact]
+    public void Axudp_multipoint_accepts_a_valid_peer_table()
+    {
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "M0LTE-9", Host = "10.45.0.185", Port = 10093, Broadcast = true },
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094, Broadcast = true }));
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Axudp_multipoint_accepts_an_empty_peer_table()
+    {
+        // A receive-only listener (no MAP entries yet) is legal.
+        Validator.Validate(Valid(MultipointPort(10093))).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0, false)]       // no ephemeral bind — partners MAP back to a fixed port
+    [InlineData(10093, true)]
+    [InlineData(70000, false)]
+    public void Axudp_multipoint_localPort_must_be_in_range_and_nonzero(int localPort, bool expectValid)
+    {
+        Validator.Validate(Valid(MultipointPort(localPort,
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094 }))).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Axudp_multipoint_rejects_an_invalid_peer_callsign()
+    {
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "not a call", Host = "10.66.66.3", Port = 10094 }));
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Axudp_multipoint_rejects_a_peer_with_no_host()
+    {
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "", Port = 10094 }));
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(10094, true)]
+    [InlineData(70000, false)]
+    public void Axudp_multipoint_peer_port_must_be_in_range(int port, bool expectValid)
+    {
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = port }));
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Axudp_multipoint_rejects_duplicate_peer_callsigns()
+    {
+        // The callsign is the outbound routing key, so two MAPs to the same call is ambiguous.
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094 },
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.9", Port = 10095 }));
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Axudp_multipoint_treats_ssid_zero_explicit_and_implicit_as_a_duplicate()
+    {
+        // "GB7OUK-0" and "GB7OUK" parse to the same Callsign — still a duplicate routing key.
+        var config = Valid(MultipointPort(10093,
+            new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094 },
+            new AxudpPeerConfig { Call = "GB7OUK-0", Host = "10.66.66.9", Port = 10095 }));
+        Validator.Validate(config).IsValid.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(null, true)]              // no profile = spec defaults = valid
     [InlineData("", true)]               // blank = no profile = valid
@@ -416,6 +497,52 @@ public class NodeConfigValidatorTests
             Id = "p",
             Transport = new KissTcpTransport { Host = "h", Port = 1 },
             // NetRomQuality unset — inherits the global default.
+        });
+        Validator.Validate(config).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(100, true)]
+    [InlineData(255, true)]
+    [InlineData(256, false)]
+    [InlineData(-1, false)]
+    public void Validates_per_port_netrom_minquality_range(int minQuality, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+            NetRomMinQuality = minQuality,
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Theory]
+    [InlineData(28, true)]     // header (7) + one whole entry (21) — the floor
+    [InlineData(160, true)]    // GB7RDG's NODESPACLEN
+    [InlineData(256, true)]    // the AX.25 UI ceiling
+    [InlineData(27, false)]    // below one whole entry
+    [InlineData(257, false)]   // above the UI ceiling
+    public void Validates_per_port_nodespaclen_range(int paclen, bool expectValid)
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+            NodesPaclen = paclen,
+        });
+        Validator.Validate(config).IsValid.Should().Be(expectValid);
+    }
+
+    [Fact]
+    public void Accepts_unset_per_port_netrom_minquality_and_nodespaclen()
+    {
+        var config = Valid(new PortConfig
+        {
+            Id = "p",
+            Transport = new KissTcpTransport { Host = "h", Port = 1 },
+            // NetRomMinQuality + NodesPaclen unset — inherit defaults / no cap.
         });
         Validator.Validate(config).IsValid.Should().BeTrue();
     }
