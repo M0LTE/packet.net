@@ -15,14 +15,16 @@ Each library is its own NuGet package (or planned package). They compose: the no
 | `src/Packet.Core/` | Shared primitives (Callsign, Ax25Address) | [`Packet.Core`](https://www.nuget.org/packages/Packet.Core) |
 | `src/Packet.Ax25.Transport.Abstractions/` | Frame-transport contract (`IAx25Transport`, `Ax25InboundFrame`, optional `ITxCompletionTransport` / `ICsmaChannelParams`) | [`Packet.Ax25.Transport.Abstractions`](https://www.nuget.org/packages/Packet.Ax25.Transport.Abstractions) |
 | `src/Packet.Ax25/` | AX.25 v2.2 frame codec + connected-mode session machine + `Ax25Listener` | [`Packet.Ax25`](https://www.nuget.org/packages/Packet.Ax25) |
+| `src/Packet.NetRom/` | NET/ROM L3 routing + L4 circuits + INP3 time-routing | [`Packet.NetRom`](https://www.nuget.org/packages/Packet.NetRom) |
 | `src/Packet.Kiss/` | KISS framing, ACKMODE, multi-drop, TCP transport (`KissFrame`, `KissTcpClient`) | [`Packet.Kiss`](https://www.nuget.org/packages/Packet.Kiss) |
-| `src/Packet.Aprs/` | APRS frame codec | _not yet published_ |
-| `src/Packet.Agw/` | AGW (SV2AGW) client | _not yet published_ |
+| `src/Packet.Aprs/` | APRS payload codec (position, mic-E, message, object, telemetry) | [`Packet.Aprs`](https://www.nuget.org/packages/Packet.Aprs) |
+| `src/Packet.Agw/` | AGW (AGWPE / SV2AGW) client | [`Packet.Agw`](https://www.nuget.org/packages/Packet.Agw) |
 | `src/Packet.Axudp/` | AXUDP (AX.25-over-IP / RFC 1226) transport (`AxudpSocket`) | [`Packet.Axudp`](https://www.nuget.org/packages/Packet.Axudp) |
 | `src/Packet.Kiss.Serial/` | Generic serial-port KISS modem | [`Packet.Kiss.Serial`](https://www.nuget.org/packages/Packet.Kiss.Serial) |
 | `src/Packet.Kiss.NinoTnc/` | NinoTNC-specific KISS extensions (ACKMODE, SETHW, frame classification) | [`Packet.Kiss.NinoTnc`](https://www.nuget.org/packages/Packet.Kiss.NinoTnc) |
 | `src/Packet.Mcp/` | MCP server scaffolding | _not yet published_ |
-| `src/Packet.Rhp2/` + `.Server/` | RHPv2 protocol | _not yet published_ |
+| `src/Packet.Rhp2/` | RHPv2 (Radio Host Protocol v2) wire codec | [`Packet.Rhp2`](https://www.nuget.org/packages/Packet.Rhp2) |
+| `src/Packet.Rhp2.Server/` | RHPv2 server (node network plane) | n/a — node-internal (depends on `Packet.Node.Core`) |
 | `src/Packet.Node/` + `.Extensions/` | Packet-radio node host (web UI, REST, MCP, plugin shim) | n/a — application |
 
 The SDL state-machine tables that drive `Packet.Ax25/Session/` come from the [`Packet.Ax25.Sdl`](https://www.nuget.org/packages/Packet.Ax25.Sdl) NuGet package, built and published by [`packet-net/ax25sdl`](https://github.com/packet-net/ax25sdl) — don't try to regenerate them from here.
