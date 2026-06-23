@@ -361,7 +361,7 @@ public sealed record Ax25SessionQuirks
     /// keyed on <c>From == AwaitingV22Connection</c>, so it is inert once the fallback has
     /// already dropped us to the mod-8 path. Like <see cref="Ax25Spec44Mod128ConnectRoutesToV22"/>
     /// / <see cref="Ax25Spec45FrmrFallbackReestablishesV20"/>, this rewrites a transition in
-    /// <see cref="Ax25Session"/>'s dispatch path (the matched DM <see cref="TransitionSpec"/>
+    /// <see cref="Ax25Session"/>'s dispatch path (the matched DM <see cref="Packet.Ax25.Sdl.TransitionSpec"/>
     /// is substituted for the FRMR one, and <c>IsExtended</c> is forced before the actions
     /// run so <c>Establish_Data_Link</c> emits SABM). Only meaningful once
     /// <see cref="Ax25Spec44Mod128ConnectRoutesToV22"/> makes figc4.6 reachable by an
@@ -471,7 +471,7 @@ public sealed record Ax25SessionQuirks
     /// appears at <c>k ≥ 5</c> and is absent at <c>k ≤ 4</c> (packet-net/packet.net#393).
     /// </summary>
     /// <remarks>
-    /// When <c>true</c> (default), <see cref="Ax25SessionContext.EffectiveSendWindow"/>
+    /// When <c>true</c> (default), <see cref="Ax25SessionContext.EffectiveWindow"/>
     /// caps the outstanding-I-frame window at <c>modulus/2</c> whenever
     /// <see cref="Ax25SessionContext.SrejEnabled"/> is set — both the
     /// <c>v_s_eq_v_a_plus_k</c> guard and the I-frame-queue drain honour the cap,

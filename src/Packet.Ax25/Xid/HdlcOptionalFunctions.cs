@@ -162,6 +162,11 @@ public sealed record HdlcOptionalFunctions
     /// always-1/always-0 bits are not validated on receive — only the
     /// negotiable selections are meaningful.
     /// </summary>
+    /// <param name="pv">
+    /// The (up to) 3-octet parameter-value field as read off the wire — the
+    /// HDLC Optional Functions selections to decode. Octets beyond the first
+    /// three are ignored.
+    /// </param>
     /// <param name="lsbOctetFirst">
     /// The on-the-wire octet order of <paramref name="pv"/>; must match the order
     /// the peer used. <c>false</c> (default, spec-correct) reads the first octet as

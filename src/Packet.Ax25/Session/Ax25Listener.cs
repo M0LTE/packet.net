@@ -92,7 +92,7 @@ public sealed class Ax25Listener : IAsyncDisposable
 
     /// <summary>
     /// One cached <see cref="Ax25Session"/> + its scheduler + its
-    /// upward-signal queue (for outbound <see cref="ConnectAsync"/>
+    /// upward-signal queue (for outbound <see cref="ConnectAsync(Callsign, System.Threading.CancellationToken)"/>
     /// callers waiting on DL-CONNECT-confirm), plus any per-session
     /// disposables.
     /// </summary>
@@ -292,7 +292,7 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// <para>
     /// The swap is a single atomic reference publish, so a session being built
     /// concurrently on the inbound pump reads either the whole old record or the
-    /// whole new one, never a torn mix. <see cref="MaxCachedPeers"/> takes effect
+    /// whole new one, never a torn mix. <see cref="Ax25SessionParameters.MaxCachedPeers"/> takes effect
     /// on the next eviction pass (the next session add) — it never evicts a live
     /// session synchronously here.
     /// </para>
@@ -575,7 +575,7 @@ public sealed class Ax25Listener : IAsyncDisposable
     /// </para>
     /// </remarks>
     /// <param name="session">An <see cref="Ax25Session"/> previously returned
-    /// by <see cref="ConnectAsync"/> or the <see cref="SessionAccepted"/> event.</param>
+    /// by <see cref="ConnectAsync(Callsign, System.Threading.CancellationToken)"/> or the <see cref="SessionAccepted"/> event.</param>
     /// <param name="data">The upper-layer payload.</param>
     /// <param name="pid">The Layer-3 PID for the (un-segmented) request. Defaults to
     /// <see cref="Ax25Frame.PidNoLayer3"/>.</param>

@@ -77,6 +77,12 @@ public static class NetRomForwarding
     /// <param name="routing">The current routing view.</param>
     /// <param name="maxTimeToLive">The TTL cap applied to everything forwarded (the
     /// node's configured initial TTL — BPQ's <c>L3LIVES</c>).</param>
+    /// <param name="mode">How to choose among the destination's kept routes:
+    /// <see cref="NetRomForwardMode.PerFlow"/> (the default) quality-weighted-spreads
+    /// distinct L4 circuits across the routes while hashing each circuit's datagrams to a
+    /// single route (preserving its ordering), whereas
+    /// <see cref="NetRomForwardMode.BestRoute"/> sends every transit datagram over the one
+    /// best route.</param>
     /// <param name="preferInp3Routes">The resolved INP3 forwarding preference (BPQ's
     /// <c>PREFERINP3ROUTES</c>; <see cref="Wire.NetRomInp3Options.PreferInp3Routes"/>).
     /// When <c>true</c> and the destination holds at least one INP3 time-route, the

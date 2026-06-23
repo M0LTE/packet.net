@@ -4,7 +4,7 @@ namespace Packet.NetRom.Wire;
 /// The tunable knobs of the INP3 link-timing overlay — the probe cadence, the
 /// reflection-timeout reset window, the SNTT smoother gain, optimistic-probe
 /// policy, and the advertised capability text. Mirrors
-/// <see cref="NetRomCircuitOptions"/> / <see cref="Packet.NetRom.Routing.NetRomRoutingOptions"/>:
+/// <see cref="Packet.NetRom.Transport.NetRomCircuitOptions"/> / <see cref="Packet.NetRom.Routing.NetRomRoutingOptions"/>:
 /// a <see cref="Default"/> preset and validated ranges, every divergence a named
 /// knob defaulted to an interoperable value (CLAUDE.md "spec-faithful core,
 /// pragmatism is a named flag").

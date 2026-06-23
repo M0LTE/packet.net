@@ -83,7 +83,7 @@ public sealed class Ax25Session
     /// <para>
     /// The Listener wires every session's dispatcher with a
     /// <c>sendUpward</c> shim that fan-outs into both the listener's
-    /// own per-session queue (for <see cref="Ax25Listener.ConnectAsync"/>
+    /// own per-session queue (for <see cref="Ax25Listener.ConnectAsync(Packet.Core.Callsign, System.Threading.CancellationToken)"/>
     /// to await DL-CONNECT-confirm) AND this event (for UI / app
     /// observers that want push-style delivery). Pre-listener callers
     /// that build sessions directly via the <see cref="Ax25Session"/>
@@ -129,7 +129,7 @@ public sealed class Ax25Session
     /// the early-inbound buffer. Atomic with respect to emission (both take the session's
     /// dispatch gate), so a signal in flight is delivered to the handler exactly once, with no
     /// loss and no duplication. Used by an outbound consumer (the node's Ax25NodeConnection)
-    /// that can only wrap the session after <see cref="Ax25Listener.ConnectAsync"/> has already
+    /// that can only wrap the session after <see cref="Ax25Listener.ConnectAsync(Packet.Core.Callsign, System.Threading.CancellationToken)"/> has already
     /// returned a connected link — closing the window in which a peer's immediate greeting
     /// (e.g. a node's connect banner) would otherwise be dropped. The first such attach disarms
     /// the buffer; subsequent raw <c>DataLinkSignalEmitted += </c> subscribers are unaffected.

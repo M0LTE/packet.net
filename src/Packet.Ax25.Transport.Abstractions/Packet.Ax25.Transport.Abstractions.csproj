@@ -22,6 +22,7 @@
 
   <PropertyGroup>
     <PackageId>Packet.Ax25.Transport.Abstractions</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Ax25.Transport.Abstractions — AX.25 frame-transport contract</Title>
     <Description>Dependency-free contract for the AX.25 frame-transport layer of the Packet.NET stack — IAx25Transport (send/receive AX.25 frames), Ax25InboundFrame, and the optional ITxCompletionTransport / ICsmaChannelParams capabilities. Take a dependency on this rather than a concrete transport or the KISS package when you only need to move AX.25 frames. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>ax25;amateur-radio;packet-radio;transport;abstractions</PackageTags>

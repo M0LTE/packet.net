@@ -13,6 +13,7 @@
 
   <PropertyGroup>
     <PackageId>Packet.NetRom</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.NetRom — NET/ROM L3/L4 + INP3</Title>
     <Description>NET/ROM networking for the Packet.NET stack: the L3 routing layer (NODES broadcasts, routing table + quality model), the L4 circuit state machine (CircuitManager / NetRomCircuit), and the INP3 time-routing overlay (L3RTT, RIF/RIP) — with BPQ / XRouter / Strict / Lenient quirk profiles pinned to real on-air behaviour. Build a .NET NET/ROM node or router on top of Packet.Ax25. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>ax25;netrom;net-rom;inp3;amateur-radio;packet-radio;routing;protocol</PackageTags>

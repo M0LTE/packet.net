@@ -222,6 +222,7 @@ public sealed class NinoTncSerialPort : IAx25Transport, ITxCompletionTransport, 
     /// the change does not touch the TNC's flash. Use <c>true</c> only when
     /// the user wants the choice to survive a reboot.
     /// </param>
+    /// <param name="cancellationToken">Cancels the underlying KISS SETHW send.</param>
     public Task SetModeAsync(byte mode, bool persistToFlash = false, CancellationToken cancellationToken = default)
     {
         byte payload = NinoTncSetHardware.BuildPayloadByte(mode, persistToFlash);

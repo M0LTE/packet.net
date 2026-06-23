@@ -7,7 +7,7 @@ namespace Packet.Kiss.NinoTnc;
 
 /// <summary>
 /// A serial port the host believes may host a NinoTNC. <see cref="PortName"/>
-/// is what you pass to <see cref="NinoTncSerialPort.Open(string,int,byte)"/>.
+/// is what you pass to <see cref="NinoTncSerialPort.Open(string, int, System.TimeProvider)"/>.
 /// </summary>
 /// <param name="PortName">
 /// Cross-platform open string: a stable <c>/dev/serial/by-id/...</c> path on

@@ -13,6 +13,7 @@
        repo URL, symbols) comes from Directory.Build.props. -->
   <PropertyGroup>
     <PackageId>Packet.Agw</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Agw — AGW (AGWPE / SV2AGW) client</Title>
     <Description>SV2AGW AGWPE protocol client for .NET. Connects to LinBPQ, direwolf, SoundModem, and XRouter AGW listeners for AX.25 connected-mode and UNPROTO interop. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>ax25;agw;agwpe;packet-radio;linbpq;direwolf;soundmodem</PackageTags>

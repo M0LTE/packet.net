@@ -1061,10 +1061,24 @@ public sealed class ActionDispatcher : IActionDispatcher
     /// (<c>SABM (P == 1)</c>, <c>SABME (P = 1)</c>, <c>DISC (P = 1)</c>,
     /// <c>DM (F = 1)</c>).
     /// </summary>
+    /// <param name="type">The U-frame subtype to emit (e.g. SABM, DISC, UA, DM).</param>
+    /// <param name="isCommand">
+    /// <c>true</c> for a command frame (carries the P bit); <c>false</c> for a
+    /// response (carries the F bit). SABM(E)/DISC are commands; UA/DM are responses.
+    /// </param>
     /// <param name="pfBitOverride">
     /// <c>null</c> to read <see cref="PendingFrame.PfBit"/> (default
     /// <c>false</c> if unset); non-null to force the P/F bit value
     /// regardless of pending state.
+    /// </param>
+    /// <param name="isExpedited">
+    /// <c>true</c> for the <c>Expedited UA</c> / <c>Expedited DM</c> verbs, setting
+    /// <see cref="UFrameSpec.IsExpedited"/> so the frame bypasses any pending
+    /// I-frame queue; <c>false</c> for the normal-priority forms.
+    /// </param>
+    /// <param name="tx">
+    /// The transition context for the firing transition; supplies the pending
+    /// frame's P/F value and the reversed digipeater path for the response.
     /// </param>
     private static UFrameSpec BuildUFrame(
         UFrameType type, bool isCommand, bool? pfBitOverride, bool isExpedited, TransitionContext tx)

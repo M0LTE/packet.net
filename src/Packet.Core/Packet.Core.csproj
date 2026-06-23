@@ -13,8 +13,9 @@
          at pack time by the publish workflow via -p:Version=… (from the git
          tag). -->
     <PackageId>Packet.Core</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Core — shared primitives for the Packet.NET stack</Title>
-    <Description>Shared primitive types (Callsign, Ax25Address, KissFrame, etc.) used across the Packet.NET libraries. Depended on by Packet.Ax25 / Packet.Kiss / Packet.Aprs and downstream applications. Source: github.com/packet-net/packet.net.</Description>
+    <Description>Shared primitive types (Callsign, Ax25Address, Crc16Ccitt, Ax25ParseOptions) used across the Packet.NET libraries. Depended on by Packet.Ax25 / Packet.Kiss / Packet.Aprs and downstream applications. Source: github.com/packet-net/packet.net.</Description>
     <PackageTags>ax25;amateur-radio;packet-radio;kiss;callsign</PackageTags>
   </PropertyGroup>
 

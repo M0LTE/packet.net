@@ -16,8 +16,9 @@ namespace Packet.Ax25;
 /// <para>
 /// The <c>pid</c> octet is present only on I frames and UI frames. The
 /// <c>info</c> field is present on I and UI frames; some other frame types
-/// (FRMR, XID, TEST) also carry information but we don't model their
-/// internals yet — Phase 1 focuses on UI.
+/// (FRMR, XID, TEST) also carry information, which this type exposes as raw
+/// <see cref="Info"/> bytes — their internal structure is decoded elsewhere
+/// (e.g. XID parameter fields by the types under <c>Packet.Ax25.Xid</c>).
 /// </para>
 /// </remarks>
 public sealed partial class Ax25Frame
