@@ -75,6 +75,26 @@ public class TransportConfigJsonConverterTests
     }
 
     [Fact]
+    public void Axudp_multipoint_round_trips_to_its_subtype_with_the_peer_table()
+    {
+        var original = new AxudpMultipointTransport
+        {
+            LocalPort = 10093,
+            Peers =
+            [
+                new AxudpPeerConfig { Call = "M0LTE-9", Host = "10.45.0.185", Port = 10093, Broadcast = true },
+                new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094, Broadcast = false },
+            ],
+        };
+
+        var result = RoundTrip(original);
+
+        var mp = result.Should().BeOfType<AxudpMultipointTransport>().Subject;
+        mp.LocalPort.Should().Be(10093);
+        mp.Peers.Should().Equal(original.Peers, "the peer table survives a JSON round-trip (PUT /config)");
+    }
+
+    [Fact]
     public void A_bare_element_deserialises_on_the_kind_discriminator()
     {
         var transport = JsonSerializer.Deserialize<TransportConfig>(

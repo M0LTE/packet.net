@@ -259,6 +259,7 @@ public class NodeConfigYamlTests
     [InlineData("nino-tnc")]
     [InlineData("kiss-tcp")]
     [InlineData("axudp")]
+    [InlineData("axudp-multipoint")]
     public void Round_trips_each_transport_kind_through_serialise_then_parse(string kind)
     {
         TransportConfig transport = kind switch
@@ -266,6 +267,15 @@ public class NodeConfigYamlTests
             "serial-kiss" => new SerialKissTransport { Device = "/dev/ttyUSB0", Baud = 115200 },
             "nino-tnc" => new NinoTncTransport { Device = "/dev/ttyACM3", Baud = 57600, Mode = 9 },
             "axudp" => new AxudpTransport { Host = "peer.local", Port = 10093, LocalPort = 10093 },
+            "axudp-multipoint" => new AxudpMultipointTransport
+            {
+                LocalPort = 10093,
+                Peers =
+                [
+                    new AxudpPeerConfig { Call = "M0LTE-9", Host = "10.45.0.185", Port = 10093, Broadcast = true },
+                    new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094, Broadcast = false },
+                ],
+            },
             _ => new KissTcpTransport { Host = "modem.local", Port = 8100 },
         };
         var original = new NodeConfig
@@ -307,6 +317,67 @@ public class NodeConfigYamlTests
         axudp.Port.Should().Be(10093);
         axudp.LocalPort.Should().Be(10093);
         axudp.DescribeEndpoint().Should().Be("axudp:10.0.0.2:10093(local:10093)");
+    }
+
+    [Fact]
+    public void Parses_an_axudp_multipoint_transport_with_a_peer_table()
+    {
+        // The BPQAXIP MAP model: one local port, many callsign→ip:port partners with a
+        // per-peer broadcast flag (the BPQ `B` suffix).
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: GB7RDG
+            ports:
+              - id: ipgw
+                enabled: true
+                transport:
+                  kind: axudp-multipoint
+                  localPort: 10093
+                  peers:
+                    - call: M0LTE-9
+                      host: 10.45.0.185
+                      port: 10093
+                      broadcast: true
+                    - call: GB7OUK
+                      host: 10.66.66.3
+                      port: 10094
+                      broadcast: false
+            """;
+
+        var config = NodeConfigYaml.Parse(yaml);
+
+        var mp = config.Ports.Should().ContainSingle().Subject
+            .Transport.Should().BeOfType<AxudpMultipointTransport>().Subject;
+        mp.LocalPort.Should().Be(10093);
+        mp.Peers.Should().HaveCount(2);
+        mp.Peers[0].Should().Be(new AxudpPeerConfig { Call = "M0LTE-9", Host = "10.45.0.185", Port = 10093, Broadcast = true });
+        mp.Peers[1].Should().Be(new AxudpPeerConfig { Call = "GB7OUK", Host = "10.66.66.3", Port = 10094, Broadcast = false });
+        mp.DescribeEndpoint().Should().Be("axudp-multipoint:local:10093(2 peers)");
+    }
+
+    [Fact]
+    public void Axudp_multipoint_peer_broadcast_defaults_to_false_when_omitted()
+    {
+        const string yaml = """
+            schemaVersion: 1
+            identity:
+              callsign: GB7RDG
+            ports:
+              - id: ipgw
+                transport:
+                  kind: axudp-multipoint
+                  localPort: 10093
+                  peers:
+                    - call: GB7OUK
+                      host: 10.66.66.3
+                      port: 10094
+            """;
+
+        var mp = NodeConfigYaml.Parse(yaml).Ports.Single()
+            .Transport.Should().BeOfType<AxudpMultipointTransport>().Subject;
+        mp.Peers.Should().ContainSingle();
+        mp.Peers[0].Broadcast.Should().BeFalse("broadcast is opt-in (the BPQ B suffix)");
     }
 
     [Fact]

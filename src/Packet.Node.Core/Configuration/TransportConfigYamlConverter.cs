@@ -41,23 +41,36 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
         }
 
         var fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        // The one nested field a transport may carry: the multipoint AXUDP peer table.
+        // All other transport fields are flat scalars.
+        List<AxudpPeerConfig>? peers = null;
         while (!parser.TryConsume<MappingEnd>(out _))
         {
             var key = parser.Consume<Scalar>();
+            var normalisedKey = Normalise(key.Value);
+
+            // 'peers:' is a sequence of mappings (the multipoint MAP table); every other
+            // transport field is a flat scalar.
+            if (normalisedKey == "peers")
+            {
+                peers = ReadPeers(parser, key);
+                continue;
+            }
+
             // Transport fields are all scalars; a non-scalar value is a malformed
-            // transport (e.g. nesting) and is rejected.
+            // transport (e.g. unexpected nesting) and is rejected.
             if (!parser.TryConsume<Scalar>(out var value))
             {
                 throw new YamlException(key.Start, key.End,
                     $"transport field '{key.Value}' must have a scalar value.");
             }
-            fields[Normalise(key.Value)] = value.Value;
+            fields[normalisedKey] = value.Value;
         }
 
         if (!fields.TryGetValue("kind", out var kind) || string.IsNullOrWhiteSpace(kind))
         {
             throw new YamlException(start, start, "a transport must declare a 'kind' (one of: " +
-                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp}).");
+                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp}, {TransportKinds.AxudpMultipoint}).");
         }
 
         return Normalise(kind) switch
@@ -89,10 +102,56 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
                 // an old config lands in 'fields' unread (harmless), so a pre-removal
                 // config still loads.
             },
+            "axudpmultipoint" => new AxudpMultipointTransport
+            {
+                LocalPort = Int(fields, "localport", 0, start),
+                Peers = peers ?? [],
+            },
             _ => throw new YamlException(start, start,
                 $"unknown transport kind '{kind}' (expected one of: " +
-                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp})."),
+                $"{TransportKinds.SerialKiss}, {TransportKinds.NinoTnc}, {TransportKinds.KissTcp}, {TransportKinds.Axudp}, {TransportKinds.AxudpMultipoint})."),
         };
+    }
+
+    // Read a 'peers:' value — a sequence of flat mappings (call/host/port/broadcast),
+    // the multipoint AXUDP MAP table. A non-sequence value, or a peer that isn't a flat
+    // mapping, is a malformed transport and is rejected with the document mark.
+    private static List<AxudpPeerConfig> ReadPeers(IParser parser, Scalar key)
+    {
+        if (!parser.TryConsume<SequenceStart>(out _))
+        {
+            throw new YamlException(key.Start, key.End, "transport field 'peers' must be a sequence of peer mappings.");
+        }
+
+        var peers = new List<AxudpPeerConfig>();
+        while (!parser.TryConsume<SequenceEnd>(out _))
+        {
+            var itemStart = parser.Current?.Start ?? Mark.Empty;
+            if (!parser.TryConsume<MappingStart>(out _))
+            {
+                throw new YamlException(itemStart, itemStart, "each 'peers' entry must be a mapping (call, host, port, broadcast).");
+            }
+
+            var peerFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            while (!parser.TryConsume<MappingEnd>(out _))
+            {
+                var pk = parser.Consume<Scalar>();
+                if (!parser.TryConsume<Scalar>(out var pv))
+                {
+                    throw new YamlException(pk.Start, pk.End, $"peer field '{pk.Value}' must have a scalar value.");
+                }
+                peerFields[Normalise(pk.Value)] = pv.Value;
+            }
+
+            peers.Add(new AxudpPeerConfig
+            {
+                Call = Required(peerFields, "call", "axudp-multipoint peer", itemStart),
+                Host = Required(peerFields, "host", "axudp-multipoint peer", itemStart),
+                Port = Int(peerFields, "port", 0, itemStart),
+                Broadcast = Bool(peerFields, "broadcast", false, itemStart),
+            });
+        }
+        return peers;
     }
 
     /// <inheritdoc/>
@@ -122,6 +181,22 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
                 EmitField(emitter, "host", a.Host);
                 EmitField(emitter, "port", a.Port.ToString(CultureInfo.InvariantCulture));
                 EmitField(emitter, "localPort", a.LocalPort.ToString(CultureInfo.InvariantCulture));
+                break;
+            case AxudpMultipointTransport m:
+                EmitField(emitter, "kind", m.Kind);
+                EmitField(emitter, "localPort", m.LocalPort.ToString(CultureInfo.InvariantCulture));
+                emitter.Emit(new Scalar("peers"));
+                emitter.Emit(new SequenceStart(AnchorName.Empty, TagName.Empty, isImplicit: true, SequenceStyle.Block));
+                foreach (var peer in m.Peers)
+                {
+                    emitter.Emit(new MappingStart());
+                    EmitField(emitter, "call", peer.Call);
+                    EmitField(emitter, "host", peer.Host);
+                    EmitField(emitter, "port", peer.Port.ToString(CultureInfo.InvariantCulture));
+                    EmitField(emitter, "broadcast", peer.Broadcast ? "true" : "false");
+                    emitter.Emit(new MappingEnd());
+                }
+                emitter.Emit(new SequenceEnd());
                 break;
             case null:
                 break;
@@ -164,5 +239,18 @@ public sealed class TransportConfigYamlConverter : IYamlTypeConverter
             return parsed;
         }
         throw new YamlException(mark, mark, $"transport field '{key}' must be an integer (got '{v}').");
+    }
+
+    private static bool Bool(Dictionary<string, string?> fields, string key, bool fallback, Mark mark)
+    {
+        if (!fields.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v))
+        {
+            return fallback;
+        }
+        if (bool.TryParse(v, out var parsed))
+        {
+            return parsed;
+        }
+        throw new YamlException(mark, mark, $"transport field '{key}' must be true/false (got '{v}').");
     }
 }

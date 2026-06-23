@@ -37,4 +37,27 @@ public sealed class TransportFactoryTests
             created.Should().BeOfType<AxudpFrameTransport>();
         }
     }
+
+    [Fact]
+    public async Task Creates_an_AxudpMultipointFrameTransport_resolving_each_peer_and_binding_the_local_port()
+    {
+        // The multipoint arm: each peer host (literal + a name) is resolved to an endpoint and
+        // the one shared socket binds the configured local port (0 → ephemeral here).
+        var transport = new AxudpMultipointTransport
+        {
+            LocalPort = 0,
+            Peers =
+            [
+                new AxudpPeerConfig { Call = "GB7OUK", Host = "127.0.0.1", Port = 10094, Broadcast = true },
+                new AxudpPeerConfig { Call = "M0LTE-9", Host = "localhost", Port = 10093, Broadcast = false },
+            ],
+        };
+
+        var created = await TransportFactory.Instance.CreateAsync(transport);
+        await using (created)
+        {
+            var mp = created.Should().BeOfType<AxudpMultipointFrameTransport>().Subject;
+            mp.LocalPort.Should().BeGreaterThan(0, "localPort 0 resolves to a real ephemeral bind");
+        }
+    }
 }

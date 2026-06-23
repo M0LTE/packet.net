@@ -37,6 +37,7 @@ public sealed class TransportConfigJsonConverter : JsonConverter<TransportConfig
             TransportKinds.NinoTnc => root.Deserialize<NinoTncTransport>(options)!,
             TransportKinds.KissTcp => root.Deserialize<KissTcpTransport>(options)!,
             TransportKinds.Axudp => root.Deserialize<AxudpTransport>(options)!,
+            TransportKinds.AxudpMultipoint => root.Deserialize<AxudpMultipointTransport>(options)!,
             _ => throw new JsonException($"unknown transport kind '{kind}'."),
         };
     }

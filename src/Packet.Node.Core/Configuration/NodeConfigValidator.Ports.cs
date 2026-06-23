@@ -1,4 +1,5 @@
 using FluentValidation;
+using Packet.Core;
 
 namespace Packet.Node.Core.Configuration;
 
@@ -30,6 +31,8 @@ public sealed class PortConfigValidator : AbstractValidator<PortConfig>
             RuleFor(p => (KissTcpTransport)p.Transport).SetValidator(new KissTcpValidator()));
         When(p => p.Transport is AxudpTransport, () =>
             RuleFor(p => (AxudpTransport)p.Transport).SetValidator(new AxudpValidator()));
+        When(p => p.Transport is AxudpMultipointTransport, () =>
+            RuleFor(p => (AxudpMultipointTransport)p.Transport).SetValidator(new AxudpMultipointValidator()));
 
         When(p => p.Ax25 is not null, () =>
             RuleFor(p => p.Ax25!).SetValidator(new Ax25ParamsValidator()));
@@ -116,6 +119,58 @@ public sealed class AxudpValidator : AbstractValidator<AxudpTransport>
         // localPort 0 means "pick an ephemeral port" (send-only / monitor); a
         // bound port for receiving must be in range.
         RuleFor(t => t.LocalPort).InclusiveBetween(0, 65535).WithMessage("axudp localPort must be in 0..65535 (0 = ephemeral).");
+    }
+}
+
+/// <summary>
+/// Validates an <see cref="AxudpMultipointTransport"/> (the BPQ <c>BPQAXIP</c> analog):
+/// the local bind port, each peer's callsign / host / port, and that no two peers share
+/// a callsign (the routing key must be unique — a duplicate would make routing ambiguous).
+/// </summary>
+public sealed class AxudpMultipointValidator : AbstractValidator<AxudpMultipointTransport>
+{
+    public AxudpMultipointValidator()
+    {
+        // The one shared socket must bind a real port (no ephemeral 0: partners MAP back
+        // to a fixed port, so a non-deterministic bind would be unreachable).
+        RuleFor(t => t.LocalPort).InclusiveBetween(1, 65535)
+            .WithMessage("axudp-multipoint localPort must be in 1..65535 (the fixed port partners MAP back to).");
+
+        RuleForEach(t => t.Peers).SetValidator(new AxudpPeerValidator());
+
+        // No two peers may share a callsign — the callsign is the outbound routing key, so a
+        // duplicate is an ambiguous MAP. Compared on the parsed Callsign (so "G7XYZ-0" and
+        // "G7XYZ" collide), skipping peers whose callsign doesn't parse (the per-peer rule
+        // already reports those).
+        RuleFor(t => t.Peers)
+            .Must(NoDuplicateCallsigns)
+            .WithMessage("axudp-multipoint peers must have unique callsigns (the callsign is the routing key).");
+    }
+
+    private static bool NoDuplicateCallsigns(IReadOnlyList<AxudpPeerConfig> peers)
+    {
+        var seen = new HashSet<Callsign>();
+        foreach (var peer in peers)
+        {
+            if (Callsign.TryParse(peer.Call, out var call) && !seen.Add(call))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+/// <summary>Validates one <see cref="AxudpPeerConfig"/> (a BPQ <c>MAP</c> line).</summary>
+public sealed class AxudpPeerValidator : AbstractValidator<AxudpPeerConfig>
+{
+    public AxudpPeerValidator()
+    {
+        RuleFor(p => p.Call)
+            .Must(c => Callsign.TryParse(c, out _))
+            .WithMessage(p => $"axudp-multipoint peer call '{p.Call}' is not a valid callsign.");
+        RuleFor(p => p.Host).NotEmpty().WithMessage("axudp-multipoint peer requires a host.");
+        RuleFor(p => p.Port).InclusiveBetween(1, 65535).WithMessage("axudp-multipoint peer port must be in 1..65535.");
     }
 }
 

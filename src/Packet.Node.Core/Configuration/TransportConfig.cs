@@ -49,6 +49,10 @@ public static class TransportKinds
 
     /// <summary>AX.25 frames encapsulated in UDP datagrams (AXUDP / BPQAXIP).</summary>
     public const string Axudp = "axudp";
+
+    /// <summary>Multipoint AXUDP — one UDP socket, many partners addressed by callsign
+    /// (the BPQ <c>BPQAXIP</c> + <c>MAP</c> model).</summary>
+    public const string AxudpMultipoint = "axudp-multipoint";
 }
 
 /// <summary>A generic serial-port KISS modem (<c>KissSerialModem.Open</c>).</summary>
@@ -139,4 +143,73 @@ public sealed record AxudpTransport : TransportConfig
 
     /// <inheritdoc/>
     public override string DescribeEndpoint() => $"axudp:{Host}:{Port}(local:{LocalPort})";
+}
+
+/// <summary>
+/// Multipoint AXUDP — the BPQ <c>BPQAXIP</c> analog. ONE UDP socket bound to
+/// <see cref="LocalPort"/> reaches MANY partners, each addressed by
+/// <c>callsign → host:port</c> (BPQ's <c>MAP &lt;call&gt; &lt;ip&gt; UDP &lt;port&gt;</c>),
+/// with a per-peer <see cref="AxudpPeerConfig.Broadcast"/> flag (the BPQ <c>B</c> suffix —
+/// fan NODES/ID/BEACON broadcasts to that peer). The wire form is identical to point-to-point
+/// <see cref="AxudpTransport"/> (AX.25 body + the mandatory 2-octet FCS); only the addressing
+/// model differs. Driven by the <c>AxudpMultipointFrameTransport</c> adapter over a
+/// <see cref="Packet.Axudp.AxudpMultipointSocket"/>.
+/// </summary>
+/// <remarks>
+/// Outbound frames route by destination callsign to the matching peer; a NODES/ID/BEACON
+/// broadcast (or any UI to an unmapped pseudo-destination) fans out to every
+/// <c>broadcast: true</c> peer. Inbound datagrams are accepted from any sender on
+/// <see cref="LocalPort"/> and routed up by callsign by the listener. As with point-to-point
+/// AXUDP there is no CSMA on a UDP link, so the KISS TXDELAY/PERSIST/SLOTTIME knobs are inert.
+/// </remarks>
+public sealed record AxudpMultipointTransport : TransportConfig
+{
+    /// <inheritdoc/>
+    public override string Kind => TransportKinds.AxudpMultipoint;
+
+    /// <summary>Local UDP port to bind for the one shared socket (send + receive for every
+    /// peer). Conventionally a fixed well-known port so partners can MAP back to us.</summary>
+    public required int LocalPort { get; init; }
+
+    /// <summary>The partner table — each entry maps a callsign to a UDP endpoint
+    /// (BPQ <c>MAP</c>). Empty is allowed (a receive-only listener) but unusual.</summary>
+    public IReadOnlyList<AxudpPeerConfig> Peers { get; init; } = [];
+
+    /// <inheritdoc/>
+    public override string DescribeEndpoint() => $"axudp-multipoint:local:{LocalPort}({Peers.Count} peers)";
+
+    // Peers is a collection member, which a record compares by REFERENCE — so a YAML
+    // round-trip (fresh list) would read as changed and needlessly restart the port.
+    // Hand-roll value equality over it, matching every other config record with a
+    // collection member (see ConfigEquality). AxudpPeerConfig is a plain record (scalar
+    // members only), so its own value equality drives the per-element comparison.
+    public bool Equals(AxudpMultipointTransport? other) =>
+        other is not null
+        && LocalPort == other.LocalPort
+        && ConfigEquality.ListEqual(Peers, other.Peers);
+
+    public override int GetHashCode() => HashCode.Combine(LocalPort, ConfigEquality.ListHash(Peers));
+}
+
+/// <summary>
+/// One multipoint-AXUDP partner (a BPQ <c>MAP &lt;call&gt; &lt;ip&gt; UDP &lt;port&gt; [B]</c>
+/// line): the partner callsign, its host:port endpoint, and whether NODES/ID broadcasts fan
+/// out to it.
+/// </summary>
+public sealed record AxudpPeerConfig
+{
+    /// <summary>The partner callsign (the routing key — an outbound frame whose AX.25
+    /// destination is this callsign goes to this peer's endpoint).</summary>
+    public required string Call { get; init; }
+
+    /// <summary>Hostname / IP of the partner's AXUDP endpoint.</summary>
+    public required string Host { get; init; }
+
+    /// <summary>UDP port of the partner's AXUDP endpoint.</summary>
+    public required int Port { get; init; }
+
+    /// <summary>Whether NODES / ID / BEACON broadcasts fan out to this peer (BPQ's <c>B</c>
+    /// suffix on a <c>MAP</c> line). Default false — a non-broadcast peer only ever receives
+    /// frames whose AX.25 destination is its own callsign.</summary>
+    public bool Broadcast { get; init; }
 }
