@@ -13,6 +13,10 @@ name: publish-libs
 #   Packet.Ax25
 #   Packet.Ax25.Transport.Abstractions
 #   Packet.Axudp
+#   Packet.Aprs
+#   Packet.Agw
+#   Packet.NetRom
+#   Packet.Rhp2
 #
 # Add more by appending to the `projects:` matrix below and giving
 # each csproj the same PackageId / Title / Description / Tags shape
@@ -77,6 +81,10 @@ jobs:
           - Packet.Ax25
           - Packet.Ax25.Transport.Abstractions
           - Packet.Axudp
+          - Packet.Aprs
+          - Packet.Agw
+          - Packet.NetRom
+          - Packet.Rhp2
     env:
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
       VERSION: ${{ needs.resolve-version.outputs.version }}
