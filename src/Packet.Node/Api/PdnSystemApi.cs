@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Packet.Node.Core.Audit;
 using Packet.Node.Core.SelfUpdate;
 using Packet.Node.Core.Tailscale;
@@ -136,6 +137,78 @@ public static class PdnSystemApi
                 StatusCodes.Status409Conflict,
                 "This node's install channel is unknown, so it won't self-update. Update via your package manager or reinstall.");
         }).RequireAuthorization(PdnAuthPolicies.Admin);
+
+        // Runtime log-level control (restart-free). The node's appsettings.json is read-only
+        // under ProtectSystem=strict and a restart drops every session, so an operator who needs
+        // Debug/Trace on a category live can't get it by editing config + restarting. These
+        // endpoints mutate the DynamicLogLevelOverrides singleton, which fires the MEL
+        // filter-options change token and re-applies the rebuilt rules to every already-created
+        // logger — so the new level takes effect immediately. See DynamicLogLevelOverrides.
+
+        // The current effective default level + the active runtime overrides. Read scope.
+        system.MapGet("/loglevel", (
+            DynamicLogLevelOverrides dyn,
+            IOptionsMonitor<LoggerFilterOptions> filterOptions) =>
+        {
+            // The configured floor (appsettings "Default") — MEL's LoggerFilterOptions.MinLevel.
+            // Overrides above this take effect via the appended rules; the override map is the
+            // live, restart-free delta the operator has applied on top.
+            var effectiveDefault = filterOptions.CurrentValue.MinLevel.ToString();
+            var active = dyn.Snapshot()
+                .Select(kv => new LogLevelOverride(kv.Key, kv.Value.ToString()))
+                .ToArray();
+            return Results.Ok(new LogLevelResponse(effectiveDefault, active));
+        }).RequireAuthorization(PdnAuthPolicies.Read);
+
+        // Set or clear a runtime override. Admin scope (a mutating, security-relevant capability:
+        // raising verbosity can surface sensitive material to the log sink), audited. A null /
+        // empty / "clear" level removes the override; any other value must be a valid LogLevel.
+        system.MapPut("/loglevel", (
+            LogLevelRequest request,
+            HttpContext http,
+            DynamicLogLevelOverrides dyn,
+            IAuditLog auditLog,
+            TimeProvider clock,
+            ILoggerFactory logs) =>
+        {
+            var audit = logs.CreateLogger(AuditCategory);
+            var ip = ClientIp(http);
+            var user = UserName(http);
+
+            var category = request.Category?.Trim();
+            if (string.IsNullOrEmpty(category))
+            {
+                return Results.Problem(
+                    "A non-empty 'category' is required.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var rawLevel = request.Level?.Trim();
+            // Clear semantics: null / "" / "clear" (case-insensitive) removes the override.
+            if (string.IsNullOrEmpty(rawLevel) ||
+                string.Equals(rawLevel, "clear", StringComparison.OrdinalIgnoreCase))
+            {
+                dyn.Clear(category);
+                SystemLog.LogLevelCleared(audit, category, user, ip);
+                auditLog.RecordRest(http, clock, "PUT /system/loglevel", category, "cleared", "");
+                return Results.Ok(new LogLevelChangeResponse(category, null, "cleared"));
+            }
+
+            // Otherwise the level must parse to a real LogLevel (LogLevel.None is rejected:
+            // it isn't a meaningful runtime verbosity target). 400 on anything else.
+            if (!Enum.TryParse<LogLevel>(rawLevel, ignoreCase: true, out var level) ||
+                level == LogLevel.None || !Enum.IsDefined(level))
+            {
+                return Results.Problem(
+                    $"'{request.Level}' is not a valid log level. Use one of: Trace, Debug, Information, Warning, Error, Critical (or null/empty/\"clear\" to remove).",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            dyn.Set(category, level);
+            SystemLog.LogLevelSet(audit, category, level.ToString(), user, ip);
+            auditLog.RecordRest(http, clock, "PUT /system/loglevel", category, "set", level.ToString());
+            return Results.Ok(new LogLevelChangeResponse(category, level.ToString(), "set"));
+        }).RequireAuthorization(PdnAuthPolicies.Admin);
     }
 
     private static IResult Started(ILogger audit, string via, string user, string ip)
@@ -228,3 +301,29 @@ public sealed record UpdateStartedResponse(string Status, string Via, string Mes
 /// <param name="AuthUrl">The interactive <c>login.tailscale.com</c> URL when first-join needs authorising, else null.</param>
 /// <param name="Funnel">Whether public exposure via Tailscale Funnel is configured on.</param>
 public sealed record TailscaleStatusResponse(bool Enabled, string State, string? Fqdn, string? AuthUrl, bool Funnel);
+
+/// <summary>The current runtime logging state: the effective default minimum level and the
+/// active restart-free overrides (<c>GET /api/v1/system/loglevel</c>).</summary>
+/// <param name="EffectiveDefault">The configured default minimum level (MEL <c>LoggerFilterOptions.MinLevel</c>,
+/// i.e. the <c>appsettings.json</c> "Default") — the floor overrides are layered on top of.</param>
+/// <param name="Overrides">The active runtime overrides (category prefix → level), longest-prefix-wins
+/// like MEL's own filter rules; empty when none have been set.</param>
+public sealed record LogLevelResponse(string EffectiveDefault, IReadOnlyList<LogLevelOverride> Overrides);
+
+/// <summary>One active runtime log-level override.</summary>
+/// <param name="Category">The category prefix the override applies to (longest-prefix match wins).</param>
+/// <param name="Level">The minimum <see cref="LogLevel"/> name for that category prefix.</param>
+public sealed record LogLevelOverride(string Category, string Level);
+
+/// <summary>A request to set or clear a runtime log-level override
+/// (<c>PUT /api/v1/system/loglevel</c>).</summary>
+/// <param name="Category">The category prefix to affect (e.g. <c>Packet.Ax25</c>). Required.</param>
+/// <param name="Level">The target level name (<c>Trace</c>…<c>Critical</c>) to set; or
+/// <c>null</c> / empty / <c>"clear"</c> to remove the override.</param>
+public sealed record LogLevelRequest(string? Category, string? Level);
+
+/// <summary>Acknowledgement of a runtime log-level change.</summary>
+/// <param name="Category">The affected category prefix.</param>
+/// <param name="Level">The level now applied, or <c>null</c> when the override was cleared.</param>
+/// <param name="Action"><c>set</c> or <c>cleared</c>.</param>
+public sealed record LogLevelChangeResponse(string Category, string? Level, string Action);

@@ -25,4 +25,12 @@ internal static partial class SystemLog
     [LoggerMessage(EventId = 5004, Level = LogLevel.Error,
         Message = "system: update FAILED to launch channel={Channel} detail={Detail} user={User} ip={Ip}")]
     public static partial void UpdateLaunchFailed(ILogger logger, string channel, string detail, string user, string ip);
+
+    [LoggerMessage(EventId = 5005, Level = LogLevel.Warning,
+        Message = "system: log-level override SET category={Category} level={Level} user={User} ip={Ip}")]
+    public static partial void LogLevelSet(ILogger logger, string category, string level, string user, string ip);
+
+    [LoggerMessage(EventId = 5006, Level = LogLevel.Warning,
+        Message = "system: log-level override CLEARED category={Category} user={User} ip={Ip}")]
+    public static partial void LogLevelCleared(ILogger logger, string category, string user, string ip);
 }
