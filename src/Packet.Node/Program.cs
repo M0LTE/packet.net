@@ -358,6 +358,21 @@ builder.Services.AddHttpForwarder();
 
 builder.Services.AddSingleton<ITransportFactory>(TransportFactory.Instance);
 builder.Services.AddSingleton(TimeProvider.System);
+
+// Runtime, restart-free log-level overrides. The node's appsettings.json is read-only under
+// ProtectSystem=strict and a restart drops every session, so an operator who needs to raise a
+// category to Debug/Trace live can't do it by editing config. This singleton holds the live
+// override map; registering it ALSO as an IConfigureOptions<LoggerFilterOptions> +
+// IOptionsChangeTokenSource<LoggerFilterOptions> wires it into MEL's filter pipeline — a mutation
+// fires the change token and the LoggerFactory re-applies the rebuilt rules to every cached
+// logger, so the new level takes effect immediately. Empty by default (logging exactly as
+// configured). Mutated by PUT /api/v1/system/loglevel (admin); read by GET (read). See
+// DynamicLogLevelOverrides + PdnSystemApi.
+builder.Services.AddSingleton<DynamicLogLevelOverrides>();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IConfigureOptions<Microsoft.Extensions.Logging.LoggerFilterOptions>>(
+    sp => sp.GetRequiredService<DynamicLogLevelOverrides>());
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IOptionsChangeTokenSource<Microsoft.Extensions.Logging.LoggerFilterOptions>>(
+    sp => sp.GetRequiredService<DynamicLogLevelOverrides>());
 // Phase 7 self-update (docs/node-self-update-design.md): the install channel is resolved
 // at boot — the build stamp gives deb-vs-selfcontained, and apt-vs-github is decided live
 // (dpkg ownership of the running binary + apt-cache repo origin, every probe guarded). The
