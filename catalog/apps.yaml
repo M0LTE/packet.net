@@ -33,7 +33,7 @@ apps:
   # manifest. DAPPS publishes exactly this shape.
   - id: dapps
     name: DAPPS
-    version: "0.34.2"
+    version: "0.34.3"
     description: "Distributed Asynchronous Packet Pub/Sub — store-and-forward messaging over packet radio."
     icon: inbox
     capabilities: [packet, web]
@@ -41,22 +41,22 @@ apps:
     artifact:
       kind: assets
       manifest:
-        url: https://github.com/packet-net/dapps/releases/download/v0.34.2/pdn-app.yaml
-        sha256: 80bab3ad2f6b761149a6ac62386d0c66bd27c1e265e10f8111268aea4c90b2ad
+        url: https://github.com/packet-net/dapps/releases/download/v0.34.3/pdn-app.yaml
+        sha256: 20415ee51436dd099fa6b0ec72c2258129d180d48a5a9940341a8c0e674345ae
       binaries:
         linux-x64:
-          url: https://github.com/packet-net/dapps/releases/download/v0.34.2/dapps-linux-x64
-          sha256: d8dab9f1f48eb2194c80c4318cd6a4706627b8fca730b2d430b35e1cd69ba0ec
+          url: https://github.com/packet-net/dapps/releases/download/v0.34.3/dapps-linux-x64
+          sha256: eceebd56f3c9bf25b56906e8a53619316fcb9e856ddf11f4884fcabd10b0966a
           dest: dapps
           mode: "0755"
         linux-arm64:
-          url: https://github.com/packet-net/dapps/releases/download/v0.34.2/dapps-linux-arm64
-          sha256: 5dc410d76f68c5e240eaa6459a374a0c5aa222ae843cf6331d722651c5b2c8ec
+          url: https://github.com/packet-net/dapps/releases/download/v0.34.3/dapps-linux-arm64
+          sha256: aa3a3539288b0b3ada62d5e07fe249daea53d53fbb48b2d2e875e43abdc9b84d
           dest: dapps
           mode: "0755"
         linux-arm:
-          url: https://github.com/packet-net/dapps/releases/download/v0.34.2/dapps-linux-arm
-          sha256: 1141b091f48e2ae4cd24c7b18fadefaf50be57b67e017bc90872568fcc0d6a76
+          url: https://github.com/packet-net/dapps/releases/download/v0.34.3/dapps-linux-arm
+          sha256: e7a8b7b6276dc219998b28d20ab45ef6e065c744a48d394594ff19e11423c470
           dest: dapps
           mode: "0755"
 
@@ -105,7 +105,7 @@ apps:
 
   - id: bbs
     name: BBS
-    version: "0.2.35"
+    version: "0.2.43"
     description: "Packet-radio mailbox — personal mail, bulletins + NTS, FBB store-and-forward, webmail, and IMAP/SMTP for a phone mail app over Tailscale. Renders inside the pdn panel (slot UI mode), styled to match and following the panel's theme. Binds <node>-<ssid> + the BBS alias; mail addresses are SSID-less. Sysop forwarding dashboard; reverse collection."
     icon: mail
     capabilities: [packet, web]
@@ -114,11 +114,11 @@ apps:
       kind: deb
       debs:
         linux-x64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_amd64.deb
-          sha256: 5215129343fc3bb3629b252e48683c9aab4f06c2045c3ae34a25cc813bffd747
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.43/pdn-bbs_0.2.43_amd64.deb
+          sha256: 08a19899efc156e0232e9f720fb2136c3a16e62f623a5680969495b90cfe2dc5
         linux-arm64:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_arm64.deb
-          sha256: b6baf3aaacaaba6ff4ebe90cd3f5042e7cee7aac9f30c8f435aa962291c5d0ac
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.43/pdn-bbs_0.2.43_arm64.deb
+          sha256: 4832cb4ce50bb5d4c7c3a5d77127452155e1358d4e47bbd2a644b43a092e11a3
         linux-arm:
-          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.35/pdn-bbs_0.2.35_armhf.deb
-          sha256: fd2272976d51dfb54ccdb9a56031e81758bf08282c263a50ed69a9099f4e7354
+          url: https://github.com/packet-net/pdn-bbs/releases/download/v0.2.43/pdn-bbs_0.2.43_armhf.deb
+          sha256: 6689b0b79f428e8325ccfe37c86df7914283d0ef9236432342d342d8c37eb61d
